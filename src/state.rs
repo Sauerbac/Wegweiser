@@ -1,4 +1,4 @@
-use crate::model::Session;
+use crate::model::{MonitorInfo, Session};
 use egui::TextureHandle;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -36,6 +36,14 @@ pub struct AppState {
     pub selected_monitor_index: usize,
     /// Display strings for the monitor ComboBox.
     pub monitor_names: Vec<String>,
+    /// Full position+size info for each monitor (parallel to monitor_names).
+    pub monitor_infos: Vec<MonitorInfo>,
+
+    /// When true, clicks outside the selected monitor are silently ignored.
+    pub capture_selected_only: bool,
+    /// Bounding rect (x, y, w, h) of the selected monitor in physical pixels,
+    /// populated when recording starts and used to filter off-monitor clicks.
+    pub selected_monitor_rect: Option<(i32, i32, u32, u32)>,
 
     /// Receives events from the global hook thread (created once at startup).
     pub hook_rx: Option<mpsc::Receiver<HookEvent>>,
@@ -65,6 +73,9 @@ pub struct AppState {
 
     /// Set by the recording bar "Stop" button; consumed in app.rs update().
     pub stop_recording_requested: bool,
+
+    /// While Some and not yet expired, an overlay window is shown on each monitor.
+    pub identify_until: Option<std::time::Instant>,
 }
 
 impl Default for AppState {
@@ -74,6 +85,9 @@ impl Default for AppState {
             session: None,
             selected_monitor_index: 0,
             monitor_names: Vec::new(),
+            monitor_infos: Vec::new(),
+            capture_selected_only: true,
+            selected_monitor_rect: None,
             hook_rx: None,
             step_rx: None,
             step_tx: None,
@@ -84,6 +98,7 @@ impl Default for AppState {
             error_message: None,
             export_message: None,
             stop_recording_requested: false,
+            identify_until: None,
         }
     }
 }

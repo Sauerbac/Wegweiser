@@ -1,23 +1,26 @@
-use crate::model::{ClickPoint, Step};
+use crate::model::{ClickPoint, MonitorInfo, Step};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use std::path::PathBuf;
 use xcap::Monitor;
 
-/// Return all connected monitors (display names + resolutions).
-pub fn list_monitors() -> Vec<Monitor> {
+/// Return position + size info for every connected monitor.
+pub fn list_monitor_infos() -> Vec<MonitorInfo> {
     Monitor::all().unwrap_or_default()
+        .into_iter()
+        .map(|m| MonitorInfo {
+            name: m.name().unwrap_or_default(),
+            x: m.x().unwrap_or(0),
+            y: m.y().unwrap_or(0),
+            width: m.width().unwrap_or(0),
+            height: m.height().unwrap_or(0),
+        })
+        .collect()
 }
 
-/// Human-readable label for a monitor, e.g. "1: DISPLAY1 (2560×1440)".
-pub fn monitor_display_name(monitor: &Monitor, index: usize) -> String {
-    format!(
-        "{}: {} ({}×{})",
-        index + 1,
-        monitor.name().unwrap_or_default(),
-        monitor.width().unwrap_or_default(),
-        monitor.height().unwrap_or_default(),
-    )
+/// Human-readable label for the monitor ComboBox, e.g. "1: DISPLAY1 (2560×1440)".
+pub fn monitor_display_name(info: &MonitorInfo, index: usize) -> String {
+    format!("{}: {} ({}×{})", index + 1, info.name, info.width, info.height)
 }
 
 /// Capture a screenshot of `monitor_index`, draw a click indicator if

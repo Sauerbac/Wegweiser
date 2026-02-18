@@ -83,7 +83,39 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
       border: 1px solid #ced4da;
       border-radius: 4px;
       display: block;
+      cursor: zoom-in;
     }}
+    /* ── lightbox ── */
+    #lb {{
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.92);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+      cursor: zoom-out;
+    }}
+    #lb.on {{ display: flex; }}
+    #lb img {{
+      max-width: 95vw;
+      max-height: 95vh;
+      object-fit: contain;
+      border-radius: 4px;
+      box-shadow: 0 0 60px rgba(0,0,0,.8);
+    }}
+    #lb-close {{
+      position: fixed;
+      top: 1rem;
+      right: 1.25rem;
+      color: #fff;
+      font-size: 2rem;
+      line-height: 1;
+      cursor: pointer;
+      user-select: none;
+      opacity: .8;
+    }}
+    #lb-close:hover {{ opacity: 1; }}
     .desc {{ margin-top: 0.75rem; line-height: 1.6; }}
     blockquote {{
       background: #f1f3f5;
@@ -96,9 +128,31 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
   </style>
 </head>
 <body>
+  <!-- lightbox overlay -->
+  <div id="lb" onclick="closeLb()">
+    <span id="lb-close" onclick="closeLb()" title="Close (Esc)">&times;</span>
+    <img id="lb-img" src="" alt="" onclick="event.stopPropagation()" />
+  </div>
+
   <h1>{title}</h1>
-  <p class="meta">Created: {created} &nbsp;·&nbsp; {step_count} step(s)</p>
+  <p class="meta">Created: {created} &nbsp;·&nbsp; {step_count} step(s) &nbsp;·&nbsp;
+    <em>Click any image to zoom</em></p>
 {steps_html}
+  <script>
+    function openLb(src) {{
+      document.getElementById('lb-img').src = src;
+      document.getElementById('lb').classList.add('on');
+    }}
+    function closeLb() {{
+      document.getElementById('lb').classList.remove('on');
+    }}
+    document.addEventListener('keydown', function(e) {{
+      if (e.key === 'Escape') closeLb();
+    }});
+    document.querySelectorAll('.step img').forEach(function(img) {{
+      img.addEventListener('click', function() {{ openLb(this.src); }});
+    }});
+  </script>
 </body>
 </html>
 "#,

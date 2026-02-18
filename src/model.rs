@@ -23,6 +23,18 @@ pub struct Step {
     pub keystrokes: Option<String>, // Phase 2
 }
 
+/// Physical-pixel description of a connected monitor, cached at startup/refresh.
+#[derive(Debug, Clone)]
+pub struct MonitorInfo {
+    pub name: String,
+    /// Top-left X of this monitor in the virtual desktop (physical pixels).
+    pub x: i32,
+    /// Top-left Y of this monitor in the virtual desktop (physical pixels).
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClickPoint {
     /// Physical pixel X coordinate on the monitor

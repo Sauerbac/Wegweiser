@@ -1,4 +1,4 @@
-use crate::capture::{capture_step, list_monitors, monitor_display_name};
+use crate::capture::{capture_step, list_monitor_infos, monitor_display_name};
 use crate::model::ClickPoint;
 use crate::state::{AppState, HookEvent, HotKey, RecordingState};
 use std::sync::mpsc;
@@ -10,8 +10,8 @@ pub struct RecApp {
 impl RecApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // Enumerate monitors immediately so the idle panel's ComboBox is populated.
-        let monitors = list_monitors();
-        let monitor_names = monitors
+        let monitor_infos = list_monitor_infos();
+        let monitor_names = monitor_infos
             .iter()
             .enumerate()
             .map(|(i, m)| monitor_display_name(m, i))
@@ -26,6 +26,7 @@ impl RecApp {
 
         let mut state = AppState::default();
         state.monitor_names = monitor_names;
+        state.monitor_infos = monitor_infos;
         state.hook_rx = Some(hook_rx);
         state.step_rx = Some(step_rx);
         state.step_tx = Some(step_tx);
@@ -46,14 +47,17 @@ impl eframe::App for RecApp {
             self.do_stop_recording();
         }
 
-        // ── 3. Update window title ────────────────────────────────────────────
+        // ── 3. Identify-monitor overlays ─────────────────────────────────────
+        self.show_identify_overlays(ctx);
+
+        // ── 4. Update window title ────────────────────────────────────────────
         let title = match &self.state.session {
             Some(s) => format!("rec — {}", s.name),
             None => "rec — Step Recorder".to_string(),
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
-        // ── 4. Route to the correct UI panel ─────────────────────────────────
+        // ── 5. Route to the correct UI panel ─────────────────────────────────
         match self.state.recording_state {
             RecordingState::Idle => {
                 crate::ui::idle::show(ctx, &mut self.state);
@@ -66,7 +70,8 @@ impl eframe::App for RecApp {
             }
         }
 
-        // Keep repainting during recording so step-count label stays fresh.
+        // Keep repainting during recording or identify so everything stays live.
+        // (The identify branch already requests repaint, but also cover recording.)
         if matches!(
             self.state.recording_state,
             RecordingState::Recording | RecordingState::Paused
@@ -79,6 +84,81 @@ impl eframe::App for RecApp {
 // ── private helpers ───────────────────────────────────────────────────────────
 
 impl RecApp {
+    /// Show a small OSD badge on every monitor displaying its 1-based index,
+    /// similar to Windows Display Settings → "Identify". Transparent borderless
+    /// window, dark rounded background, large white number. Auto-closes after
+    /// the timer expires.
+    fn show_identify_overlays(&mut self, ctx: &egui::Context) {
+        let until = match self.state.identify_until {
+            Some(t) => t,
+            None => return,
+        };
+
+        if std::time::Instant::now() >= until {
+            self.state.identify_until = None;
+            return;
+        }
+
+        // Physical → logical pixel conversion for window placement.
+        let ppp = ctx.pixels_per_point();
+        let infos = self.state.monitor_infos.clone();
+
+        // Badge size in logical pixels — large enough to read, small enough to
+        // not cover the screen content.
+        let badge_l = 180.0f32;
+
+        for (i, info) in infos.iter().enumerate() {
+            let mon_lx = info.x as f32 / ppp;
+            let mon_ly = info.y as f32 / ppp;
+            let mon_lw = info.width as f32 / ppp;
+            let mon_lh = info.height as f32 / ppp;
+
+            // Center the badge on the monitor.
+            let bx = mon_lx + mon_lw / 2.0 - badge_l / 2.0;
+            let by = mon_ly + mon_lh / 2.0 - badge_l / 2.0;
+
+            let label = format!("{}", i + 1);
+
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of(format!("identify_{i}")),
+                egui::ViewportBuilder::default()
+                    .with_position(egui::pos2(bx, by))
+                    .with_inner_size(egui::vec2(badge_l, badge_l))
+                    .with_decorations(false)
+                    .with_always_on_top()
+                    .with_transparent(true),
+                move |ctx, _class| {
+                    // Transparent panel — we paint everything ourselves.
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let rect = ui.available_rect_before_wrap();
+                            let painter = ui.painter();
+
+                            // Dark semi-transparent rounded badge
+                            painter.rect_filled(
+                                rect,
+                                rect.height() * 0.18,
+                                egui::Color32::from_rgba_unmultiplied(10, 10, 30, 220),
+                            );
+
+                            // Monitor index number
+                            painter.text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                &label,
+                                egui::FontId::proportional(rect.height() * 0.65),
+                                egui::Color32::WHITE,
+                            );
+                        });
+                },
+            );
+        }
+
+        // Keep repainting every frame so the timer is checked.
+        ctx.request_repaint();
+    }
+
     fn drain_hook_events(&mut self, ctx: &egui::Context) {
         // Temporarily take the receiver to avoid borrowing self.state while also
         // mutably passing &mut self.state to the handler.
@@ -113,6 +193,14 @@ impl RecApp {
                         && fy <= bounds[1] + bounds[3]
                     {
                         return;
+                    }
+                }
+                // Skip clicks outside the selected monitor when the filter is on.
+                if self.state.capture_selected_only {
+                    if let Some((mx, my, mw, mh)) = self.state.selected_monitor_rect {
+                        if x < mx || x >= mx + mw as i32 || y < my || y >= my + mh as i32 {
+                            return;
+                        }
                     }
                 }
                 self.spawn_capture(Some(ClickPoint { x: x as u32, y: y as u32 }));

@@ -1,8 +1,10 @@
-use crate::capture::{list_monitors, monitor_display_name};
+use crate::capture::{list_monitor_infos, monitor_display_name};
 use crate::model::Session;
 use crate::state::{AppState, RecordingState};
 use chrono::Utc;
 use egui::Context;
+
+const IDENTIFY_SECS: u64 = 3;
 
 pub fn show(ctx: &Context, state: &mut AppState) {
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -12,30 +14,48 @@ pub fn show(ctx: &Context, state: &mut AppState) {
         ui.separator();
         ui.add_space(10.0);
 
-        // Monitor selector
+        // ── Monitor selector ─────────────────────────────────────────────────
         ui.label("Monitor to record:");
+
         let selected_name = state
             .monitor_names
             .get(state.selected_monitor_index)
             .cloned()
             .unwrap_or_else(|| "No monitors detected".to_string());
 
-        egui::ComboBox::from_id_salt("monitor_picker")
-            .selected_text(&selected_name)
-            .show_ui(ui, |ui| {
-                for (i, name) in state.monitor_names.iter().enumerate() {
-                    ui.selectable_value(&mut state.selected_monitor_index, i, name);
-                }
-            });
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("monitor_picker")
+                .selected_text(&selected_name)
+                .show_ui(ui, |ui| {
+                    for (i, name) in state.monitor_names.iter().enumerate() {
+                        ui.selectable_value(&mut state.selected_monitor_index, i, name);
+                    }
+                });
+
+            if ui.button("Identify…").clicked() {
+                state.identify_until = Some(
+                    std::time::Instant::now()
+                        + std::time::Duration::from_secs(IDENTIFY_SECS),
+                );
+            }
+        });
 
         ui.add_space(4.0);
         if ui.small_button("Refresh monitors").clicked() {
             refresh_monitors(state);
         }
 
+        ui.add_space(10.0);
+
+        // ── Capture filter ───────────────────────────────────────────────────
+        ui.checkbox(
+            &mut state.capture_selected_only,
+            "Only capture clicks on the selected monitor",
+        );
+
         ui.add_space(20.0);
 
-        // Start / load buttons
+        // ── Start / Load ─────────────────────────────────────────────────────
         ui.horizontal(|ui| {
             if ui.button("▶  Start Recording").clicked() {
                 start_recording(state);
@@ -49,7 +69,6 @@ pub fn show(ctx: &Context, state: &mut AppState) {
         ui.separator();
         ui.add_space(8.0);
 
-        // Hotkey reminder
         ui.small("Hotkeys during recording:");
         ui.small("  Ctrl+Shift+P  — pause / resume");
         ui.small("  Ctrl+Shift+Q  — stop recording");
@@ -57,29 +76,28 @@ pub fn show(ctx: &Context, state: &mut AppState) {
 
         ui.add_space(16.0);
 
-        // Error banner
         if let Some(err) = &state.error_message.clone() {
             ui.colored_label(egui::Color32::RED, format!("⚠  {err}"));
         }
     });
 }
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 fn refresh_monitors(state: &mut AppState) {
-    let monitors = list_monitors();
-    state.monitor_names = monitors
+    let infos = list_monitor_infos();
+    state.monitor_names = infos
         .iter()
         .enumerate()
         .map(|(i, m)| monitor_display_name(m, i))
         .collect();
+    state.monitor_infos = infos;
     if state.selected_monitor_index >= state.monitor_names.len() {
         state.selected_monitor_index = 0;
     }
 }
 
 fn start_recording(state: &mut AppState) {
-    // Create a temp directory for this session's images
     let session_id = uuid::Uuid::new_v4().to_string();
     let dir_name = format!("rec_{}", &session_id[..8]);
     let session_dir = std::env::temp_dir().join(dir_name);
@@ -88,6 +106,12 @@ fn start_recording(state: &mut AppState) {
         state.error_message = Some(format!("Cannot create session dir: {e}"));
         return;
     }
+
+    // Cache the selected monitor's physical bounding rect for click filtering.
+    state.selected_monitor_rect = state
+        .monitor_infos
+        .get(state.selected_monitor_index)
+        .map(|m| (m.x, m.y, m.width, m.height));
 
     let session = Session {
         id: session_id,
