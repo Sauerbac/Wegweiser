@@ -70,6 +70,12 @@ impl eframe::App for RecApp {
             }
         }
 
+        // ── 6. Error modal (dismissible floating window) ──────────────────────
+        self.show_error_modal(ctx);
+
+        // ── 7. Apply mini-bar / normal window mode ────────────────────────────
+        self.apply_window_mode(ctx);
+
         // Keep repainting during recording or identify so everything stays live.
         // (The identify branch already requests repaint, but also cover recording.)
         if matches!(
@@ -305,6 +311,59 @@ impl RecApp {
             if let Err(e) = crate::session::save_session(session) {
                 self.state.error_message = Some(format!("Session auto-save failed: {e}"));
             }
+        }
+    }
+
+    /// Show a dismissible error modal when `state.error_message` is set.
+    fn show_error_modal(&mut self, ctx: &egui::Context) {
+        // Only show modal when NOT in mini mode; in mini mode error is shown inline.
+        if self.state.window_is_mini {
+            return;
+        }
+        let msg = match self.state.error_message.clone() {
+            Some(m) => m,
+            None => return,
+        };
+        egui::Window::new("Error")
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .collapsible(false)
+            .resizable(false)
+            .min_width(280.0)
+            .show(ctx, |ui| {
+                ui.add_space(4.0);
+                ui.colored_label(egui::Color32::from_rgb(220, 70, 70), format!("⚠  {msg}"));
+                ui.add_space(8.0);
+                if ui.button("  Dismiss  ").clicked() {
+                    self.state.error_message = None;
+                }
+                ui.add_space(4.0);
+            });
+    }
+
+    /// Shrink the window to a compact borderless mini-bar during recording,
+    /// and restore the full window when idle or reviewing.
+    fn apply_window_mode(&mut self, ctx: &egui::Context) {
+        let should_be_mini = matches!(
+            self.state.recording_state,
+            RecordingState::Recording | RecordingState::Paused
+        );
+
+        if should_be_mini && !self.state.window_is_mini {
+            self.state.window_is_mini = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(380.0, 64.0)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                egui::WindowLevel::AlwaysOnTop,
+            ));
+        } else if !should_be_mini && self.state.window_is_mini {
+            self.state.window_is_mini = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                egui::WindowLevel::Normal,
+            ));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(900.0, 650.0)));
         }
     }
 }

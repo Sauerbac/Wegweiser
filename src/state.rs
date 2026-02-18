@@ -76,6 +76,9 @@ pub struct AppState {
 
     /// While Some and not yet expired, an overlay window is shown on each monitor.
     pub identify_until: Option<std::time::Instant>,
+
+    /// True while the window is in compact borderless mini-bar mode (during recording).
+    pub window_is_mini: bool,
 }
 
 impl Default for AppState {
@@ -99,6 +102,7 @@ impl Default for AppState {
             export_message: None,
             stop_recording_requested: false,
             identify_until: None,
+            window_is_mini: false,
         }
     }
 }
