@@ -1,0 +1,11 @@
+/target
+
+# Export artifacts
+*.html
+*.md
+!README.md
+images/
+
+# Session temp dirs (written to %TEMP% by default, but just in case)
+rec_*/
+session.json

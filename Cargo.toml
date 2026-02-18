@@ -1,0 +1,26 @@
+[package]
+name = "rec"
+version = "0.1.0"
+edition = "2021"
+description = "Modern PSR replacement — step recorder for Windows"
+
+[dependencies]
+anyhow = "1.0.101"
+base64 = "0.22.1"
+chrono = { version = "0.4.43", features = ["serde"] }
+eframe = "0.33"
+egui = "0.33"
+image = "0.25.6"
+imageproc = "0.25.0"
+open = "5.3.3"
+rdev = "0.5.3"
+rfd = "0.17.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+uuid = { version = "1.20.0", features = ["v4"] }
+xcap = "0.8.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
