@@ -61,7 +61,7 @@ pub fn show(ctx: &Context, state: &mut AppState) {
                 start_recording(state);
             }
             if ui.button("📂  Load Session").clicked() {
-                load_session(state);
+                load_session_picker(state);
             }
         });
 
@@ -75,6 +75,65 @@ pub fn show(ctx: &Context, state: &mut AppState) {
         ui.small("  Ctrl+Shift+S  — manual capture (no click indicator)");
 
         ui.add_space(16.0);
+
+        // ── Recent Sessions library ──────────────────────────────────────────
+        ui.separator();
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            ui.heading("Recent Sessions");
+            ui.add_space(8.0);
+            if ui.small_button("Refresh").clicked() {
+                let base = crate::session::sessions_base_dir();
+                state.known_sessions = crate::session::list_sessions(&base);
+            }
+        });
+
+        ui.add_space(6.0);
+
+        if state.known_sessions.is_empty() {
+            ui.label("No saved sessions found.");
+        } else {
+            // Collect the sessions we need to display before any mutable borrow.
+            let session_rows: Vec<(String, usize, std::path::PathBuf)> = state
+                .known_sessions
+                .iter()
+                .map(|m| (m.name.clone(), m.step_count, m.session_dir.join("session.json")))
+                .collect();
+
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
+                .id_salt("session_library")
+                .show(ui, |ui| {
+                    let mut load_path: Option<std::path::PathBuf> = None;
+
+                    for (name, step_count, json_path) in &session_rows {
+                        ui.horizontal(|ui| {
+                            let step_label = if *step_count == 1 {
+                                "1 step".to_string()
+                            } else {
+                                format!("{step_count} steps")
+                            };
+                            ui.label(format!("{name}  ({step_label})"));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("Load").clicked() {
+                                        load_path = Some(json_path.clone());
+                                    }
+                                },
+                            );
+                        });
+                        ui.separator();
+                    }
+
+                    if let Some(path) = load_path {
+                        load_session_from_path(state, &path);
+                    }
+                });
+        }
+
+        ui.add_space(8.0);
 
         if let Some(err) = &state.error_message.clone() {
             ui.colored_label(egui::Color32::RED, format!("⚠  {err}"));
@@ -98,14 +157,20 @@ fn refresh_monitors(state: &mut AppState) {
 }
 
 fn start_recording(state: &mut AppState) {
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let dir_name = format!("rec_{}", &session_id[..8]);
-    let session_dir = std::env::temp_dir().join(dir_name);
+    let session_dir = match crate::session::create_session_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            state.error_message = Some(format!("Cannot create session dir: {e}"));
+            return;
+        }
+    };
 
-    if let Err(e) = std::fs::create_dir_all(&session_dir) {
-        state.error_message = Some(format!("Cannot create session dir: {e}"));
-        return;
-    }
+    // Derive a short ID from the directory name (last path component).
+    let session_id = session_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
 
     // Cache the selected monitor's physical bounding rect for click filtering.
     state.selected_monitor_rect = state
@@ -131,24 +196,30 @@ fn start_recording(state: &mut AppState) {
     state.recording_state = RecordingState::Recording;
 }
 
-fn load_session(state: &mut AppState) {
+/// Show a file-picker dialog for manually selecting a session.json file.
+fn load_session_picker(state: &mut AppState) {
     if let Some(path) = rfd::FileDialog::new()
         .add_filter("Session JSON", &["json"])
         .set_title("Open Session")
         .pick_file()
     {
-        match crate::session::load_session(&path) {
-            Ok(session) => {
-                state.session = Some(session);
-                state.textures.clear();
-                state.selected_step_idx = None;
-                state.error_message = None;
-                state.export_message = None;
-                state.recording_state = RecordingState::Reviewing;
-            }
-            Err(e) => {
-                state.error_message = Some(format!("Failed to load session: {e}"));
-            }
+        load_session_from_path(state, &path);
+    }
+}
+
+/// Load a session from a known JSON path and switch to the review panel.
+fn load_session_from_path(state: &mut AppState, path: &std::path::Path) {
+    match crate::session::load_session(path) {
+        Ok(session) => {
+            state.session = Some(session);
+            state.textures.clear();
+            state.selected_step_idx = None;
+            state.error_message = None;
+            state.export_message = None;
+            state.recording_state = RecordingState::Reviewing;
+        }
+        Err(e) => {
+            state.error_message = Some(format!("Failed to load session: {e}"));
         }
     }
 }

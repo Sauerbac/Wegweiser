@@ -8,6 +8,7 @@ description = "Modern PSR replacement — step recorder for Windows"
 anyhow = "1.0.101"
 base64 = "0.22.1"
 chrono = { version = "0.4.43", features = ["serde"] }
+dirs = "5"
 eframe = "0.33"
 egui = "0.33"
 image = "0.25.6"

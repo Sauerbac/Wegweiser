@@ -32,6 +32,10 @@ impl RecApp {
         state.step_rx = Some(step_rx);
         state.step_tx = Some(step_tx);
 
+        // Populate the session library from the persistent sessions directory.
+        let base = crate::session::sessions_base_dir();
+        state.known_sessions = crate::session::list_sessions(&base);
+
         Self { state }
     }
 }
@@ -413,6 +417,11 @@ impl RecApp {
                 self.state.error_message = Some(format!("Session auto-save failed: {e}"));
             }
         }
+
+        // Refresh the session library so the newly finished session appears next
+        // time the user returns to the idle screen.
+        let base = crate::session::sessions_base_dir();
+        self.state.known_sessions = crate::session::list_sessions(&base);
     }
 
     /// Show a dismissible error modal when `state.error_message` is set.

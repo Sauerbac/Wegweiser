@@ -1,4 +1,5 @@
 use crate::model::{MonitorInfo, Session};
+use crate::session::SessionMeta;
 use egui::TextureHandle;
 use rdev::Key;
 use std::collections::{HashMap, VecDeque};
@@ -118,6 +119,9 @@ pub struct AppState {
     pub shift_held: bool,
     pub alt_held: bool,
 
+    /// Cached list of previously recorded sessions shown in the idle screen library.
+    /// Populated at startup and refreshable via the "Refresh" button.
+    pub known_sessions: Vec<SessionMeta>,
 }
 
 impl Default for AppState {
@@ -149,6 +153,7 @@ impl Default for AppState {
             ctrl_held: false,
             shift_held: false,
             alt_held: false,
+            known_sessions: Vec::new(),
         }
     }
 }
