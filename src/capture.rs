@@ -33,6 +33,7 @@ pub fn capture_step(
     step_id: usize,
     order: usize,
     session_dir: &PathBuf,
+    keystrokes: Option<String>,
 ) -> Result<Step> {
     let monitors = Monitor::all()?;
     let monitor = monitors
@@ -57,6 +58,6 @@ pub fn capture_step(
         click,
         description: String::new(),
         timestamp: Utc::now(),
-        keystrokes: None,
+        keystrokes,
     })
 }

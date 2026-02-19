@@ -1,6 +1,7 @@
 use crate::capture::{capture_step, list_monitor_infos, monitor_display_name};
 use crate::model::ClickPoint;
 use crate::state::{AppState, HookEvent, HotKey, RecordingState};
+use rdev::Key;
 use std::sync::mpsc;
 
 pub struct RecApp {
@@ -212,6 +213,35 @@ impl RecApp {
                 }
                 self.spawn_capture(Some(ClickPoint { x: x as u32, y: y as u32 }));
             }
+            HookEvent::KeyPress(key) => {
+                if self.state.recording_state != RecordingState::Recording {
+                    return;
+                }
+                let ctrl = self.state.ctrl_held;
+                let shift = self.state.shift_held;
+                let alt = self.state.alt_held;
+                if let Some(token) = key_token(&key, ctrl, shift, alt) {
+                    self.state.pending_keystrokes.push_str(&token);
+                }
+            }
+            HookEvent::ModifierDown(key) => {
+                use rdev::Key;
+                match key {
+                    Key::ControlLeft | Key::ControlRight => self.state.ctrl_held = true,
+                    Key::ShiftLeft | Key::ShiftRight => self.state.shift_held = true,
+                    Key::Alt | Key::AltGr => self.state.alt_held = true,
+                    _ => {}
+                }
+            }
+            HookEvent::ModifierUp(key) => {
+                use rdev::Key;
+                match key {
+                    Key::ControlLeft | Key::ControlRight => self.state.ctrl_held = false,
+                    Key::ShiftLeft | Key::ShiftRight => self.state.shift_held = false,
+                    Key::Alt | Key::AltGr => self.state.alt_held = false,
+                    _ => {}
+                }
+            }
             HookEvent::KeyCombo(hotkey) => {
                 match hotkey {
                     HotKey::Pause => {
@@ -253,10 +283,17 @@ impl RecApp {
         let monitor_index = session.monitor_index;
         let session_dir = session.session_dir.clone();
 
+        // Drain the keystroke buffer for this step and clear it.
+        let keystrokes = if self.state.pending_keystrokes.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.state.pending_keystrokes))
+        };
+
         std::thread::Builder::new()
             .name(format!("capture-{step_id}"))
             .spawn(move || {
-                match capture_step(monitor_index, click, step_id, order, &session_dir) {
+                match capture_step(monitor_index, click, step_id, order, &session_dir, keystrokes) {
                     Ok(step) => {
                         let _ = tx.send(step);
                     }
@@ -415,5 +452,103 @@ impl RecApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(900.0, 650.0)));
         }
+    }
+}
+
+/// Build the token to append to `pending_keystrokes` for a key press.
+///
+/// Returns `None` for modifier keys (they are tracked separately) and for any
+/// key that should be silently ignored.  Otherwise returns the string to append:
+/// - With Ctrl or Alt held: `[Ctrl+C]`, `[Alt+F4]`, `[Ctrl+Shift+Z]`, etc.
+/// - With only Shift held on a letter: uppercase letter (e.g. `"A"`)
+/// - With only Shift held on a special key: `[Shift+Enter]`, `[Shift+Tab]`, etc.
+/// - Plain printable key (letter, digit): the character itself (e.g. `"a"`, `"1"`)
+/// - Plain special key: bracketed name (e.g. `[Space]`, `[Enter]`, `[Backspace]`)
+fn key_token(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<String> {
+    // Modifier keys themselves never produce a token.
+    match key {
+        Key::ShiftLeft
+        | Key::ShiftRight
+        | Key::ControlLeft
+        | Key::ControlRight
+        | Key::Alt
+        | Key::AltGr
+        | Key::MetaLeft
+        | Key::MetaRight
+        | Key::CapsLock => return None,
+        _ => {}
+    }
+
+    // The display name used inside bracketed tokens.
+    let name: &str = match key {
+        Key::KeyA => "A", Key::KeyB => "B", Key::KeyC => "C", Key::KeyD => "D",
+        Key::KeyE => "E", Key::KeyF => "F", Key::KeyG => "G", Key::KeyH => "H",
+        Key::KeyI => "I", Key::KeyJ => "J", Key::KeyK => "K", Key::KeyL => "L",
+        Key::KeyM => "M", Key::KeyN => "N", Key::KeyO => "O", Key::KeyP => "P",
+        Key::KeyQ => "Q", Key::KeyR => "R", Key::KeyS => "S", Key::KeyT => "T",
+        Key::KeyU => "U", Key::KeyV => "V", Key::KeyW => "W", Key::KeyX => "X",
+        Key::KeyY => "Y", Key::KeyZ => "Z",
+        Key::Num0 => "0", Key::Num1 => "1", Key::Num2 => "2", Key::Num3 => "3",
+        Key::Num4 => "4", Key::Num5 => "5", Key::Num6 => "6", Key::Num7 => "7",
+        Key::Num8 => "8", Key::Num9 => "9",
+        Key::Return    => "Enter",
+        Key::Space     => "Space",
+        Key::Tab       => "Tab",
+        Key::Backspace => "Backspace",
+        Key::Delete    => "Delete",
+        Key::Escape    => "Esc",
+        Key::Home      => "Home",
+        Key::End       => "End",
+        Key::PageUp    => "PgUp",
+        Key::PageDown  => "PgDn",
+        Key::UpArrow   => "Up",
+        Key::DownArrow => "Down",
+        Key::LeftArrow => "Left",
+        Key::RightArrow=> "Right",
+        Key::F1  => "F1",  Key::F2  => "F2",  Key::F3  => "F3",  Key::F4  => "F4",
+        Key::F5  => "F5",  Key::F6  => "F6",  Key::F7  => "F7",  Key::F8  => "F8",
+        Key::F9  => "F9",  Key::F10 => "F10", Key::F11 => "F11", Key::F12 => "F12",
+        Key::Unknown(_) => "?",
+        // Anything else (numpad, media keys, etc.) — ignore silently.
+        _ => return None,
+    };
+
+    // Printable single-character keys (letters and digits).
+    let is_printable = matches!(
+        key,
+        Key::KeyA | Key::KeyB | Key::KeyC | Key::KeyD | Key::KeyE | Key::KeyF
+        | Key::KeyG | Key::KeyH | Key::KeyI | Key::KeyJ | Key::KeyK | Key::KeyL
+        | Key::KeyM | Key::KeyN | Key::KeyO | Key::KeyP | Key::KeyQ | Key::KeyR
+        | Key::KeyS | Key::KeyT | Key::KeyU | Key::KeyV | Key::KeyW | Key::KeyX
+        | Key::KeyY | Key::KeyZ
+        | Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4
+        | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9
+    );
+
+    if ctrl || alt {
+        // Modifier combo: [Ctrl+Shift+Z], [Alt+F4], etc.
+        let mut token = String::from("[");
+        if ctrl  { token.push_str("Ctrl+"); }
+        if alt   { token.push_str("Alt+"); }
+        if shift { token.push_str("Shift+"); }
+        token.push_str(name);
+        token.push(']');
+        Some(token)
+    } else if shift {
+        if is_printable {
+            // Shift + letter/digit → uppercase / shifted char (rdev gives no shift info,
+            // so we just uppercase ASCII letters and keep digits as-is).
+            let ch = name.chars().next().unwrap();
+            Some(ch.to_ascii_uppercase().to_string())
+        } else {
+            // Shift + special key → [Shift+Enter], [Shift+Tab], etc.
+            Some(format!("[Shift+{name}]"))
+        }
+    } else if is_printable {
+        // Plain printable key → lowercase character.
+        Some(name.to_ascii_lowercase().to_string())
+    } else {
+        // Plain special key → [Space], [Enter], [Backspace], etc.
+        Some(format!("[{name}]"))
     }
 }

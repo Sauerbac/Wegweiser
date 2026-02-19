@@ -34,14 +34,14 @@ pub fn show(ctx: &Context, state: &mut AppState) {
     }
 
     // ── 2. Collect step data to avoid borrow-checker conflicts ──────────────
-    let steps: Vec<(usize, usize, PathBuf, String)> = state
+    let steps: Vec<(usize, usize, PathBuf, String, Option<String>)> = state
         .session
         .as_ref()
         .map(|s| {
             s.steps
                 .iter()
                 .enumerate()
-                .map(|(idx, step)| (idx, step.id, step.image_path.clone(), step.description.clone()))
+                .map(|(idx, step)| (idx, step.id, step.image_path.clone(), step.description.clone(), step.keystrokes.clone()))
                 .collect()
         })
         .unwrap_or_default();
@@ -57,7 +57,7 @@ pub fn show(ctx: &Context, state: &mut AppState) {
             ScrollArea::vertical()
                 .id_salt("step_scroll")
                 .show(ui, |ui| {
-                    for (list_idx, step_id, _path, desc) in &steps {
+                    for (list_idx, step_id, _path, desc, _ks) in &steps {
                         let selected = state.selected_step_idx == Some(*list_idx);
 
                         let thumb_size = Vec2::new(180.0, 120.0);
@@ -133,7 +133,7 @@ pub fn show(ctx: &Context, state: &mut AppState) {
 fn show_editor(
     ui: &mut egui::Ui,
     state: &mut AppState,
-    steps: &[(usize, usize, PathBuf, String)],
+    steps: &[(usize, usize, PathBuf, String, Option<String>)],
 ) {
     // Top toolbar
     let exporting = state.export_progress.is_some();
@@ -233,12 +233,12 @@ fn show_editor(
         }
     };
 
-    let (step_id, desc) = state
+    let (step_id, desc, keystrokes_opt) = state
         .session
         .as_ref()
         .and_then(|s| s.steps.get(sel_idx))
-        .map(|s| (s.id, s.description.clone()))
-        .unwrap_or((0, String::new()));
+        .map(|s| (s.id, s.description.clone(), s.keystrokes.clone()))
+        .unwrap_or((0, String::new(), None));
 
     // Description editor
     ui.label("Description:");
@@ -252,6 +252,26 @@ fn show_editor(
         if let Some(session) = &mut state.session {
             if let Some(step) = session.steps.get_mut(sel_idx) {
                 step.description = desc_buf;
+            }
+        }
+    }
+
+    // Keystrokes editor
+    ui.add_space(4.0);
+    ui.label("Keystrokes:");
+    let mut ks_buf = keystrokes_opt.clone().unwrap_or_default();
+    let ks_resp = ui.add(
+        egui::TextEdit::singleline(&mut ks_buf)
+            .desired_width(f32::INFINITY)
+            .hint_text("(none)"),
+    );
+    if ks_resp.changed() {
+        if let Some(session) = &mut state.session {
+            if let Some(step) = session.steps.get_mut(sel_idx) {
+                step.keystrokes = if ks_buf.is_empty() { None } else { Some(ks_buf) };
+                if let Err(e) = crate::session::save_session(session) {
+                    state.error_message = Some(format!("Save failed: {e}"));
+                }
             }
         }
     }

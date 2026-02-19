@@ -1,5 +1,6 @@
 use crate::model::{MonitorInfo, Session};
 use egui::TextureHandle;
+use rdev::Key;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -28,6 +29,12 @@ pub enum HookEvent {
     Click(i32, i32),
     /// A recognized hotkey combination was pressed.
     KeyCombo(HotKey),
+    /// A non-modifier key was pressed (for keystroke capture).
+    KeyPress(Key),
+    /// A modifier key was pressed down.
+    ModifierDown(Key),
+    /// A modifier key was released.
+    ModifierUp(Key),
 }
 
 #[derive(Debug)]
@@ -94,6 +101,15 @@ pub struct AppState {
 
     /// True while the window is in compact borderless mini-bar mode (during recording).
     pub window_is_mini: bool,
+
+    /// Keystrokes typed since the last click; drained into the next Step on click.
+    pub pending_keystrokes: String,
+
+    /// Modifier key state — updated via ModifierDown/ModifierUp hook events.
+    pub ctrl_held: bool,
+    pub shift_held: bool,
+    pub alt_held: bool,
+
 }
 
 impl Default for AppState {
@@ -120,6 +136,10 @@ impl Default for AppState {
             stop_recording_requested: false,
             identify_until: None,
             window_is_mini: false,
+            pending_keystrokes: String::new(),
+            ctrl_held: false,
+            shift_held: false,
+            alt_held: false,
         }
     }
 }

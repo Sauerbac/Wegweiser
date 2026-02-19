@@ -30,8 +30,20 @@ pub fn spawn_hook_thread(tx: mpsc::Sender<HookEvent>) {
                         let _ = tx.send(HookEvent::Click(last_x as i32, last_y as i32));
                     }
                     EventType::KeyPress(key) => match key {
-                        Key::ControlLeft | Key::ControlRight => ctrl_held = true,
-                        Key::ShiftLeft | Key::ShiftRight => shift_held = true,
+                        Key::ControlLeft | Key::ControlRight => {
+                            ctrl_held = true;
+                            let _ = tx.send(HookEvent::ModifierDown(key));
+                        }
+                        Key::ShiftLeft | Key::ShiftRight => {
+                            shift_held = true;
+                            let _ = tx.send(HookEvent::ModifierDown(key));
+                        }
+                        Key::Alt | Key::AltGr => {
+                            let _ = tx.send(HookEvent::ModifierDown(key));
+                        }
+                        Key::MetaLeft | Key::MetaRight => {
+                            let _ = tx.send(HookEvent::ModifierDown(key));
+                        }
                         Key::KeyP if ctrl_held && shift_held => {
                             let _ = tx.send(HookEvent::KeyCombo(HotKey::Pause));
                         }
@@ -41,11 +53,22 @@ pub fn spawn_hook_thread(tx: mpsc::Sender<HookEvent>) {
                         Key::KeyS if ctrl_held && shift_held => {
                             let _ = tx.send(HookEvent::KeyCombo(HotKey::ManualCapture));
                         }
-                        _ => {}
+                        _ => {
+                            let _ = tx.send(HookEvent::KeyPress(key));
+                        }
                     },
                     EventType::KeyRelease(key) => match key {
-                        Key::ControlLeft | Key::ControlRight => ctrl_held = false,
-                        Key::ShiftLeft | Key::ShiftRight => shift_held = false,
+                        Key::ControlLeft | Key::ControlRight => {
+                            ctrl_held = false;
+                            let _ = tx.send(HookEvent::ModifierUp(key));
+                        }
+                        Key::ShiftLeft | Key::ShiftRight => {
+                            shift_held = false;
+                            let _ = tx.send(HookEvent::ModifierUp(key));
+                        }
+                        Key::Alt | Key::AltGr | Key::MetaLeft | Key::MetaRight => {
+                            let _ = tx.send(HookEvent::ModifierUp(key));
+                        }
                         _ => {}
                     },
                     _ => {}
