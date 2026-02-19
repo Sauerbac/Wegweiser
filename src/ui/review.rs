@@ -1,11 +1,20 @@
 use crate::model::Step;
-use crate::state::{AppState, ExportMsg, RecordingState};
+use crate::state::{AppState, ExportMsg, RecordingState, TEXTURE_CACHE_CAP};
 use egui::{Context, ScrollArea, TextureOptions, Vec2};
 use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub fn show(ctx: &Context, state: &mut AppState) {
     // ── 1. Lazy-load textures for any step not yet cached ───────────────────
+    // Determine the step ID of the currently selected step so we never evict it.
+    let selected_step_id: Option<usize> = state.selected_step_idx.and_then(|sel_idx| {
+        state
+            .session
+            .as_ref()
+            .and_then(|s| s.steps.get(sel_idx))
+            .map(|s| s.id)
+    });
+
     let paths_to_load: Vec<(usize, PathBuf)> = state
         .session
         .as_ref()
@@ -30,6 +39,27 @@ pub fn show(ctx: &Context, state: &mut AppState) {
                 TextureOptions::LINEAR,
             );
             state.textures.insert(id, handle);
+            state.texture_lru.push_back(id);
+
+            // Evict least-recently-used textures until we are within the cap.
+            // Never evict the currently selected step so its preview never flickers.
+            while state.texture_lru.len() > TEXTURE_CACHE_CAP {
+                // Find the front-most entry that is not the pinned selected step.
+                let evict_pos = state
+                    .texture_lru
+                    .iter()
+                    .position(|&lru_id| Some(lru_id) != selected_step_id);
+                match evict_pos {
+                    Some(pos) => {
+                        let evicted_id = state.texture_lru.remove(pos).unwrap();
+                        state.textures.remove(&evicted_id);
+                    }
+                    None => {
+                        // Every entry in the deque is the pinned step — nothing to evict.
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -166,6 +196,7 @@ fn show_editor(
                 state.recording_state = RecordingState::Idle;
                 state.session = None;
                 state.textures.clear();
+                state.texture_lru.clear();
                 state.selected_step_idx = None;
             }
         });
@@ -298,6 +329,8 @@ fn delete_step(state: &mut AppState, idx: usize) {
         if idx < session.steps.len() {
             let step = session.steps.remove(idx);
             state.textures.remove(&step.id);
+            // Also remove the deleted step from the LRU deque.
+            state.texture_lru.retain(|&lru_id| lru_id != step.id);
             let _ = std::fs::remove_file(&step.image_path);
             // Re-number remaining
             for (i, s) in session.steps.iter_mut().enumerate() {

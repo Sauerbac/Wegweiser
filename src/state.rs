@@ -1,9 +1,14 @@
 use crate::model::{MonitorInfo, Session};
 use egui::TextureHandle;
 use rdev::Key;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc;
+
+/// Maximum number of textures kept in the GPU cache at once.
+/// At 1080p RGBA each texture is ~8 MB; 40 textures ≈ 320 MB worst-case,
+/// well within budget for any GPU tier.
+pub const TEXTURE_CACHE_CAP: usize = 40;
 
 /// Top-level application state machine.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +79,9 @@ pub struct AppState {
 
     /// Cached egui textures keyed by Step.id.
     pub textures: HashMap<usize, TextureHandle>,
+    /// Access-order deque for LRU eviction; each entry is a Step.id.
+    /// The front is the least-recently-used texture.
+    pub texture_lru: VecDeque<usize>,
 
     /// Index of the currently selected step in the review panel.
     pub selected_step_idx: Option<usize>,
@@ -127,6 +135,7 @@ impl Default for AppState {
             step_tx: None,
             next_step_id: 1,
             textures: HashMap::new(),
+            texture_lru: VecDeque::new(),
             selected_step_idx: None,
             rec_window_bounds: None,
             error_message: None,
