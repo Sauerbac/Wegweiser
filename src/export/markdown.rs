@@ -28,8 +28,8 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
     ));
     md.push_str("---\n\n");
 
-    for step in &session.steps {
-        let img_filename = format!("step_{:04}.png", step.id);
+    for (idx, step) in session.steps.iter().enumerate() {
+        let img_filename = format!("step_{:04}.png", idx + 1);
         let img_dest = images_dir.join(&img_filename);
         fs::copy(&step.image_path, &img_dest)?;
 
