@@ -44,7 +44,15 @@ pub fn capture_step(
     let mut rgba = monitor.capture_image()?;
 
     if let Some(ref cp) = click {
-        crate::annotate::draw_click_indicator(&mut rgba, cp);
+        // rdev delivers absolute physical-pixel coordinates across the whole
+        // virtual desktop.  xcap's screenshot is relative to the monitor's own
+        // top-left corner, so we must subtract the monitor origin before drawing.
+        let mon_x = monitor.x().unwrap_or(0);
+        let mon_y = monitor.y().unwrap_or(0);
+        let rel_x = (cp.x as i32 - mon_x).max(0) as u32;
+        let rel_y = (cp.y as i32 - mon_y).max(0) as u32;
+        let adjusted = crate::model::ClickPoint { x: rel_x, y: rel_y };
+        crate::annotate::draw_click_indicator(&mut rgba, &adjusted);
     }
 
     let filename = format!("step_{:04}.png", step_id);
