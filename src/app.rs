@@ -38,6 +38,20 @@ impl RecApp {
 
 impl eframe::App for RecApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // ── 0. Try to latch the mini-bar bounding rect (retried each frame
+        //       until egui reports a valid inner_rect after the resize).
+        if self.state.window_is_mini && self.state.rec_window_bounds.is_none() {
+            if let Some(rect) = ctx.input(|i| i.viewport().inner_rect) {
+                let ppp = ctx.pixels_per_point();
+                self.state.rec_window_bounds = Some([
+                    rect.min.x * ppp,
+                    rect.min.y * ppp,
+                    rect.width() * ppp,
+                    rect.height() * ppp,
+                ]);
+            }
+        }
+
         // ── 1. Drain inter-thread channels ────────────────────────────────────
         self.drain_hook_events(ctx);
         self.drain_step_completions();
@@ -445,6 +459,7 @@ impl RecApp {
             ));
         } else if !should_be_mini && self.state.window_is_mini {
             self.state.window_is_mini = false;
+            self.state.rec_window_bounds = None;
             ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
                 egui::WindowLevel::Normal,
             ));
