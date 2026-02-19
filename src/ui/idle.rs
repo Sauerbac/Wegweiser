@@ -17,18 +17,32 @@ pub fn show(ctx: &Context, state: &mut AppState) {
         // ── Monitor selector ─────────────────────────────────────────────────
         ui.label("Monitor to record:");
 
-        let selected_name = state
-            .monitor_names
-            .get(state.selected_monitor_index)
-            .cloned()
-            .unwrap_or_else(|| "No monitors detected".to_string());
+        let selected_name = match state.selected_monitor {
+            None => "All Monitors".to_string(),
+            Some(idx) => state
+                .monitor_names
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| "No monitors detected".to_string()),
+        };
 
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("monitor_picker")
                 .selected_text(&selected_name)
                 .show_ui(ui, |ui| {
+                    // "All Monitors" entry at the top.
+                    let all_selected = state.selected_monitor.is_none();
+                    if ui
+                        .selectable_label(all_selected, "All Monitors")
+                        .clicked()
+                    {
+                        state.selected_monitor = None;
+                    }
                     for (i, name) in state.monitor_names.iter().enumerate() {
-                        ui.selectable_value(&mut state.selected_monitor_index, i, name);
+                        let is_selected = state.selected_monitor == Some(i);
+                        if ui.selectable_label(is_selected, name).clicked() {
+                            state.selected_monitor = Some(i);
+                        }
                     }
                 });
 
@@ -95,10 +109,18 @@ pub fn show(ctx: &Context, state: &mut AppState) {
             ui.label("No saved sessions found.");
         } else {
             // Collect the sessions we need to display before any mutable borrow.
-            let session_rows: Vec<(String, usize, std::path::PathBuf)> = state
+            // Each row: (name, step_count, session_dir, json_path)
+            let session_rows: Vec<(String, usize, std::path::PathBuf, std::path::PathBuf)> = state
                 .known_sessions
                 .iter()
-                .map(|m| (m.name.clone(), m.step_count, m.session_dir.join("session.json")))
+                .map(|m| {
+                    (
+                        m.name.clone(),
+                        m.step_count,
+                        m.session_dir.clone(),
+                        m.session_dir.join("session.json"),
+                    )
+                })
                 .collect();
 
             egui::ScrollArea::vertical()
@@ -106,8 +128,13 @@ pub fn show(ctx: &Context, state: &mut AppState) {
                 .id_salt("session_library")
                 .show(ui, |ui| {
                     let mut load_path: Option<std::path::PathBuf> = None;
+                    let mut confirm_delete: Option<std::path::PathBuf> = None;
+                    let mut do_delete: Option<std::path::PathBuf> = None;
+                    let mut cancel_delete = false;
 
-                    for (name, step_count, json_path) in &session_rows {
+                    for (name, step_count, session_dir, json_path) in &session_rows {
+                        let is_pending = state.pending_delete.as_deref() == Some(session_dir.as_path());
+
                         ui.horizontal(|ui| {
                             let step_label = if *step_count == 1 {
                                 "1 step".to_string()
@@ -115,11 +142,42 @@ pub fn show(ctx: &Context, state: &mut AppState) {
                                 format!("{step_count} steps")
                             };
                             ui.label(format!("{name}  ({step_label})"));
+
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.small_button("Load").clicked() {
-                                        load_path = Some(json_path.clone());
+                                    if is_pending {
+                                        // Inline confirmation row
+                                        if ui.small_button("No").clicked() {
+                                            cancel_delete = true;
+                                        }
+                                        if ui
+                                            .small_button(
+                                                egui::RichText::new("Yes")
+                                                    .color(egui::Color32::from_rgb(220, 60, 60)),
+                                            )
+                                            .clicked()
+                                        {
+                                            do_delete = Some(session_dir.clone());
+                                        }
+                                        ui.colored_label(
+                                            egui::Color32::from_rgb(220, 140, 40),
+                                            "Delete?",
+                                        );
+                                    } else {
+                                        if ui.small_button("Load").clicked() {
+                                            load_path = Some(json_path.clone());
+                                        }
+                                        if ui
+                                            .small_button(
+                                                egui::RichText::new("✕")
+                                                    .color(egui::Color32::from_rgb(200, 60, 60)),
+                                            )
+                                            .on_hover_text("Delete this session")
+                                            .clicked()
+                                        {
+                                            confirm_delete = Some(session_dir.clone());
+                                        }
                                     }
                                 },
                             );
@@ -127,8 +185,29 @@ pub fn show(ctx: &Context, state: &mut AppState) {
                         ui.separator();
                     }
 
+                    // Apply deferred mutations after the loop to avoid borrow conflicts.
                     if let Some(path) = load_path {
                         load_session_from_path(state, &path);
+                    }
+                    if let Some(dir) = confirm_delete {
+                        state.pending_delete = Some(dir);
+                    }
+                    if cancel_delete {
+                        state.pending_delete = None;
+                    }
+                    if let Some(dir) = do_delete {
+                        match crate::session::delete_session(&dir) {
+                            Ok(_) => {
+                                state.pending_delete = None;
+                                let base = crate::session::sessions_base_dir();
+                                state.known_sessions = crate::session::list_sessions(&base);
+                            }
+                            Err(e) => {
+                                state.error_message =
+                                    Some(format!("Failed to delete session: {e}"));
+                                state.pending_delete = None;
+                            }
+                        }
                     }
                 });
         }
@@ -151,8 +230,12 @@ fn refresh_monitors(state: &mut AppState) {
         .map(|(i, m)| monitor_display_name(m, i))
         .collect();
     state.monitor_infos = infos;
-    if state.selected_monitor_index >= state.monitor_names.len() {
-        state.selected_monitor_index = 0;
+    // If the previously selected monitor index is now out of range, fall back to
+    // "All Monitors" rather than keeping a stale index.
+    if let Some(idx) = state.selected_monitor {
+        if idx >= state.monitor_names.len() {
+            state.selected_monitor = None;
+        }
     }
 }
 
@@ -173,18 +256,22 @@ fn start_recording(state: &mut AppState) {
         .to_string();
 
     // Cache the selected monitor's physical bounding rect for click filtering.
-    state.selected_monitor_rect = state
-        .monitor_infos
-        .get(state.selected_monitor_index)
-        .map(|m| (m.x, m.y, m.width, m.height));
+    // When "All Monitors" is selected (`None`), no rect is needed — filtering is skipped.
+    state.selected_monitor_rect = state.selected_monitor.and_then(|idx| {
+        state
+            .monitor_infos
+            .get(idx)
+            .map(|m| (m.x, m.y, m.width, m.height))
+    });
 
     let session = Session {
         id: session_id,
         name: format!("Session {}", Utc::now().format("%Y-%m-%d %H:%M")),
         created_at: Utc::now(),
-        monitor_index: state.selected_monitor_index,
+        monitor_index: state.selected_monitor,
         steps: Vec::new(),
         session_dir,
+        exported: false,
     };
 
     state.session = Some(session);

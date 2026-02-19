@@ -54,8 +54,8 @@ pub struct AppState {
     pub recording_state: RecordingState,
     pub session: Option<Session>,
 
-    /// Index into `monitor_names` / xcap monitor list.
-    pub selected_monitor_index: usize,
+    /// Index into `monitor_names` / xcap monitor list, or `None` for "All Monitors".
+    pub selected_monitor: Option<usize>,
     /// Display strings for the monitor ComboBox.
     pub monitor_names: Vec<String>,
     /// Full position+size info for each monitor (parallel to monitor_names).
@@ -122,6 +122,10 @@ pub struct AppState {
     /// Cached list of previously recorded sessions shown in the idle screen library.
     /// Populated at startup and refreshable via the "Refresh" button.
     pub known_sessions: Vec<SessionMeta>,
+
+    /// The session directory currently awaiting delete confirmation in the idle screen.
+    /// `Some(dir)` means the inline "Delete? [Yes] [No]" prompt is shown for that row.
+    pub pending_delete: Option<PathBuf>,
 }
 
 impl Default for AppState {
@@ -129,7 +133,7 @@ impl Default for AppState {
         Self {
             recording_state: RecordingState::Idle,
             session: None,
-            selected_monitor_index: 0,
+            selected_monitor: None,
             monitor_names: Vec::new(),
             monitor_infos: Vec::new(),
             capture_selected_only: true,
@@ -154,6 +158,7 @@ impl Default for AppState {
             shift_held: false,
             alt_held: false,
             known_sessions: Vec::new(),
+            pending_delete: None,
         }
     }
 }

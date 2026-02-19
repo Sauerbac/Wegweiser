@@ -7,9 +7,14 @@ pub struct Session {
     pub id: String,
     pub name: String,
     pub created_at: DateTime<Utc>,
-    pub monitor_index: usize,
+    /// Index of the monitor used for this session, or `None` for "All Monitors".
+    pub monitor_index: Option<usize>,
     pub steps: Vec<Step>,
     pub session_dir: PathBuf,
+    /// Whether this session has been successfully exported at least once.
+    /// Defaults to `false` for old session.json files that lack this field.
+    #[serde(default)]
+    pub exported: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

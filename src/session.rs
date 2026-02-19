@@ -87,3 +87,9 @@ pub fn load_session(path: &Path) -> Result<Session> {
     let session: Session = serde_json::from_str(&json)?;
     Ok(session)
 }
+
+/// Delete a session directory and all its contents from disk.
+pub fn delete_session(dir: &Path) -> Result<()> {
+    fs::remove_dir_all(dir)?;
+    Ok(())
+}

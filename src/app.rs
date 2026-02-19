@@ -36,6 +36,7 @@ impl RecApp {
         let base = crate::session::sessions_base_dir();
         state.known_sessions = crate::session::list_sessions(&base);
 
+
         Self { state }
     }
 }
@@ -222,9 +223,28 @@ impl RecApp {
                     }
                 }
                 // Skip clicks outside the selected monitor when the filter is on.
+                // When "All Monitors" is active, selected_monitor_rect is None so this
+                // block is a no-op and all clicks pass through.
                 if self.state.capture_selected_only {
                     if let Some((mx, my, mw, mh)) = self.state.selected_monitor_rect {
                         if x < mx || x >= mx + mw as i32 || y < my || y >= my + mh as i32 {
+                            return;
+                        }
+                    }
+                }
+                // Edge case: "All Monitors" active but click falls outside every known
+                // monitor (e.g. between monitors or virtual desktop boundary).  Skip it.
+                if let Some(session) = &self.state.session {
+                    if session.monitor_index.is_none() {
+                        let cx = x;
+                        let cy = y;
+                        let on_any = self.state.monitor_infos.iter().any(|m| {
+                            cx >= m.x
+                                && cx < m.x + m.width as i32
+                                && cy >= m.y
+                                && cy < m.y + m.height as i32
+                        });
+                        if !on_any {
                             return;
                         }
                     }
@@ -298,7 +318,32 @@ impl RecApp {
         let order = step_id;
         self.state.next_step_id += 1;
 
-        let monitor_index = session.monitor_index;
+        // Resolve which monitor to capture.
+        // When session.monitor_index is Some(idx), use it directly.
+        // When None ("All Monitors"), find the monitor that contains the click.
+        // For manual captures (click is None) with All Monitors, fall back to monitor 0.
+        let monitor_index: usize = match session.monitor_index {
+            Some(idx) => idx,
+            None => {
+                if let Some(ref cp) = click {
+                    let cx = cp.x as i32;
+                    let cy = cp.y as i32;
+                    self.state
+                        .monitor_infos
+                        .iter()
+                        .position(|m| {
+                            cx >= m.x
+                                && cx < m.x + m.width as i32
+                                && cy >= m.y
+                                && cy < m.y + m.height as i32
+                        })
+                        .unwrap_or(0)
+                } else {
+                    // Manual capture with no click: use the first monitor.
+                    0
+                }
+            }
+        };
         let session_dir = session.session_dir.clone();
 
         // Drain the keystroke buffer for this step and clear it.
@@ -380,6 +425,13 @@ impl RecApp {
                     self.state.export_message =
                         Some(format!("Exported → {}", path.display()));
                     self.state.error_message = None;
+                    // Mark the session as exported and persist.
+                    if let Some(session) = &mut self.state.session {
+                        session.exported = true;
+                        if let Err(e) = crate::session::save_session(session) {
+                            eprintln!("[export] failed to save exported flag: {e}");
+                        }
+                    }
                     // Open the file in the default browser / viewer.
                     let _ = open::that(&path);
                     finished = true;

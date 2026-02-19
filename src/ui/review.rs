@@ -180,18 +180,6 @@ fn show_editor(
             if ui.button("Export Markdown").clicked() {
                 export_markdown(state);
             }
-            if ui.button("Save Session").clicked() {
-                if let Some(session) = &state.session {
-                    if let Err(e) = crate::session::save_session(session) {
-                        state.error_message = Some(format!("Save failed: {e}"));
-                    } else {
-                        state.export_message = Some(format!(
-                            "Saved → {}",
-                            session.session_dir.join("session.json").display()
-                        ));
-                    }
-                }
-            }
             if ui.button("← New Recording").clicked() {
                 state.recording_state = RecordingState::Idle;
                 state.session = None;
@@ -385,6 +373,13 @@ fn export_markdown(state: &mut AppState) {
                 let _ = open::that(&path);
                 state.export_message = Some(format!("Exported → {}", path.display()));
                 state.error_message = None;
+                // Mark the session as exported and persist.
+                if let Some(session) = &mut state.session {
+                    session.exported = true;
+                    if let Err(e) = crate::session::save_session(session) {
+                        eprintln!("[export] failed to save exported flag: {e}");
+                    }
+                }
             }
             Err(e) => {
                 state.error_message = Some(format!("Markdown export failed: {e}"));
