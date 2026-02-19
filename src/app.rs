@@ -40,6 +40,7 @@ impl eframe::App for RecApp {
         // ── 1. Drain inter-thread channels ────────────────────────────────────
         self.drain_hook_events(ctx);
         self.drain_step_completions();
+        self.drain_export_progress(ctx);
 
         // ── 2. Handle deferred "stop recording" request ───────────────────────
         if self.state.stop_recording_requested {
@@ -301,6 +302,55 @@ impl RecApp {
                     eprintln!("[session] auto-save failed: {e}");
                 }
             }
+        }
+    }
+
+    /// Drain messages from the HTML export background thread.
+    fn drain_export_progress(&mut self, ctx: &egui::Context) {
+        use crate::state::ExportMsg;
+
+        let rx = match self.state.export_rx.take() {
+            Some(r) => r,
+            None => return,
+        };
+
+        let mut finished = false;
+        loop {
+            match rx.try_recv() {
+                Ok(ExportMsg::Progress(p)) => {
+                    self.state.export_progress = Some(p);
+                }
+                Ok(ExportMsg::Done(Ok(path))) => {
+                    self.state.export_progress = None;
+                    self.state.export_message =
+                        Some(format!("Exported → {}", path.display()));
+                    self.state.error_message = None;
+                    // Open the file in the default browser / viewer.
+                    let _ = open::that(&path);
+                    finished = true;
+                    break;
+                }
+                Ok(ExportMsg::Done(Err(e))) => {
+                    self.state.export_progress = None;
+                    self.state.error_message = Some(format!("HTML export failed: {e}"));
+                    finished = true;
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Thread ended without sending Done — treat as error.
+                    self.state.export_progress = None;
+                    finished = true;
+                    break;
+                }
+            }
+        }
+
+        if !finished {
+            // Put the receiver back so we keep polling next frame.
+            self.state.export_rx = Some(rx);
+            // Keep repainting so the progress bar animates.
+            ctx.request_repaint();
         }
     }
 

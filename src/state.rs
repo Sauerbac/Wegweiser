@@ -1,6 +1,7 @@
 use crate::model::{MonitorInfo, Session};
 use egui::TextureHandle;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 /// Top-level application state machine.
@@ -10,6 +11,14 @@ pub enum RecordingState {
     Recording,
     Paused,
     Reviewing,
+}
+
+/// Messages sent from the HTML export thread to the main thread.
+pub enum ExportMsg {
+    /// Export progress in the range [0.0, 1.0].
+    Progress(f32),
+    /// Export finished — Ok contains the output path, Err contains the error message.
+    Done(Result<PathBuf, String>),
 }
 
 /// Events sent from the hook thread to the main thread.
@@ -71,6 +80,12 @@ pub struct AppState {
     /// Shown as a green label after a successful export.
     pub export_message: Option<String>,
 
+    /// Receives progress updates and completion from the HTML export thread.
+    /// None when no export is in progress.
+    pub export_rx: Option<mpsc::Receiver<ExportMsg>>,
+    /// Current HTML export progress in [0.0, 1.0]; Some while exporting.
+    pub export_progress: Option<f32>,
+
     /// Set by the recording bar "Stop" button; consumed in app.rs update().
     pub stop_recording_requested: bool,
 
@@ -100,6 +115,8 @@ impl Default for AppState {
             rec_window_bounds: None,
             error_message: None,
             export_message: None,
+            export_rx: None,
+            export_progress: None,
             stop_recording_requested: false,
             identify_until: None,
             window_is_mini: false,

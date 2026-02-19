@@ -3,15 +3,25 @@ use anyhow::Result;
 use base64::Engine;
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc;
 
 /// Export the session as a fully self-contained HTML file.
 ///
 /// All images are embedded as base64 data URIs so the file can be shared
 /// without the `images/` folder.
-pub fn export(session: &Session, output_path: &Path) -> Result<()> {
+///
+/// If `progress_tx` is provided, a `Progress(f32)` message is sent after
+/// each step is encoded (values in [0.0, 1.0]).  The caller is responsible
+/// for sending `Done(…)` itself — this function just sends progress ticks.
+pub fn export(
+    session: &Session,
+    output_path: &Path,
+    progress_tx: Option<&mpsc::Sender<crate::state::ExportMsg>>,
+) -> Result<()> {
+    let total = session.steps.len();
     let mut steps_html = String::new();
 
-    for step in &session.steps {
+    for (i, step) in session.steps.iter().enumerate() {
         let img_bytes = fs::read(&step.image_path)?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
 
@@ -45,6 +55,12 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
             desc_html = desc_html,
             keystroke_html = keystroke_html,
         ));
+
+        // Report per-step progress
+        if let Some(tx) = progress_tx {
+            let progress = (i + 1) as f32 / total.max(1) as f32;
+            let _ = tx.send(crate::state::ExportMsg::Progress(progress));
+        }
     }
 
     let created = session.created_at.format("%Y-%m-%d %H:%M UTC");

@@ -1,7 +1,8 @@
 use crate::model::Step;
-use crate::state::{AppState, RecordingState};
+use crate::state::{AppState, ExportMsg, RecordingState};
 use egui::{Context, ScrollArea, TextureOptions, Vec2};
 use std::path::PathBuf;
+use std::sync::mpsc;
 
 pub fn show(ctx: &Context, state: &mut AppState) {
     // ── 1. Lazy-load textures for any step not yet cached ───────────────────
@@ -135,13 +136,17 @@ fn show_editor(
     steps: &[(usize, usize, PathBuf, String)],
 ) {
     // Top toolbar
+    let exporting = state.export_progress.is_some();
     ui.horizontal(|ui| {
         ui.heading("Review & Export");
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Export HTML").clicked() {
-                export_html(state);
-            }
+            // Disable the HTML export button while an export is in progress.
+            ui.add_enabled_ui(!exporting, |ui| {
+                if ui.button("Export HTML").clicked() {
+                    export_html(state);
+                }
+            });
             if ui.button("Export Markdown").clicked() {
                 export_markdown(state);
             }
@@ -167,9 +172,27 @@ fn show_editor(
     });
     ui.separator();
 
+    // Export progress bar (shown while HTML export is running)
+    if let Some(progress) = state.export_progress {
+        ui.horizontal(|ui| {
+            ui.label("Exporting HTML…");
+            ui.add(
+                egui::ProgressBar::new(progress)
+                    .show_percentage()
+                    .desired_width(240.0),
+            );
+        });
+        ui.add_space(4.0);
+    }
+
     // Status / error
     if let Some(msg) = &state.export_message.clone() {
-        ui.colored_label(egui::Color32::GREEN, format!("✓  {msg}"));
+        ui.horizontal(|ui| {
+            ui.colored_label(egui::Color32::GREEN, format!("✓  {msg}"));
+            if ui.small_button("✕").on_hover_text("Dismiss").clicked() {
+                state.export_message = None;
+            }
+        });
     }
     if let Some(err) = &state.error_message.clone() {
         ui.colored_label(egui::Color32::RED, format!("⚠  {err}"));
@@ -318,25 +341,39 @@ fn export_markdown(state: &mut AppState) {
 }
 
 fn export_html(state: &mut AppState) {
+    // Don't start a second export if one is already running.
+    if state.export_progress.is_some() {
+        return;
+    }
+
     let session = match &state.session {
         Some(s) => s.clone(),
         None => return,
     };
-    if let Some(path) = rfd::FileDialog::new()
+
+    let path = match rfd::FileDialog::new()
         .add_filter("HTML", &["html"])
         .set_file_name("tutorial.html")
         .set_title("Export as HTML")
         .save_file()
     {
-        match crate::export::html::export(&session, &path) {
-            Ok(_) => {
-                let _ = open::that(&path);
-                state.export_message = Some(format!("Exported → {}", path.display()));
-                state.error_message = None;
-            }
-            Err(e) => {
-                state.error_message = Some(format!("HTML export failed: {e}"));
-            }
-        }
-    }
+        Some(p) => p,
+        None => return,
+    };
+
+    let (tx, rx) = mpsc::channel::<ExportMsg>();
+    state.export_rx = Some(rx);
+    state.export_progress = Some(0.0);
+    state.export_message = None;
+    state.error_message = None;
+
+    std::thread::Builder::new()
+        .name("html-export".to_string())
+        .spawn(move || {
+            let result = crate::export::html::export(&session, &path, Some(&tx))
+                .map(|_| path.clone())
+                .map_err(|e| e.to_string());
+            let _ = tx.send(ExportMsg::Done(result));
+        })
+        .ok();
 }
