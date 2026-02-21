@@ -93,7 +93,28 @@ pub fn load_session(path: &Path) -> Result<Session> {
 }
 
 /// Delete a session directory and all its contents from disk.
+/// Validates that the directory is within the sessions base directory to prevent
+/// arbitrary directory deletion attacks.
 pub fn delete_session(dir: &Path) -> Result<()> {
-    fs::remove_dir_all(dir)?;
+    // Canonicalize the requested path and the base directory
+    let canonical_path = fs::canonicalize(dir)
+        .map_err(|_| anyhow::anyhow!("Session directory not found"))?;
+    let canonical_base = fs::canonicalize(sessions_base_dir())
+        .map_err(|_| anyhow::anyhow!("Sessions directory not found"))?;
+
+    // Ensure the requested path is within the sessions base directory
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err(anyhow::anyhow!(
+            "Access denied: session directory is outside sessions storage area"
+        ));
+    }
+
+    // Verify the path is actually a directory (not a file or symlink)
+    if !canonical_path.is_dir() {
+        return Err(anyhow::anyhow!("Path is not a directory"));
+    }
+
+    // Only then delete the directory and its contents
+    fs::remove_dir_all(&canonical_path)?;
     Ok(())
 }
