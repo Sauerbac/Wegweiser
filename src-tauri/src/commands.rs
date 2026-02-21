@@ -245,7 +245,31 @@ pub fn new_recording(
 
 #[tauri::command]
 pub fn get_step_image(image_path: String) -> Result<String, String> {
-    let bytes = std::fs::read(&image_path).map_err(|e| e.to_string())?;
+    let path = std::path::Path::new(&image_path);
+    let base_dir = session::sessions_base_dir();
+
+    // Canonicalize the requested path and the base directory
+    let canonical_path = std::fs::canonicalize(path)
+        .map_err(|_| "Invalid file path".to_string())?;
+    let canonical_base = std::fs::canonicalize(&base_dir)
+        .map_err(|_| "Sessions directory not found".to_string())?;
+
+    // Ensure the requested path is within the sessions base directory
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err("Access denied: path is outside sessions directory".to_string());
+    }
+
+    // Verify the file has a .png extension
+    if !canonical_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("png"))
+        .unwrap_or(false)
+    {
+        return Err("Only PNG files are allowed".to_string());
+    }
+
+    let bytes = std::fs::read(&canonical_path).map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:image/png;base64,{}", b64))
 }
