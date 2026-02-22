@@ -116,6 +116,12 @@ cd src-tauri && cargo build               # debug build
 
 No tests exist yet.
 
+## Styling rules
+
+- **Always use Tailwind utility classes** for all frontend styling. Do not write raw CSS in `<style>` blocks unless it is genuinely impossible with Tailwind (e.g. `:global()` overrides targeting child components, or per-route `html`/`body` resets).
+- Use **shadcn CSS variables** (`--primary`, `--muted`, `--border`, etc.) via their Tailwind token equivalents (`bg-primary`, `text-muted-foreground`, `border-border`, etc.) — never hardcode color hex/hsl values in components.
+- `src/routes/layout.css` is the theme foundation (shadcn variable definitions + `@import` directives) — do not add utility-style rules there.
+
 ## Workflow
 
 - Only commit once the user has confirmed that the changes work as expected.

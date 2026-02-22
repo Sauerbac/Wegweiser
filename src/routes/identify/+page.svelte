@@ -18,32 +18,9 @@
 </script>
 
 <div class="w-full h-full flex items-center justify-center bg-transparent">
-  <div class="badge">
+  <div
+    class="w-full h-full flex items-center justify-center bg-primary rounded-none text-[2.5rem] font-black text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.4)] tracking-[-0.02em]"
+  >
     {displayNumber}
   </div>
 </div>
-
-<style>
-  :global(html), :global(body) {
-    background: transparent !important;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-  }
-
-  .badge {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--primary);
-    border-radius: 0;
-    font-size: 2.5rem;
-    font-weight: 900;
-    color: var(--primary-foreground);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    letter-spacing: -0.02em;
-  }
-</style>
