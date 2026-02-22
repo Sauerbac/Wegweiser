@@ -1,4 +1,4 @@
-use crate::model::Session;
+use crate::model::{Session, StepExportChoice};
 use anyhow::Result;
 use base64::Engine;
 use std::fs;
@@ -21,8 +21,51 @@ pub fn export(
     let mut steps_html = String::new();
 
     for (i, step) in session.steps.iter().enumerate() {
-        let img_bytes = fs::read(&step.image_path)?;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
+        // Build the image(s) HTML based on the step's export_choice.
+        let images_html = match &step.export_choice {
+            StepExportChoice::Primary => {
+                let img_bytes = fs::read(&step.image_path)?;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
+                format!(
+                    "<img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />",
+                    b64 = b64,
+                    order = step.order,
+                )
+            }
+            StepExportChoice::Extra(idx) => {
+                let path = step.extra_image_paths.get(*idx)
+                    .unwrap_or(&step.image_path);
+                let img_bytes = fs::read(path)?;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
+                format!(
+                    "<img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />",
+                    b64 = b64,
+                    order = step.order,
+                )
+            }
+            StepExportChoice::All => {
+                let primary_bytes = fs::read(&step.image_path)?;
+                let primary_b64 = base64::engine::general_purpose::STANDARD.encode(&primary_bytes);
+                let mut html = format!(
+                    "<img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />",
+                    b64 = primary_b64,
+                    order = step.order,
+                );
+                for (j, extra_path) in step.extra_image_paths.iter().enumerate() {
+                    let extra_bytes = fs::read(extra_path)?;
+                    let extra_b64 = base64::engine::general_purpose::STANDARD.encode(&extra_bytes);
+                    let mon_idx = step.extra_monitor_indices.get(j).copied().unwrap_or(j + 1);
+                    html.push_str(&format!(
+                        "\n    <p class=\"monitor-label\"><strong>Monitor {}:</strong></p>\n    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order} Monitor {mon_num}\" loading=\"lazy\" />",
+                        mon_idx + 1,
+                        b64 = extra_b64,
+                        order = step.order,
+                        mon_num = mon_idx + 1,
+                    ));
+                }
+                html
+            }
+        };
 
         let desc_html = if step.description.is_empty() {
             String::new()
@@ -44,13 +87,13 @@ pub fn export(
             r#"
   <section class="step">
     <h2>Step {order}</h2>
-    <img src="data:image/png;base64,{b64}" alt="Step {order}" loading="lazy" />
+    {images_html}
     {desc_html}
     {keystroke_html}
   </section>
 "#,
             order = step.order,
-            b64 = b64,
+            images_html = images_html,
             desc_html = desc_html,
             keystroke_html = keystroke_html,
         ));
@@ -140,6 +183,7 @@ pub fn export(
       border-radius: 0 4px 4px 0;
     }}
     code {{ font-family: ui-monospace, monospace; }}
+    .monitor-label {{ margin-top: 1rem; margin-bottom: 0.25rem; }}
   </style>
 </head>
 <body>

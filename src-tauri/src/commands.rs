@@ -1,5 +1,5 @@
 use crate::capture::list_monitor_infos;
-use crate::model::Session;
+use crate::model::{Session, StepExportChoice};
 use crate::session::{self, SessionMeta};
 use crate::state::{AppState, RecordingState};
 use base64::Engine;
@@ -31,7 +31,7 @@ pub fn start_recording(
     // Create session directory
     let session_dir = session::create_session_dir().map_err(|e| e.to_string())?;
     let now = Utc::now();
-    let session_name = format!("Recording {}", now.format("%Y-%m-%d %H:%M"));
+    let session_name = format!("Recording {}", now.format("%Y-%m-%d %H-%M"));
 
     let new_session = Session {
         id: Uuid::new_v4().to_string(),
@@ -49,6 +49,7 @@ pub fn start_recording(
         st.selected_monitor = monitor_index;
         st.recording_state = RecordingState::Recording;
         st.next_step_id = 1;
+        st.next_order = 1;
         st.pending_keystrokes.clear();
         // Refresh monitor infos
         st.monitor_infos = list_monitor_infos();
@@ -228,6 +229,22 @@ pub fn update_step_description(
 }
 
 #[tauri::command]
+pub fn set_step_export_choice(
+    step_id: usize,
+    choice: StepExportChoice,
+    state: State<'_, AppStateHandle>,
+) -> Result<(), String> {
+    let mut st = state.lock().unwrap();
+    if let Some(ref mut session) = st.session {
+        if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
+            step.export_choice = choice;
+        }
+        let _ = session::save_session(session);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn load_session_cmd(
     session_dir: String,
     state: State<'_, AppStateHandle>,
@@ -326,16 +343,15 @@ pub fn get_session(state: State<'_, AppStateHandle>) -> Option<Session> {
 
 #[tauri::command]
 pub fn export_markdown(
-    output_dir: String,
+    output_path: String,
     state: State<'_, AppStateHandle>,
 ) -> Result<String, String> {
     let session = {
         let st = state.lock().unwrap();
         st.session.clone().ok_or("No active session")?
     };
-    let dir = PathBuf::from(&output_dir);
-    let output_path = dir.join(format!("{}.md", sanitize_filename(&session.name)));
-    crate::export::markdown::export(&session, &output_path).map_err(|e| e.to_string())?;
+    let path = PathBuf::from(&output_path);
+    crate::export::markdown::export(&session, &path).map_err(|e| e.to_string())?;
 
     // Mark session as exported
     {
@@ -346,7 +362,8 @@ pub fn export_markdown(
         }
     }
 
-    Ok(output_path.to_string_lossy().to_string())
+    // Normalize to forward slashes so the frontend path display is consistent
+    Ok(output_path.replace('\\', "/"))
 }
 
 #[tauri::command]
@@ -364,7 +381,9 @@ pub fn export_html(
     std::thread::spawn(move || {
         match crate::export::html::export(&session, &path, Some(&app_handle)) {
             Ok(()) => {
-                let _ = app_handle.emit("export-done", &output_path);
+                // Normalize to forward slashes for consistent frontend display
+                let normalized = output_path.replace('\\', "/");
+                let _ = app_handle.emit("export-done", &normalized);
             }
             Err(e) => {
                 let _ = app_handle.emit("export-error", e.to_string());
@@ -426,8 +445,3 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect()
-}

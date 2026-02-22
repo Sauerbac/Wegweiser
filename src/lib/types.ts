@@ -3,6 +3,12 @@ export interface ClickPoint {
   y: number;
 }
 
+/** Mirrors the Rust StepExportChoice enum (serde tag+content). */
+export type StepExportChoice =
+  | { type: 'Primary' }
+  | { type: 'Extra'; value: number }
+  | { type: 'All' };
+
 export interface Step {
   id: number;
   order: number;
@@ -18,6 +24,8 @@ export interface Step {
   description: string;
   timestamp: string;
   keystrokes: string | null;
+  /** Which monitor image(s) to include when exporting this step. */
+  export_choice: StepExportChoice;
 }
 
 export interface Session {

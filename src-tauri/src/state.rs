@@ -18,6 +18,11 @@ pub struct AppState {
     pub selected_monitor: Option<usize>,
     /// Monotonically increasing step ID counter.
     pub next_step_id: usize,
+    /// Monotonically increasing step order counter.
+    /// Incremented atomically in the click handler to avoid a race condition
+    /// where two rapid clicks both read `steps.len() + 1` before either
+    /// capture thread has finished appending its Step to the session.
+    pub next_order: usize,
     /// Keystrokes typed since the last click; drained into the next Step on click.
     pub pending_keystrokes: String,
     /// Modifier key state.
@@ -37,6 +42,7 @@ impl AppState {
             monitor_infos: Vec::new(),
             selected_monitor: None,
             next_step_id: 1,
+            next_order: 1,
             pending_keystrokes: String::new(),
             ctrl_held: false,
             shift_held: false,

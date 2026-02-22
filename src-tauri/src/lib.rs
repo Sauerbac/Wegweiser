@@ -47,6 +47,7 @@ pub fn run() {
             commands::resume_recording,
             commands::delete_step,
             commands::update_step_description,
+            commands::set_step_export_choice,
             commands::load_session_cmd,
             commands::delete_session_cmd,
             commands::new_recording,

@@ -91,6 +91,7 @@ pub fn capture_step(
         description: String::new(),
         timestamp: Utc::now(),
         keystrokes,
+        export_choice: Default::default(),
     })
 }
 

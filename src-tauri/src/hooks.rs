@@ -51,11 +51,16 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 }
                             }
 
-                            // Extract everything we need from the session before mutating
-                            let (order, session_dir) = match st.session.as_ref() {
-                                Some(s) => (s.steps.len() + 1, s.session_dir.clone()),
+                            // Extract everything we need from the session before mutating.
+                            // Use the pre-allocated next_order counter (not steps.len() + 1)
+                            // to avoid a race where two rapid clicks both see steps.len() == 0
+                            // before either capture thread has pushed its Step.
+                            let session_dir = match st.session.as_ref() {
+                                Some(s) => s.session_dir.clone(),
                                 None => return,
                             };
+                            let order = st.next_order;
+                            st.next_order += 1;
 
                             // Determine which monitor to capture; remember whether we are in
                             // "All monitors" mode so the capture thread can grab the extras.

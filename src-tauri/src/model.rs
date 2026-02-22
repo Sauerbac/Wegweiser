@@ -2,6 +2,19 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Controls which monitor image(s) are included when exporting a step.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(tag = "type", content = "value")]
+pub enum StepExportChoice {
+    /// Include only the primary (annotated, click-monitor) image. Default.
+    #[default]
+    Primary,
+    /// Include only the extra image at index `i` (extra_image_paths[i]) as the main image.
+    Extra(usize),
+    /// Include the primary image first, then all extra images as secondary figures.
+    All,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -37,6 +50,10 @@ pub struct Step {
     pub description: String,
     pub timestamp: DateTime<Utc>,
     pub keystrokes: Option<String>,
+    /// Which monitor image(s) to include when exporting this step.
+    /// Absent in older session.json files — defaults to `Primary`.
+    #[serde(default)]
+    pub export_choice: StepExportChoice,
 }
 
 /// Physical-pixel description of a connected monitor, cached at startup/refresh.

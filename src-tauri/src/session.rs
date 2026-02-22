@@ -88,7 +88,20 @@ pub fn save_session(session: &Session) -> Result<()> {
 /// Load a session from a JSON file at `path`.
 pub fn load_session(path: &Path) -> Result<Session> {
     let json = fs::read_to_string(path)?;
-    let session: Session = serde_json::from_str(&json)?;
+    let mut session: Session = serde_json::from_str(&json)?;
+
+    // Migrate: old sessions stored order=1 for every step due to a race
+    // condition that has since been fixed. Re-number sequentially on load
+    // so exports always produce correct Step 1, Step 2, … headers.
+    let needs_renumber = session.steps.windows(2).any(|w| w[0].order >= w[1].order)
+        || session.steps.iter().any(|s| s.order == 0);
+    if needs_renumber {
+        for (i, step) in session.steps.iter_mut().enumerate() {
+            step.order = i + 1;
+        }
+        let _ = save_session(&session);
+    }
+
     Ok(session)
 }
 

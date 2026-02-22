@@ -6,7 +6,7 @@
   import { Textarea } from '$lib/components/ui/textarea';
   import { Progress } from '$lib/components/ui/progress';
   import { store } from '$lib/stores/session.svelte';
-  import type { Step } from '$lib/types';
+  import type { Step, StepExportChoice } from '$lib/types';
   import { MousePointer2 } from '@lucide/svelte';
 
   let selectedStepIdx = $state<number | null>(null);
@@ -101,10 +101,7 @@
       defaultPath: `${store.session?.name ?? 'tutorial'}.md`,
     });
     if (!filePath) return;
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    parts.pop();
-    const outputDir = parts.join('/') || '.';
-    const outPath = await invoke<string>('export_markdown', { outputDir });
+    const outPath = await invoke<string>('export_markdown', { outputPath: filePath });
     store.exportedPath = outPath;
   }
 
@@ -154,6 +151,18 @@
           extraImageCache = { ...extraImageCache, [key]: uri };
         });
       }
+    }
+  }
+
+  async function setExportChoice(choice: StepExportChoice) {
+    if (!selectedStep) return;
+    await invoke('set_step_export_choice', { stepId: selectedStep.id, choice });
+    // Optimistically update the local store so the UI stays in sync.
+    if (store.session) {
+      const steps = store.session.steps.map((s) =>
+        s.id === selectedStep!.id ? { ...s, export_choice: choice } : s
+      );
+      store.session = { ...store.session, steps };
     }
   }
 
@@ -280,6 +289,54 @@
                 {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
               </button>
             {/each}
+          </div>
+        {/if}
+
+        <!-- Export monitor picker (only when extra monitor images exist) -->
+        {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
+          {@const choice = selectedStep.export_choice ?? { type: 'Primary' }}
+          <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border bg-muted/30 px-3 py-1.5">
+            <span class="text-xs font-medium text-muted-foreground">Export:</span>
+
+            <!-- Primary option -->
+            <label class="flex cursor-pointer items-center gap-1 text-xs">
+              <input
+                type="radio"
+                name="export-choice-{selectedStep.id}"
+                checked={choice.type === 'Primary'}
+                onchange={() => setExportChoice({ type: 'Primary' })}
+                class="accent-primary"
+              />
+              <MousePointer2 size={11} class="shrink-0 text-muted-foreground" />
+              {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`} (clicked)
+            </label>
+
+            <!-- One option per extra monitor -->
+            {#each selectedStep.extra_image_paths as _path, i (i)}
+              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+              <label class="flex cursor-pointer items-center gap-1 text-xs">
+                <input
+                  type="radio"
+                  name="export-choice-{selectedStep.id}"
+                  checked={choice.type === 'Extra' && (choice as { type: 'Extra'; value: number }).value === i}
+                  onchange={() => setExportChoice({ type: 'Extra', value: i })}
+                  class="accent-primary"
+                />
+                {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+              </label>
+            {/each}
+
+            <!-- All monitors option -->
+            <label class="flex cursor-pointer items-center gap-1 text-xs">
+              <input
+                type="radio"
+                name="export-choice-{selectedStep.id}"
+                checked={choice.type === 'All'}
+                onchange={() => setExportChoice({ type: 'All' })}
+                class="accent-primary"
+              />
+              All monitors
+            </label>
           </div>
         {/if}
 
