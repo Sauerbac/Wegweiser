@@ -357,10 +357,6 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
     for (index, info) in infos.iter().enumerate() {
         let window_label = format!("identify_{}", index);
         let app_clone = app_handle.clone();
-        let width = info.width as f64;
-        let height = info.height as f64;
-        let x = info.x as f64;
-        let y = info.y as f64;
 
         // Close any existing identify window for this monitor
         if let Some(existing) = app_handle.get_webview_window(&window_label) {
