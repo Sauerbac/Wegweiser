@@ -19,23 +19,38 @@
   }
 </script>
 
-<div
-  class="flex h-screen items-center justify-between bg-zinc-900 px-4 text-white select-none"
-  data-tauri-drag-region
->
-  <!-- Step counter -->
-  <div class="flex items-center gap-2">
-    <div class="h-2.5 w-2.5 rounded-full {isPaused ? 'bg-yellow-400' : 'bg-red-500 animate-pulse'}"></div>
-    <span class="text-sm font-medium">
-      {isPaused ? 'Paused' : 'Recording'}
-    </span>
-    <span class="rounded bg-zinc-700 px-2 py-0.5 text-xs tabular-nums">
-      {stepCount} step{stepCount !== 1 ? 's' : ''}
-    </span>
+<div class="flex h-screen items-center bg-zinc-900 text-white select-none">
+  <!-- Drag handle: fills all space between dots and buttons, covers most of the bar -->
+  <div
+    class="flex flex-1 items-center gap-2 h-full px-3 cursor-move"
+    data-tauri-drag-region
+  >
+    <!-- Grip dots -->
+    <svg
+      width="10" height="16"
+      viewBox="0 0 10 16"
+      class="text-zinc-500 shrink-0 pointer-events-none"
+      aria-hidden="true"
+    >
+      <circle cx="2" cy="2" r="1.5" fill="currentColor"/>
+      <circle cx="2" cy="8" r="1.5" fill="currentColor"/>
+      <circle cx="2" cy="14" r="1.5" fill="currentColor"/>
+      <circle cx="8" cy="2" r="1.5" fill="currentColor"/>
+      <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+      <circle cx="8" cy="14" r="1.5" fill="currentColor"/>
+    </svg>
+    <!-- Status info sits inside drag region; pointer-events:none so it doesn't block dragging -->
+    <div class="flex items-center gap-2 pointer-events-none">
+      <div class="h-2.5 w-2.5 rounded-full {isPaused ? 'bg-yellow-400' : 'bg-red-500 animate-pulse'}"></div>
+      <span class="text-sm font-medium">{isPaused ? 'Paused' : 'Recording'}</span>
+      <span class="rounded bg-zinc-700 px-2 py-0.5 text-xs tabular-nums">
+        {stepCount} step{stepCount !== 1 ? 's' : ''}
+      </span>
+    </div>
   </div>
 
-  <!-- Controls -->
-  <div class="flex items-center gap-2">
+  <!-- Controls — NOT part of drag region so clicks reach the buttons -->
+  <div class="flex items-center gap-1 pr-2 shrink-0">
     <Button
       variant="ghost"
       size="sm"

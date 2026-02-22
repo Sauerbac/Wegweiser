@@ -18,11 +18,6 @@ pub fn list_monitor_infos() -> Vec<MonitorInfo> {
         .collect()
 }
 
-/// Human-readable label for a monitor, e.g. "1: DISPLAY1 (2560×1440)".
-pub fn monitor_display_name(info: &MonitorInfo, index: usize) -> String {
-    format!("{}: {} ({}×{})", index + 1, info.name, info.width, info.height)
-}
-
 /// Capture a screenshot of `monitor_index`, draw a click indicator if
 /// `click` is provided, save as PNG to `session_dir`, and return a `Step`.
 ///

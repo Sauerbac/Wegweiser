@@ -26,6 +26,10 @@
     if (!m) return `Monitor ${idx + 1}`;
     return `${idx + 1}: ${m.name} (${m.width}×${m.height})`;
   }
+
+  async function identifyMonitors() {
+    await invoke('identify_monitors');
+  }
 </script>
 
 <div class="flex h-screen flex-col bg-background text-foreground">
@@ -39,9 +43,20 @@
     <!-- Left: Monitor picker + Start -->
     <div class="flex w-80 flex-col gap-4 border-r p-6">
       <div>
-        <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Monitor
-        </h2>
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Monitor
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            onclick={identifyMonitors}
+            class="text-xs"
+            title="Identify monitors on screen"
+          >
+            ID
+          </Button>
+        </div>
         <div class="flex flex-col gap-2">
           <!-- All monitors option -->
           <label class="flex cursor-pointer items-center gap-2 rounded-md border p-3 transition-colors hover:bg-accent {store.selectedMonitor === null ? 'border-primary bg-accent' : ''}">

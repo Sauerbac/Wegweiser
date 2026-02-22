@@ -6,7 +6,7 @@ use base64::Engine;
 use chrono::Utc;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow};
 use uuid::Uuid;
 
 type AppStateHandle = Arc<Mutex<AppState>>;
@@ -58,6 +58,21 @@ pub fn start_recording(
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 380, height: 64 }));
     let _ = window.set_decorations(false);
     let _ = window.set_always_on_top(true);
+
+    // Position at top-center of the active monitor (where mouse is currently)
+    let infos = {
+        let st = state.lock().unwrap();
+        st.monitor_infos.clone()
+    };
+
+    // Use selected monitor or primary monitor (index 0) as fallback
+    let monitor_idx = monitor_index.unwrap_or(0);
+    if let Some(monitor) = infos.get(monitor_idx) {
+        let window_width = 380i32;
+        let x = monitor.x + (monitor.width as i32 - window_width) / 2;
+        let y = monitor.y;
+        let _ = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 });
+    }
 
     // Record mini-bar window position for self-click filtering
     if let Ok(pos) = window.outer_position() {
@@ -333,6 +348,56 @@ pub fn export_html(
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
+    let infos = crate::capture::list_monitor_infos();
+
+    for (index, info) in infos.iter().enumerate() {
+        let window_label = format!("identify_{}", index);
+        let app_clone = app_handle.clone();
+        let width = info.width as f64;
+        let height = info.height as f64;
+        let x = info.x as f64;
+        let y = info.y as f64;
+
+        // Close any existing identify window for this monitor
+        if let Some(existing) = app_handle.get_webview_window(&window_label) {
+            let _ = existing.destroy();
+        }
+
+        // Small badge at bottom-left of this monitor
+        let badge_w = 120.0f64;
+        let badge_h = 76.0f64;
+        let margin = 24.0f64;
+        let badge_x = info.x as f64 + margin;
+        let badge_y = info.y as f64 + info.height as f64 - badge_h - margin;
+
+        let label_clone = window_label.clone();
+        std::thread::spawn(move || {
+            let url = WebviewUrl::App(format!("identify?monitor={}", index).into());
+            let result = tauri::WebviewWindowBuilder::new(&app_clone, &label_clone, url)
+                .title(format!("Monitor {}", index + 1))
+                .inner_size(badge_w, badge_h)
+                .position(badge_x, badge_y)
+                .resizable(false)
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .visible(false)          // hidden until page signals ready → no flash
+                .build();
+
+            if result.is_ok() {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                if let Some(w) = app_clone.get_webview_window(&label_clone) {
+                    let _ = w.destroy();
+                }
+            }
+        });
+    }
+
+    Ok(())
 }
 
 fn sanitize_filename(name: &str) -> String {
