@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { store } from '$lib/stores/session.svelte';
+  import { Monitor, RefreshCw } from '@lucide/svelte';
 
   let pendingDelete = $state<string | null>(null);
 
@@ -48,12 +49,12 @@
             Monitor
           </h2>
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onclick={identifyMonitors}
-            class="text-xs"
             title="Identify monitors on screen"
           >
+            <Monitor />
             Identify
           </Button>
         </div>
@@ -96,7 +97,8 @@
         <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Past Recordings
         </h2>
-        <Button variant="ghost" size="sm" onclick={() => store.refreshSessions()}>
+        <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
+          <RefreshCw />
           Refresh
         </Button>
       </div>
