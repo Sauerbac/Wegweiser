@@ -1,4 +1,4 @@
-use crate::capture::list_monitor_infos;
+use crate::capture::{capture_step, list_monitor_infos};
 use crate::model::{Session, StepExportChoice};
 use crate::session::{self, SessionMeta};
 use crate::state::{AppState, RecordingState};
@@ -98,7 +98,8 @@ pub fn stop_recording(
     app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<(), String> {
-    let current_session = {
+    // Collect everything we need from state and transition to Reviewing.
+    let (current_session, pending_ks, step_id, order, monitor_index, all_monitors) = {
         let mut st = state.lock().unwrap();
         if st.recording_state != RecordingState::Recording
             && st.recording_state != RecordingState::Paused
@@ -107,9 +108,55 @@ pub fn stop_recording(
         }
         st.recording_state = RecordingState::Reviewing;
         st.rec_window_bounds = None;
+
+        let pending_ks = st.pending_keystrokes.clone();
+        let step_id = st.next_step_id;
+        let order = st.next_order;
+        let monitor_index = st.selected_monitor;
+        // "All monitors" is indicated by selected_monitor being None while
+        // the session itself stores monitor_index as None too.
+        let all_monitors = st.session.as_ref().map_or(false, |s| s.monitor_index.is_none());
+
+        // Increment counters now so that no other thread can reuse these IDs,
+        // even though we are about to stop.
+        if !pending_ks.is_empty() {
+            st.next_step_id += 1;
+            st.next_order += 1;
+            st.pending_keystrokes.clear();
+        }
+
         if let Some(ref session) = st.session {
             let _ = session::save_session(session);
         }
+
+        (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors)
+    };
+
+    // If there were buffered keystrokes with no trailing click, capture a final
+    // step now (synchronous call is acceptable — we are stopping).
+    if !pending_ks.is_empty() {
+        if let Some(ref sess) = current_session {
+            let mon_idx = monitor_index.unwrap_or(0);
+            match capture_step(mon_idx, None, step_id, order, &sess.session_dir, Some(pending_ks), all_monitors) {
+                Ok(new_step) => {
+                    // Push the step into the session and persist.
+                    {
+                        let mut st = state.lock().unwrap();
+                        if let Some(ref mut session) = st.session {
+                            session.steps.push(new_step.clone());
+                            let _ = session::save_session(session);
+                        }
+                    }
+                    let _ = app_handle.emit("step-captured", &new_step);
+                }
+                Err(e) => eprintln!("[stop_recording] keystroke-only step capture failed: {e}"),
+            }
+        }
+    }
+
+    // Re-read session (may now include the keystroke-only step).
+    let current_session = {
+        let st = state.lock().unwrap();
         st.session.clone()
     };
 
