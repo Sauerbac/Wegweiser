@@ -1,6 +1,7 @@
 use crate::model::{ClickPoint, MonitorInfo, Step};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
+use std::fs;
 use std::path::PathBuf;
 use xcap::Monitor;
 
@@ -57,6 +58,7 @@ pub fn capture_step(
 
     let filename = format!("step_{:04}.png", step_id);
     let image_path = session_dir.join(&filename);
+    fs::create_dir_all(session_dir)?;
     rgba.save(&image_path)?;
 
     // When "All monitors" is selected, capture the remaining monitors without
@@ -111,6 +113,7 @@ pub fn capture_plain(
     let rgba = monitor.capture_image()?;
     let filename = format!("step_{:04}_mon{}.png", step_id, monitor_idx_label);
     let path = session_dir.join(&filename);
+    fs::create_dir_all(session_dir)?;
     rgba.save(&path)?;
     Ok(path)
 }
