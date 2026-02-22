@@ -15,6 +15,8 @@
     "core:window:allow-show",
     "core:window:allow-start-dragging",
     "dialog:allow-save",
-    "opener:allow-open-path"
+    "opener:allow-open-path",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
   ]
 }

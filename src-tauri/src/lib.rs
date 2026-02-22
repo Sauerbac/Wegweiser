@@ -27,10 +27,15 @@ pub fn run() {
             .build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(app_state.clone())
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            hooks::spawn_hook_thread(app_handle, app_state.clone());
+            hooks::spawn_hook_thread(app_handle.clone(), app_state.clone());
+
+            // Register global shortcuts for pause (Ctrl+Shift+P) and stop (Ctrl+Shift+Q)
+            hooks::register_global_hotkeys(&app_handle, app_state.clone())?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

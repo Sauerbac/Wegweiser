@@ -3,7 +3,8 @@ use crate::session::save_session;
 use crate::state::{AppState, RecordingState};
 use rdev::{listen, Button, EventType, Key};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Spawns the global input hook on a dedicated thread.
 ///
@@ -132,37 +133,6 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                             let mut st = state.lock().unwrap();
                             st.alt_held = true;
                         }
-                        Key::KeyP if ctrl_held && shift_held => {
-                            let mut st = state.lock().unwrap();
-                            match st.recording_state {
-                                RecordingState::Recording => {
-                                    st.recording_state = RecordingState::Paused;
-                                }
-                                RecordingState::Paused => {
-                                    st.recording_state = RecordingState::Recording;
-                                }
-                                _ => {}
-                            }
-                            let new_state = st.recording_state.clone();
-                            drop(st);
-                            let _ = app_handle.emit("recording-state-changed", new_state);
-                        }
-                        Key::KeyQ if ctrl_held && shift_held => {
-                            {
-                                let mut st = state.lock().unwrap();
-                                if st.recording_state == RecordingState::Recording
-                                    || st.recording_state == RecordingState::Paused
-                                {
-                                    st.recording_state = RecordingState::Reviewing;
-                                    if let Some(ref session) = st.session {
-                                        let _ = save_session(session);
-                                    }
-                                } else {
-                                    return;
-                                }
-                            }
-                            let _ = app_handle.emit("recording-state-changed", RecordingState::Reviewing);
-                        }
                         _ => {
                             // Accumulate keystrokes for the next step
                             let alt = {
@@ -203,6 +173,92 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
             }
         })
         .expect("failed to spawn hook thread");
+}
+
+/// Register global hotkeys for pause (Ctrl+Shift+P) and stop (Ctrl+Shift+Q).
+///
+/// Uses the OS-level global shortcut API via `tauri-plugin-global-shortcut`,
+/// which intercepts hotkeys before the Chromium WebView can consume them
+/// (e.g. Ctrl+Shift+P would otherwise open the Print dialog).
+pub fn register_global_hotkeys(
+    app_handle: &AppHandle,
+    state: Arc<Mutex<AppState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let shortcuts = app_handle.global_shortcut();
+
+    // Ctrl+Shift+P → toggle pause/resume
+    let state_pause = state.clone();
+    let app_pause = app_handle.clone();
+    shortcuts.on_shortcut("ctrl+shift+p", move |_app, _shortcut, event| {
+        if event.state != ShortcutState::Pressed {
+            return;
+        }
+        let mut st = state_pause.lock().unwrap();
+        match st.recording_state {
+            RecordingState::Recording => {
+                st.recording_state = RecordingState::Paused;
+            }
+            RecordingState::Paused => {
+                st.recording_state = RecordingState::Recording;
+            }
+            _ => return,
+        }
+        let new_state = st.recording_state.clone();
+        drop(st);
+        let _ = app_pause.emit("recording-state-changed", new_state);
+    })?;
+
+    // Ctrl+Shift+Q → stop recording
+    let state_stop = state.clone();
+    let app_stop = app_handle.clone();
+    shortcuts.on_shortcut("ctrl+shift+q", move |_app, _shortcut, event| {
+        if event.state != ShortcutState::Pressed {
+            return;
+        }
+        let current_session = {
+            let mut st = state_stop.lock().unwrap();
+            if st.recording_state != RecordingState::Recording
+                && st.recording_state != RecordingState::Paused
+            {
+                return;
+            }
+            st.recording_state = RecordingState::Reviewing;
+            st.rec_window_bounds = None;
+            if let Some(ref session) = st.session {
+                let _ = save_session(session);
+            }
+            st.session.clone()
+        };
+
+        // Restore full window
+        if let Some(window) = app_stop.get_webview_window("main") {
+            let _ = window.set_always_on_top(false);
+            let _ = window.set_decorations(true);
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
+        }
+
+        // Auto-delete empty recordings and reset to Idle
+        if let Some(ref sess) = current_session {
+            if sess.steps.is_empty() {
+                let _ = crate::session::delete_session(&sess.session_dir);
+                {
+                    let mut st = state_stop.lock().unwrap();
+                    st.recording_state = RecordingState::Idle;
+                    st.session = None;
+                }
+                let _ = app_stop.emit("recording-state-changed", RecordingState::Idle);
+                return;
+            }
+        }
+
+        // Emit session data and state change to review screen
+        if let Some(ref sess) = current_session {
+            let _ = app_stop.emit("session-updated", sess);
+        }
+        let _ = app_stop.emit("recording-state-changed", RecordingState::Reviewing);
+    })?;
+
+    Ok(())
 }
 
 fn find_monitor_for_click(monitors: &[crate::model::MonitorInfo], x: i32, y: i32) -> Option<usize> {
@@ -272,7 +328,7 @@ fn key_token(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<String> {
         _ => return None,
     };
 
-    // Printable single-character keys (letters and digits).
+    // Printable single-character keys (letters, digits, and Space).
     let is_printable = matches!(
         key,
         Key::KeyA | Key::KeyB | Key::KeyC | Key::KeyD | Key::KeyE | Key::KeyF
@@ -282,6 +338,7 @@ fn key_token(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<String> {
         | Key::KeyY | Key::KeyZ
         | Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4
         | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9
+        | Key::Space
     );
 
     if ctrl || alt {
@@ -297,17 +354,27 @@ fn key_token(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<String> {
         if is_printable {
             // Shift + letter/digit → uppercase (rdev gives no shift-symbol info,
             // so we uppercase ASCII letters and keep digits as-is).
-            let ch = name.chars().next().unwrap();
-            Some(ch.to_ascii_uppercase().to_string())
+            // Shift + Space → [Shift+Space] (Space is special)
+            if matches!(key, Key::Space) {
+                Some("[Shift+Space]".to_string())
+            } else {
+                let ch = name.chars().next().unwrap();
+                Some(ch.to_ascii_uppercase().to_string())
+            }
         } else {
             // Shift + special key → [Shift+Enter], [Shift+Tab], etc.
             Some(format!("[Shift+{name}]"))
         }
     } else if is_printable {
         // Plain printable key → lowercase character.
-        Some(name.to_ascii_lowercase().to_string())
+        // Space is special: return a literal space character when pressed alone.
+        if matches!(key, Key::Space) {
+            Some(" ".to_string())
+        } else {
+            Some(name.to_ascii_lowercase().to_string())
+        }
     } else {
-        // Plain special key → [Space], [Enter], [Backspace], etc.
+        // Plain special key → [Enter], [Backspace], etc.
         Some(format!("[{name}]"))
     }
 }
