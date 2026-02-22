@@ -38,11 +38,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f97316;
+    background: var(--primary);
     border-radius: 0;
     font-size: 2.5rem;
     font-weight: 900;
-    color: white;
+    color: var(--primary-foreground);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     letter-spacing: -0.02em;
   }

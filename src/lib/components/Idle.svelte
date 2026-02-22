@@ -54,7 +54,7 @@
             class="text-xs"
             title="Identify monitors on screen"
           >
-            ID
+            Identify
           </Button>
         </div>
         <div class="flex flex-col gap-2">
