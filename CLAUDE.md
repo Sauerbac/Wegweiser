@@ -82,7 +82,7 @@ A session lives in `%LOCALAPPDATA%\rec\sessions\<uuid>\`. `session.json` is auto
 
 When recording starts the window shrinks to ~380×64, borderless, always-on-top, and positions at top-center of the selected monitor. On stop it restores to 900×650 with decorations. This is done via `tauri::WebviewWindow` methods called from Rust commands.
 
-**Drag handle**: Left side of mini-bar has visible grip-dot icon (SVG) with `data-tauri-drag-region` for window dragging; buttons are outside the region so they remain clickable.
+**Drag handle**: Left side of mini-bar has `<GripVertical>` (lucide) with `data-tauri-drag-region` for window dragging; buttons are outside the region so they remain clickable.
 
 ### Monitor identification
 
@@ -121,6 +121,7 @@ No tests exist yet.
 - **Always use Tailwind utility classes** for all frontend styling. Do not write raw CSS in `<style>` blocks unless it is genuinely impossible with Tailwind (e.g. `:global()` overrides targeting child components, or per-route `html`/`body` resets).
 - Use **shadcn CSS variables** (`--primary`, `--muted`, `--border`, etc.) via their Tailwind token equivalents (`bg-primary`, `text-muted-foreground`, `border-border`, etc.) — never hardcode color hex/hsl values in components.
 - `src/routes/layout.css` is the theme foundation (shadcn variable definitions + `@import` directives) — do not add utility-style rules there.
+- **Icons**: always use `@lucide/svelte` — no hand-authored SVGs. Buttons with icons use `gap-1.5` or `gap-2`. Icon sizes: `size={14}` in toolbar buttons, `size={13}` in small action buttons, `size={12}` for inline/tab icons. Icon-only buttons (e.g. delete) use a `title` attribute for tooltip. Destructive actions use `Trash2`; navigation uses `ArrowLeft`; exports use `FileDown`/`FileCode`.
 
 ## Workflow
 
@@ -128,17 +129,3 @@ No tests exist yet.
 - Commit messages should describe what changed and why.
 - The egui reference implementation lives in `egui-reference/` — consult it when porting logic but do not modify it.
 
-## Port status
-
-| Area | Status |
-|------|--------|
-| Project skeleton (Tauri + SvelteKit + shadcn + Tailwind) | ✅ done |
-| Rust model types (Session, Step, ClickPoint) | pending |
-| Hook thread + click capture | pending |
-| Tauri commands (start/stop/pause/delete) | pending |
-| Frontend state machine UI | pending |
-| Idle screen (monitor picker, session library) | pending |
-| Recording mini-bar | pending |
-| Review screen (step list, preview, editor) | pending |
-| Markdown export | pending |
-| HTML export | pending |
