@@ -3,7 +3,7 @@ use crate::model::{Session, StepExportChoice};
 use crate::session::{self, SessionMeta};
 use crate::state::{AppState, RecordingState};
 use base64::Engine;
-use chrono::Utc;
+use chrono::Local;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow};
@@ -30,13 +30,14 @@ pub fn start_recording(
 ) -> Result<(), String> {
     // Create session directory
     let session_dir = session::create_session_dir().map_err(|e| e.to_string())?;
-    let now = Utc::now();
-    let session_name = format!("Recording {}", now.format("%Y-%m-%d %H-%M"));
+    let now_local = Local::now();
+    let session_name = format!("Recording {}", now_local.format("%Y-%m-%d %H-%M"));
+    let now_utc = now_local.with_timezone(&chrono::Utc);
 
     let new_session = Session {
         id: Uuid::new_v4().to_string(),
         name: session_name,
-        created_at: now,
+        created_at: now_utc,
         monitor_index,
         steps: Vec::new(),
         session_dir,
