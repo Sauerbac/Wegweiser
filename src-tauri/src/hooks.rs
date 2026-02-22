@@ -60,7 +60,24 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                             // Determine which monitor to capture; remember whether we are in
                             // "All monitors" mode so the capture thread can grab the extras.
                             let (monitor_idx, all_monitors) = match st.selected_monitor {
-                                Some(idx) => (idx, false),
+                                Some(idx) => {
+                                    // Single monitor mode: only capture if the click is on the selected monitor
+                                    if let Some(selected_monitor_idx) = find_monitor_for_click(
+                                        &st.monitor_infos,
+                                        click_x,
+                                        click_y,
+                                    ) {
+                                        if selected_monitor_idx == idx {
+                                            (idx, false)
+                                        } else {
+                                            // Click is on a different monitor, skip capture
+                                            return;
+                                        }
+                                    } else {
+                                        // Click is not on any monitor, skip capture
+                                        return;
+                                    }
+                                }
                                 None => {
                                     // "All monitors": primary is the one containing the click
                                     let idx = find_monitor_for_click(
