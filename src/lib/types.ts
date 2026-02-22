@@ -7,6 +7,13 @@ export interface Step {
   id: number;
   order: number;
   image_path: string;
+  /** Paths to unannotated screenshots of the other monitors captured when
+   *  "All monitors" is selected.  Empty for single-monitor sessions. */
+  extra_image_paths: string[];
+  /** Monitor list index for the primary (annotated) image. */
+  click_monitor_index: number;
+  /** Monitor list indices parallel to extra_image_paths. */
+  extra_monitor_indices: number[];
   click: ClickPoint | null;
   description: string;
   timestamp: string;

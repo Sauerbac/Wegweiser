@@ -32,7 +32,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                         let click_x = last_x as i32;
                         let click_y = last_y as i32;
 
-                        let (should_capture, monitor_idx, step_id, order, session_dir, keystrokes) = {
+                        let (should_capture, monitor_idx, all_monitors, step_id, order, session_dir, keystrokes) = {
                             let mut st = state.lock().unwrap();
 
                             if st.recording_state != RecordingState::Recording {
@@ -56,13 +56,19 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 None => return,
                             };
 
-                            // Determine which monitor to capture
-                            let monitor_idx = match st.selected_monitor {
-                                Some(idx) => idx,
+                            // Determine which monitor to capture; remember whether we are in
+                            // "All monitors" mode so the capture thread can grab the extras.
+                            let (monitor_idx, all_monitors) = match st.selected_monitor {
+                                Some(idx) => (idx, false),
                                 None => {
-                                    // "All monitors": find which monitor the click is on
-                                    find_monitor_for_click(&st.monitor_infos, click_x, click_y)
-                                        .unwrap_or(0)
+                                    // "All monitors": primary is the one containing the click
+                                    let idx = find_monitor_for_click(
+                                        &st.monitor_infos,
+                                        click_x,
+                                        click_y,
+                                    )
+                                    .unwrap_or(0);
+                                    (idx, true)
                                 }
                             };
 
@@ -74,7 +80,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 Some(std::mem::take(&mut st.pending_keystrokes))
                             };
 
-                            (true, monitor_idx, step_id, order, session_dir, keystrokes)
+                            (true, monitor_idx, all_monitors, step_id, order, session_dir, keystrokes)
                         };
 
                         if !should_capture {
@@ -94,6 +100,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 order,
                                 &session_dir,
                                 keystrokes,
+                                all_monitors,
                             ) {
                                 Ok(step) => {
                                     let mut st = state_clone.lock().unwrap();

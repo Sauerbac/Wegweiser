@@ -21,6 +21,10 @@ pub fn list_monitor_infos() -> Vec<MonitorInfo> {
 /// Capture a screenshot of `monitor_index`, draw a click indicator if
 /// `click` is provided, save as PNG to `session_dir`, and return a `Step`.
 ///
+/// When `all_monitors` is `true` every monitor **other** than `monitor_index`
+/// is also captured (without annotation) and their paths are stored in
+/// `Step::extra_image_paths`.
+///
 /// This function is **slow** (~50–200 ms); always call it from a spawned thread.
 pub fn capture_step(
     monitor_index: usize,
@@ -29,6 +33,7 @@ pub fn capture_step(
     order: usize,
     session_dir: &PathBuf,
     keystrokes: Option<String>,
+    all_monitors: bool,
 ) -> Result<Step> {
     let monitors = Monitor::all()?;
     let monitor = monitors
@@ -54,13 +59,58 @@ pub fn capture_step(
     let image_path = session_dir.join(&filename);
     rgba.save(&image_path)?;
 
+    // When "All monitors" is selected, capture the remaining monitors without
+    // annotation and collect their paths and indices into the parallel arrays.
+    let (extra_image_paths, extra_monitor_indices) = if all_monitors {
+        let mut paths = Vec::new();
+        let mut indices = Vec::new();
+        for (idx, _) in monitors.iter().enumerate().filter(|(idx, _)| *idx != monitor_index) {
+            match capture_plain(idx, step_id, idx, session_dir) {
+                Ok(path) => {
+                    paths.push(path);
+                    indices.push(idx);
+                }
+                Err(e) => eprintln!("[capture] extra monitor {idx} error: {e}"),
+            }
+        }
+        (paths, indices)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
     Ok(Step {
         id: step_id,
         order,
         image_path,
+        extra_image_paths,
+        click_monitor_index: monitor_index,
+        extra_monitor_indices,
         click,
         description: String::new(),
         timestamp: Utc::now(),
         keystrokes,
     })
+}
+
+/// Capture a plain (unannotated) screenshot of the monitor at `monitor_index`
+/// and save it as `step_{step_id:04}_mon{monitor_idx_label}.png` in
+/// `session_dir`.  Returns the saved path on success.
+///
+/// This helper is used by `capture_step` when "All monitors" is selected.
+pub fn capture_plain(
+    monitor_index: usize,
+    step_id: usize,
+    monitor_idx_label: usize,
+    session_dir: &PathBuf,
+) -> Result<PathBuf> {
+    let monitors = Monitor::all()?;
+    let monitor = monitors
+        .get(monitor_index)
+        .ok_or_else(|| anyhow!("Monitor index {} not found", monitor_index))?;
+
+    let rgba = monitor.capture_image()?;
+    let filename = format!("step_{:04}_mon{}.png", step_id, monitor_idx_label);
+    let path = session_dir.join(&filename);
+    rgba.save(&path)?;
+    Ok(path)
 }

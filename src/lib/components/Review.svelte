@@ -7,9 +7,17 @@
   import { Progress } from '$lib/components/ui/progress';
   import { store } from '$lib/stores/session.svelte';
   import type { Step } from '$lib/types';
+  import { MousePointer2 } from '@lucide/svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
+  /** Cache for extra (non-primary) monitor images. Key: `${step.id}_extra_${i}` */
+  let extraImageCache = $state<Record<string, string>>({});
+  /**
+   * Which monitor tab is shown in the detail view.
+   * 'primary' = the annotated click-monitor image; 'extra_N' = the N-th extra image.
+   */
+  let activeMonitorTab = $state<string>('primary');
   let descriptionDraft = $state('');
 
   let selectedStep = $derived<Step | null>(
@@ -21,7 +29,7 @@
     selectedStepIdx !== null ? selectedStepIdx + 1 : null
   );
 
-  // Load image when selection changes
+  // Load image when selection changes; reset the monitor tab to primary.
   $effect(() => {
     const step = selectedStep;
     if (step && !imageCache[step.id]) {
@@ -30,6 +38,8 @@
       });
     }
     descriptionDraft = step?.description ?? '';
+    // Always start on the primary (annotated) image when a new step is selected.
+    activeMonitorTab = 'primary';
   });
 
   // Pre-select first step when session loads
@@ -39,7 +49,8 @@
     }
   });
 
-  // Eagerly pre-load images for all steps not yet in the cache (bug-006)
+  // Eagerly pre-load images for all steps not yet in the cache (bug-006).
+  // Also pre-load extra monitor images for "All monitors" sessions.
   $effect(() => {
     const steps = store.session?.steps ?? [];
     for (const step of steps) {
@@ -47,6 +58,14 @@
         invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
           imageCache = { ...imageCache, [step.id]: uri };
         });
+      }
+      for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
+        const key = `${step.id}_extra_${i}`;
+        if (!extraImageCache[key]) {
+          invoke<string>('get_step_image', { imagePath: step.extra_image_paths[i] }).then((uri) => {
+            extraImageCache = { ...extraImageCache, [key]: uri };
+          });
+        }
       }
     }
   });
@@ -110,6 +129,8 @@
   async function newRecording() {
     selectedStepIdx = null;
     imageCache = {};
+    extraImageCache = {};
+    activeMonitorTab = 'primary';
     store.exportedPath = null;
     store.exportError = null;
     await invoke('new_recording');
@@ -118,11 +139,21 @@
 
   function selectStep(idx: number) {
     selectedStepIdx = idx;
+    activeMonitorTab = 'primary';
     const step = store.session?.steps[idx];
-    if (step && !imageCache[step.id]) {
+    if (!step) return;
+    if (!imageCache[step.id]) {
       invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
         imageCache = { ...imageCache, [step.id]: uri };
       });
+    }
+    for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
+      const key = `${step.id}_extra_${i}`;
+      if (!extraImageCache[key]) {
+        invoke<string>('get_step_image', { imagePath: step.extra_image_paths[i] }).then((uri) => {
+          extraImageCache = { ...extraImageCache, [key]: uri };
+        });
+      }
     }
   }
 
@@ -230,18 +261,56 @@
           </Button>
         </div>
 
+        <!-- Monitor tabs (only visible when extra monitor images exist) -->
+        {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
+          <div class="mb-2 flex flex-wrap gap-1">
+            <button
+              class="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors {activeMonitorTab === 'primary' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
+              onclick={() => (activeMonitorTab = 'primary')}
+            >
+              <MousePointer2 size={12} class="shrink-0" />
+              {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+            </button>
+            {#each selectedStep.extra_image_paths as _path, i (i)}
+              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+              <button
+                class="rounded px-2 py-0.5 text-xs font-medium transition-colors {activeMonitorTab === `extra_${i}` ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
+                onclick={() => (activeMonitorTab = `extra_${i}`)}
+              >
+                {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+              </button>
+            {/each}
+          </div>
+        {/if}
+
         <!-- Image -->
         <div class="mb-3 flex-1 overflow-auto rounded border bg-black/5 dark:bg-white/5">
-          {#if imageCache[selectedStep.id]}
-            <img
-              src={imageCache[selectedStep.id]}
-              alt="Step {selectedStepDisplayNum}"
-              class="max-h-full max-w-full object-contain"
-            />
+          {#if activeMonitorTab === 'primary'}
+            {#if imageCache[selectedStep.id]}
+              <img
+                src={imageCache[selectedStep.id]}
+                alt="Step {selectedStepDisplayNum}"
+                class="max-h-full max-w-full object-contain"
+              />
+            {:else}
+              <div class="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading…
+              </div>
+            {/if}
           {:else}
-            <div class="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Loading…
-            </div>
+            {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
+            {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
+            {#if extraImageCache[extraKey]}
+              <img
+                src={extraImageCache[extraKey]}
+                alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
+                class="max-h-full max-w-full object-contain"
+              />
+            {:else}
+              <div class="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading…
+              </div>
+            {/if}
           {/if}
         </div>
 

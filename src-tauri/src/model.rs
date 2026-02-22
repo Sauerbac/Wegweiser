@@ -21,6 +21,18 @@ pub struct Step {
     pub id: usize,
     pub order: usize,
     pub image_path: PathBuf,
+    /// Extra screenshots captured when "All monitors" is selected.
+    /// Each entry is the path to a plain (unannotated) PNG for a monitor other
+    /// than the one where the click occurred.  The field is absent in older
+    /// session.json files — `#[serde(default)]` handles that transparently.
+    #[serde(default)]
+    pub extra_image_paths: Vec<PathBuf>,
+    /// Index into the monitor list for the monitor that was clicked (primary image).
+    #[serde(default)]
+    pub click_monitor_index: usize,
+    /// Monitor indices for each entry in `extra_image_paths` (parallel array).
+    #[serde(default)]
+    pub extra_monitor_indices: Vec<usize>,
     pub click: Option<ClickPoint>,
     pub description: String,
     pub timestamp: DateTime<Utc>,
