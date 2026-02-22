@@ -80,7 +80,13 @@ A session lives in `%LOCALAPPDATA%\rec\sessions\<uuid>\`. `session.json` is auto
 
 ### Window morphing (mini-bar)
 
-When recording starts the window shrinks to ~380×64, borderless, always-on-top. On stop it restores to 900×650 with decorations. This is done via `tauri::WebviewWindow` methods called from Rust commands.
+When recording starts the window shrinks to ~380×64, borderless, always-on-top, and positions at top-center of the selected monitor. On stop it restores to 900×650 with decorations. This is done via `tauri::WebviewWindow` methods called from Rust commands.
+
+**Drag handle**: Left side of mini-bar has visible grip-dot icon (SVG) with `data-tauri-drag-region` for window dragging; buttons are outside the region so they remain clickable.
+
+### Monitor identification
+
+`identify_monitors` command creates small 120×76px transparent windows on each monitor (bottom-left corner) showing a large number badge. Windows start hidden and show once rendered to avoid white flash. Auto-closes after 3 seconds. Triggered via "ID" button in monitor selection screen.
 
 ## Commands
 
