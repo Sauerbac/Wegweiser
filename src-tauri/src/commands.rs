@@ -84,6 +84,10 @@ pub fn start_recording(
         .emit("recording-state-changed", RecordingState::Recording)
         .map_err(|e| e.to_string())?;
 
+    app_handle
+        .emit("session-updated", &new_session)
+        .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -93,7 +97,7 @@ pub fn stop_recording(
     app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<(), String> {
-    {
+    let current_session = {
         let mut st = state.lock().unwrap();
         if st.recording_state != RecordingState::Recording
             && st.recording_state != RecordingState::Paused
@@ -105,12 +109,38 @@ pub fn stop_recording(
         if let Some(ref session) = st.session {
             let _ = session::save_session(session);
         }
-    }
+        st.session.clone()
+    };
 
     // Restore full window
     let _ = window.set_always_on_top(false);
     let _ = window.set_decorations(true);
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
+
+    // Auto-delete recordings with 0 steps
+    if let Some(ref sess) = current_session {
+        if sess.steps.is_empty() {
+            // Delete the session directory from disk
+            let _ = session::delete_session(&sess.session_dir);
+            // Reset state back to Idle
+            {
+                let mut st = state.lock().unwrap();
+                st.recording_state = RecordingState::Idle;
+                st.session = None;
+            }
+            app_handle
+                .emit("recording-state-changed", RecordingState::Idle)
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    }
+
+    // Emit session data before state transition so Review screen has data ready
+    if let Some(ref sess) = current_session {
+        app_handle
+            .emit("session-updated", sess)
+            .map_err(|e| e.to_string())?;
+    }
 
     app_handle
         .emit("recording-state-changed", RecordingState::Reviewing)
