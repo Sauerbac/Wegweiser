@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { store } from '$lib/stores/session.svelte';
+  import { GripVertical, Pause, Play, Square } from '@lucide/svelte';
 
   let stepCount = $derived(store.session?.steps.length ?? 0);
   let isPaused = $derived(store.recordingState === 'paused');
@@ -26,19 +27,11 @@
     data-tauri-drag-region
   >
     <!-- Grip dots -->
-    <svg
-      width="10" height="16"
-      viewBox="0 0 10 16"
+    <GripVertical
+      size={16}
       class="text-zinc-500 shrink-0 pointer-events-none"
       aria-hidden="true"
-    >
-      <circle cx="2" cy="2" r="1.5" fill="currentColor"/>
-      <circle cx="2" cy="8" r="1.5" fill="currentColor"/>
-      <circle cx="2" cy="14" r="1.5" fill="currentColor"/>
-      <circle cx="8" cy="2" r="1.5" fill="currentColor"/>
-      <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
-      <circle cx="8" cy="14" r="1.5" fill="currentColor"/>
-    </svg>
+    />
     <!-- Status info sits inside drag region; pointer-events:none so it doesn't block dragging -->
     <div class="flex items-center gap-2 pointer-events-none">
       <div class="h-2.5 w-2.5 rounded-full {isPaused ? 'bg-yellow-400' : 'bg-red-500 animate-pulse'}"></div>
@@ -55,16 +48,20 @@
       variant="ghost"
       size="sm"
       onclick={togglePause}
-      class="h-7 text-xs text-white hover:bg-zinc-700 hover:text-white"
+      class="h-7 gap-1 text-xs text-white hover:bg-zinc-700 hover:text-white"
     >
-      {isPaused ? 'Resume' : 'Pause'}
+      {#if isPaused}
+        <Play size={12} />{' '}Resume
+      {:else}
+        <Pause size={12} />{' '}Pause
+      {/if}
     </Button>
     <Button
       size="sm"
       onclick={stopRecording}
-      class="h-7 bg-red-600 text-xs hover:bg-red-700 text-white"
+      class="h-7 gap-1 bg-red-600 text-xs hover:bg-red-700 text-white"
     >
-      Stop
+      <Square size={12} />Stop
     </Button>
   </div>
 </div>

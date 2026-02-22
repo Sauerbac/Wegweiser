@@ -7,7 +7,7 @@
   import { Progress } from '$lib/components/ui/progress';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
-  import { MousePointer2 } from '@lucide/svelte';
+  import { ArrowLeft, ExternalLink, FileCode, FileDown, MousePointer2, Trash2 } from '@lucide/svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -196,9 +196,9 @@
   <div class="flex items-center gap-2 border-b px-4 py-2">
     <span class="mr-2 text-sm font-semibold">{store.session?.name ?? 'Review'}</span>
     <div class="flex-1"></div>
-    <Button variant="outline" size="sm" onclick={exportMarkdown}>Export MD</Button>
-    <Button variant="outline" size="sm" onclick={exportHtml}>Export HTML</Button>
-    <Button size="sm" onclick={newRecording}>Back to Home</Button>
+    <Button variant="outline" size="sm" onclick={exportMarkdown} class="gap-1.5"><FileDown size={14} />Export MD</Button>
+    <Button variant="outline" size="sm" onclick={exportHtml} class="gap-1.5"><FileCode size={14} />Export HTML</Button>
+    <Button size="sm" onclick={newRecording} class="gap-1.5"><ArrowLeft size={14} />Back to Home</Button>
   </div>
 
   <!-- Export progress / result -->
@@ -214,7 +214,7 @@
       <span class="flex-1 truncate text-xs text-green-700 dark:text-green-300">
         Exported: {store.exportedPath}
       </span>
-      <Button variant="outline" size="sm" onclick={openExported}>Open</Button>
+      <Button variant="outline" size="sm" onclick={openExported} class="gap-1.5"><ExternalLink size={13} />Open</Button>
     </div>
   {/if}
 
@@ -265,8 +265,9 @@
             size="sm"
             onclick={() => deleteStep(selectedStep!.id)}
             class="text-destructive hover:text-destructive"
+            title="Delete step"
           >
-            Delete Step
+            <Trash2 size={15} />
           </Button>
         </div>
 

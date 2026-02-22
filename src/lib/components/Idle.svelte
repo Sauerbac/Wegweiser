@@ -2,7 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { store } from '$lib/stores/session.svelte';
-  import { Monitor, RefreshCw } from '@lucide/svelte';
+  import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
 
   let pendingDelete = $state<string | null>(null);
 
@@ -86,8 +86,8 @@
         </div>
       </div>
 
-      <Button onclick={startRecording} class="mt-auto w-full">
-        Start Recording
+      <Button onclick={startRecording} class="mt-auto w-full gap-2">
+        <Circle size={14} class="fill-current" />Start Recording
       </Button>
     </div>
 
@@ -132,16 +132,16 @@
                       No
                     </Button>
                   {:else}
-                    <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)}>
-                      Load
+                    <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)} class="gap-1.5">
+                      <FolderOpen size={13} />Load
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
                       onclick={() => (pendingDelete = meta.session_dir)}
-                      class="text-destructive hover:text-destructive"
+                      class="gap-1.5 text-destructive hover:text-destructive"
                     >
-                      Delete
+                      <Trash2 size={13} />Delete
                     </Button>
                   {/if}
                 </div>
