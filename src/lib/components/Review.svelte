@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { save } from '@tauri-apps/plugin-dialog';
   import { Button } from '$lib/components/ui/button';
@@ -113,6 +114,30 @@
       });
     }
   }
+
+  // Handle back mouse button (button 3 / XButton1) and browser history back (popstate)
+  // so that the back navigation gesture returns the user to the idle screen.
+  function handleMouseUp(event: MouseEvent) {
+    if (event.button === 3) {
+      event.preventDefault();
+      newRecording();
+    }
+  }
+
+  function handlePopState(event: PopStateEvent) {
+    event.preventDefault();
+    newRecording();
+  }
+
+  onMount(() => {
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('popstate', handlePopState);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('mouseup', handleMouseUp);
+    window.removeEventListener('popstate', handlePopState);
+  });
 </script>
 
 <div class="flex h-screen flex-col bg-background text-foreground">
