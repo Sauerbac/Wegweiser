@@ -16,6 +16,11 @@
     selectedStepIdx !== null ? (store.session?.steps[selectedStepIdx] ?? null) : null
   );
 
+  // 1-based display number for the currently selected step (tracks array position, not step.order)
+  let selectedStepDisplayNum = $derived<number | null>(
+    selectedStepIdx !== null ? selectedStepIdx + 1 : null
+  );
+
   // Load image when selection changes
   $effect(() => {
     const step = selectedStep;
@@ -31,10 +36,16 @@
   $effect(() => {
     if (store.session && store.session.steps.length > 0 && selectedStepIdx === null) {
       selectedStepIdx = 0;
-      const first = store.session.steps[0];
-      if (first && !imageCache[first.id]) {
-        invoke<string>('get_step_image', { imagePath: first.image_path }).then((uri) => {
-          imageCache = { ...imageCache, [first.id]: uri };
+    }
+  });
+
+  // Eagerly pre-load images for all steps not yet in the cache (bug-006)
+  $effect(() => {
+    const steps = store.session?.steps ?? [];
+    for (const step of steps) {
+      if (!imageCache[step.id]) {
+        invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
+          imageCache = { ...imageCache, [step.id]: uri };
         });
       }
     }
@@ -183,13 +194,13 @@
           onclick={() => selectStep(idx)}
         >
           <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-200 text-xs font-bold dark:bg-zinc-700">
-            {step.order}
+            {idx + 1}
           </div>
           <div class="min-w-0 flex-1">
             {#if imageCache[step.id]}
               <img
                 src={imageCache[step.id]}
-                alt="Step {step.order}"
+                alt="Step {idx + 1}"
                 class="h-10 w-full rounded object-cover"
               />
             {:else}
@@ -207,7 +218,7 @@
     <div class="flex flex-1 flex-col overflow-hidden p-4">
       {#if selectedStep}
         <div class="mb-3 flex items-center gap-2">
-          <span class="text-sm font-semibold">Step {selectedStep.order}</span>
+          <span class="text-sm font-semibold">Step {selectedStepDisplayNum}</span>
           <div class="flex-1"></div>
           <Button
             variant="ghost"
@@ -224,7 +235,7 @@
           {#if imageCache[selectedStep.id]}
             <img
               src={imageCache[selectedStep.id]}
-              alt="Step {selectedStep.order}"
+              alt="Step {selectedStepDisplayNum}"
               class="max-h-full max-w-full object-contain"
             />
           {:else}
