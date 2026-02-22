@@ -241,7 +241,7 @@
               <img
                 src={imageCache[step.id]}
                 alt="Step {idx + 1}"
-                class="h-10 w-full rounded object-cover"
+                class="h-10 w-full rounded object-contain"
               />
             {:else}
               <div class="h-10 w-full animate-pulse rounded bg-zinc-300 dark:bg-zinc-600"></div>
@@ -341,7 +341,7 @@
         {/if}
 
         <!-- Image -->
-        <div class="mb-3 flex-1 overflow-auto rounded border bg-black/5 dark:bg-white/5">
+        <div class="mb-3 flex flex-1 items-start justify-center overflow-auto rounded border bg-black/5 dark:bg-white/5">
           {#if activeMonitorTab === 'primary'}
             {#if imageCache[selectedStep.id]}
               <img
@@ -382,7 +382,7 @@
           />
           {#if selectedStep.keystrokes}
             <p class="text-xs text-muted-foreground">
-              Typed: <code class="rounded bg-muted px-1 py-0.5">{selectedStep.keystrokes}</code>
+              Typed: <code class="break-all whitespace-normal rounded bg-muted px-1 py-0.5">{selectedStep.keystrokes}</code>
             </p>
           {/if}
         </div>
