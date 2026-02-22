@@ -122,7 +122,7 @@
     <div class="flex-1"></div>
     <Button variant="outline" size="sm" onclick={exportMarkdown}>Export MD</Button>
     <Button variant="outline" size="sm" onclick={exportHtml}>Export HTML</Button>
-    <Button size="sm" onclick={newRecording}>New Recording</Button>
+    <Button size="sm" onclick={newRecording}>Back to Home</Button>
   </div>
 
   <!-- Export progress / result -->
