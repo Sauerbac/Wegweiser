@@ -6,9 +6,7 @@
   import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
   import PageLayout from '$lib/components/PageLayout.svelte';
-
-  let selectAllIndeterminate = $state(false);
-  let selectAllChecked = $state(false);
+  import SelectableList from '$lib/components/SelectableList.svelte';
 
   let pendingDelete = $state<string | null>(null);
   let selectedRecordings = $state<Set<string>>(new Set());
@@ -76,13 +74,7 @@
     await invoke('identify_monitors');
   }
 
-  // Derive checkbox state from selection
-  $effect(() => {
-    const total = store.sessions.length;
-    const count = selectedRecordings.size;
-    selectAllChecked = count > 0 && count === total;
-    selectAllIndeterminate = count > 0 && count < total;
-  });
+
 </script>
 
 <PageLayout
@@ -151,52 +143,25 @@
   {/snippet}
 
   {#snippet right()}
-    <div class="mb-3 flex items-center justify-between">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        Past Recordings
-      </h2>
-      <div class="flex items-center gap-2">
-        {#if selectedRecordings.size > 0}
-          <span class="text-xs text-muted-foreground">
-            {selectedRecordings.size} selected
-          </span>
-          <Button
-            variant="destructive"
-            size="sm"
-            onclick={deleteSelected}
-          >
-            <Trash2 />Delete Selected
-          </Button>
-        {/if}
-        <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
-          <RefreshCw />
-          Refresh
-        </Button>
-      </div>
-    </div>
-
     {#if store.sessions.length === 0}
       <div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         No recordings yet. Start one on the left.
       </div>
     {:else}
-      <div class="mb-2 flex items-center gap-2">
-        <Checkbox
-          checked={selectAllChecked}
-          indeterminate={selectAllIndeterminate}
-          onCheckedChange={toggleSelectAll}
-          class="cursor-pointer"
-        />
-        <span class="text-xs text-muted-foreground">
-          {selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length
-            ? `${selectedRecordings.size} of ${store.sessions.length}`
-            : selectedRecordings.size === store.sessions.length
-              ? `All ${store.sessions.length}`
-              : 'Select all'}
-        </span>
-      </div>
-      <div class="flex flex-col gap-2 overflow-y-auto">
-        {#each store.sessions as meta (meta.session_dir)}
+      <SelectableList
+        title="Past Recordings"
+        items={store.sessions}
+        selectedIds={selectedRecordings}
+        getKey={(meta) => meta.session_dir}
+        onToggleAll={toggleSelectAll}
+        onDeleteSelected={deleteSelected}
+      >
+        {#snippet actions()}
+          <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
+            <RefreshCw />Refresh
+          </Button>
+        {/snippet}
+        {#snippet row(meta)}
           <div class="rounded-lg border p-4 transition-colors {selectedRecordings.has(meta.session_dir) ? 'border-primary bg-accent/60' : 'hover:bg-accent/40'}">
             <div class="flex items-center justify-between">
               <div class="flex min-w-0 flex-1 items-center gap-3">
@@ -240,8 +205,8 @@
               </div>
             </div>
           </div>
-        {/each}
-      </div>
+        {/snippet}
+      </SelectableList>
     {/if}
   {/snippet}
 </PageLayout>

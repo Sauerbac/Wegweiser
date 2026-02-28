@@ -13,6 +13,7 @@
   import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Sun, Trash2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
   import PageLayout from '$lib/components/PageLayout.svelte';
+  import SelectableList from '$lib/components/SelectableList.svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -31,17 +32,6 @@
 
   /** IDs of steps selected via checkboxes for bulk operations. */
   let selectedStepIds = $state<Set<number>>(new Set());
-  let selectAllChecked = $state(false);
-  let selectAllIndeterminate = $state(false);
-
-  // Derive select-all checkbox state from selection
-  $effect(() => {
-    const steps = store.session?.steps ?? [];
-    const total = steps.length;
-    const count = selectedStepIds.size;
-    selectAllChecked = total > 0 && count === total;
-    selectAllIndeterminate = count > 0 && count < total;
-  });
 
   let selectedStep = $derived<Step | null>(
     selectedStepIdx !== null ? ((store.session?.steps ?? [])[selectedStepIdx] ?? null) : null
@@ -410,45 +400,16 @@
   {/snippet}
 
   {#snippet left()}
-    <!-- Header -->
-    <div class="mb-3 flex items-center justify-between">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Steps</h2>
-      <div class="flex items-center gap-2">
-        {#if selectedStepIds.size > 0}
-          <span class="text-xs text-muted-foreground">{selectedStepIds.size} selected</span>
-          <Button
-            variant="destructive"
-            size="sm"
-            onclick={deleteSelectedSteps}
-          >
-            <Trash2 />Delete Selected
-          </Button>
-        {/if}
-      </div>
-    </div>
-
-    <!-- Select-all row -->
-    {#if (store.session?.steps.length ?? 0) > 0}
-      <div class="mb-2 flex items-center gap-2">
-        <Checkbox
-          checked={selectAllChecked}
-          indeterminate={selectAllIndeterminate}
-          onCheckedChange={toggleSelectAll}
-          class="cursor-pointer"
-        />
-        <span class="text-xs text-muted-foreground">
-          {selectedStepIds.size > 0 && selectedStepIds.size < (store.session?.steps.length ?? 0)
-            ? `${selectedStepIds.size} of ${store.session?.steps.length}`
-            : selectedStepIds.size === (store.session?.steps.length ?? 0) && selectedStepIds.size > 0
-              ? `All ${store.session?.steps.length}`
-              : 'Select all'}
-        </span>
-      </div>
-    {/if}
-
-    <!-- Card list -->
-    <div class="flex flex-col gap-2 overflow-y-auto">
-      {#each store.session?.steps ?? [] as step, idx (step.id)}
+    <!-- Heading + select-all + card list -->
+    <SelectableList
+      title="Steps"
+      items={store.session?.steps ?? []}
+      selectedIds={selectedStepIds}
+      getKey={(step) => step.id}
+      onToggleAll={toggleSelectAll}
+      onDeleteSelected={deleteSelectedSteps}
+    >
+      {#snippet row(step, idx)}
         {@const isActive = selectedStepIdx === idx}
         {@const isChecked = selectedStepIds.has(step.id)}
         {@const keystrokeCount = countKeystrokes(step.keystrokes)}
@@ -491,8 +452,8 @@
             </span>
           </div>
         </div>
-      {/each}
-    </div>
+      {/snippet}
+    </SelectableList>
   {/snippet}
 
   {#snippet right()}
