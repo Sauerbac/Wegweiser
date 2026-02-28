@@ -367,6 +367,35 @@ pub fn delete_step(
 }
 
 #[tauri::command]
+pub fn delete_steps(
+    step_ids: Vec<usize>,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref mut session) = st.session {
+            let ids_set: std::collections::HashSet<usize> = step_ids.iter().copied().collect();
+            session.steps.retain(|s| !ids_set.contains(&s.id));
+            for (i, step) in session.steps.iter_mut().enumerate() {
+                step.order = i + 1;
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
+        }
+    }
+    let session = {
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn update_step_description(
     step_id: usize,
     description: String,

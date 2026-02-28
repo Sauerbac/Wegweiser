@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Lightweight header-only deserialization for `list_sessions`.
+/// Deserializes `steps` as raw JSON values (one allocation per element) to
+/// obtain the count without fully deserializing each `Step` struct.
+#[derive(Deserialize)]
+struct SessionHeader {
+    id: String,
+    name: String,
+    #[serde(default)]
+    steps: Vec<serde_json::Value>,
+}
+
 /// Metadata about a saved session, used for the session library on the idle screen.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMeta {
@@ -69,12 +80,17 @@ pub fn list_sessions(base: &Path) -> Vec<SessionMeta> {
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-        match load_session(&json_path) {
-            Ok(session) => {
+        // Use the lightweight header struct to avoid deserializing full Step objects.
+        let json = match fs::read_to_string(&json_path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        match serde_json::from_str::<SessionHeader>(&json) {
+            Ok(header) => {
                 let meta = SessionMeta {
-                    id: session.id.clone(),
-                    name: session.name.clone(),
-                    step_count: session.steps.len(),
+                    id: header.id,
+                    name: header.name,
+                    step_count: header.steps.len(),
                     session_dir: path,
                 };
                 metas.push((mtime, meta));

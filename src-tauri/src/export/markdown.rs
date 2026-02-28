@@ -44,25 +44,17 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
                 ));
             }
             StepExportChoice::Extra(i) => {
-                // Replace the primary image with the chosen extra monitor image.
-                if let Some(extra_path) = step.extra_image_paths.get(*i) {
-                    let img_filename = format!("step_{:04}.png", step.id);
-                    let img_dest = images_dir.join(&img_filename);
-                    fs::copy(extra_path, &img_dest)?;
-                    md.push_str(&format!(
-                        "![Step {}](images/{})\n\n",
-                        step.order, img_filename
-                    ));
-                } else {
-                    // Fallback to primary if index is out of range.
-                    let img_filename = format!("step_{:04}.png", step.id);
-                    let img_dest = images_dir.join(&img_filename);
-                    fs::copy(&step.image_path, &img_dest)?;
-                    md.push_str(&format!(
-                        "![Step {}](images/{})\n\n",
-                        step.order, img_filename
-                    ));
-                }
+                // Use the requested extra image, falling back to primary if index is out of range.
+                let src_path = step.extra_image_paths.get(*i)
+                    .map(|p| p.as_path())
+                    .unwrap_or_else(|| step.image_path.as_path());
+                let img_filename = format!("step_{:04}.png", step.id);
+                let img_dest = images_dir.join(&img_filename);
+                fs::copy(src_path, &img_dest)?;
+                md.push_str(&format!(
+                    "![Step {}](images/{})\n\n",
+                    step.order, img_filename
+                ));
             }
             StepExportChoice::All => {
                 // Primary image first, then each extra as a secondary figure.
