@@ -1,20 +1,82 @@
 use crate::model::ClickPoint;
 use crate::session::save_session;
-use crate::state::{AppState, RecordingState};
+use crate::state::{AppState, CaptureTask, RecordingState};
 use rdev::{listen, Button, EventType, Key};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-/// Spawns the global input hook on a dedicated thread.
+/// Spawns the global input hook on a dedicated thread and a single
+/// long-lived capture worker thread.
 ///
 /// # Windows note
 /// `rdev::listen()` calls `SetWindowsHookEx` internally. It must run on its
 /// own thread — never call it from the main/UI thread.
 ///
-/// The thread runs for the lifetime of the process; rdev provides no
-/// cancellation API.
+/// Both threads run for the lifetime of the process; rdev provides no
+/// cancellation API.  The capture worker exits when its receiving end of the
+/// channel is dropped (i.e. when the process exits), so it is implicitly
+/// idle whenever no recording is in progress.
 pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
+    // ------------------------------------------------------------------
+    // Capture worker — processes click captures sequentially via a bounded
+    // channel, keeping at most 32 unprocessed captures in flight at once.
+    // This replaces the unbounded per-click thread::spawn and bounds memory
+    // and disk I/O to one in-flight capture at a time.
+    // ------------------------------------------------------------------
+    let (tx, rx) = std::sync::mpsc::sync_channel::<CaptureTask>(32);
+
+    {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.capture_tx = Some(tx);
+    }
+
+    std::thread::Builder::new()
+        .name("capture-worker".into())
+        .spawn(move || {
+            for task in rx {
+                match crate::capture::capture_step(
+                    task.monitor_idx,
+                    task.click,
+                    task.step_id,
+                    task.order,
+                    &task.session_dir,
+                    task.keystrokes,
+                    task.all_monitors,
+                ) {
+                    Ok(step) => {
+                        // Push the step into the session and persist it — save
+                        // outside the mutex lock to keep the critical section
+                        // as short as possible.
+                        let session_to_save = {
+                            let mut st = task.state.lock().unwrap_or_else(|e| e.into_inner());
+                            if let Some(ref mut session) = st.session {
+                                session.steps.push(step.clone());
+                                Some(session.clone())
+                            } else {
+                                None
+                            }
+                        };
+                        if let Some(ref s) = session_to_save {
+                            if let Err(e) = save_session(s) {
+                                eprintln!("[save_session] failed: {e}");
+                            }
+                        }
+                        let _ = task.app_handle.emit("step-captured", &step);
+                    }
+                    Err(e) => {
+                        eprintln!("[capture] step capture error: {e}");
+                        let _ = task.app_handle.emit("step-capture-error", format!("{e}"));
+                    }
+                }
+            }
+        })
+        .expect("failed to spawn capture worker");
+
+    // ------------------------------------------------------------------
+    // Hook thread — receives raw input events from rdev and dispatches
+    // capture tasks to the worker via the channel.
+    // ------------------------------------------------------------------
     std::thread::Builder::new()
         .name("hook".to_string())
         .spawn(move || {
@@ -37,7 +99,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                         let click_x = last_x as i32;
                         let click_y = last_y as i32;
 
-                        let (should_capture, monitor_idx, all_monitors, step_id, order, session_dir, keystrokes) = {
+                        let task_opt = {
                             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
 
                             if st.recording_state != RecordingState::Recording {
@@ -109,45 +171,25 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 Some(std::mem::take(&mut st.pending_keystrokes))
                             };
 
-                            (true, monitor_idx, all_monitors, step_id, order, session_dir, keystrokes)
-                        };
-
-                        if !should_capture {
-                            return;
-                        }
-
-                        // Spawn capture on a dedicated thread
-                        let app_handle_clone = app_handle.clone();
-                        let state_clone = state.clone();
-                        let click = ClickPoint { x: click_x as u32, y: click_y as u32 };
-
-                        std::thread::spawn(move || {
-                            match crate::capture::capture_step(
+                            let task = CaptureTask {
                                 monitor_idx,
-                                Some(click),
+                                click: Some(ClickPoint { x: click_x as u32, y: click_y as u32 }),
                                 step_id,
                                 order,
-                                &session_dir,
+                                session_dir,
                                 keystrokes,
                                 all_monitors,
-                            ) {
-                                Ok(step) => {
-                                    let mut st = state_clone.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Some(ref mut session) = st.session {
-                                        session.steps.push(step.clone());
-                                        if let Err(e) = save_session(session) {
-                                            eprintln!("[save_session] failed: {e}");
-                                        }
-                                    }
-                                    drop(st);
-                                    let _ = app_handle_clone.emit("step-captured", &step);
-                                }
-                                Err(e) => {
-                                    eprintln!("[capture] step capture error: {e}");
-                                    let _ = app_handle_clone.emit("step-capture-error", format!("{e}"));
-                                }
+                                app_handle: app_handle.clone(),
+                                state: Arc::clone(&state),
+                            };
+                            Some((task, st.capture_tx.clone()))
+                        };
+
+                        if let Some((task, Some(tx))) = task_opt {
+                            if let Err(e) = tx.try_send(task) {
+                                eprintln!("[hook] capture queue full, dropping click: {e}");
                             }
-                        });
+                        }
                     }
                     EventType::KeyPress(key) => match key {
                         Key::ControlLeft | Key::ControlRight => {
@@ -170,13 +212,11 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                             // sensitive input in any application during a recording session.
                             // The hook thread runs for the entire process lifetime (rdev has no cancellation
                             // API); events are only accumulated during RecordingState::Recording.
-                            // Accumulate keystrokes for the next step
-                            let alt = {
-                                let st = state.lock().unwrap_or_else(|e| e.into_inner());
-                                st.alt_held
-                            };
+                            // Accumulate keystrokes for the next step — single lock acquires both
+                            // alt_held and pending_keystrokes to avoid a double-lock.
                             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             if st.recording_state == RecordingState::Recording {
+                                let alt = st.alt_held;
                                 if let Some(token) = key_token(&key, ctrl_held, shift_held, alt) {
                                     st.pending_keystrokes.push_str(&token);
                                 }

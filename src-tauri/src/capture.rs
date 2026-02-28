@@ -70,7 +70,7 @@ pub fn capture_step(
         let mut paths = Vec::new();
         let mut indices = Vec::new();
         for (idx, _) in monitors.iter().enumerate().filter(|(idx, _)| *idx != monitor_index) {
-            match capture_plain(idx, step_id, idx, session_dir) {
+            match capture_plain(idx, step_id, idx, session_dir, &monitors) {
                 Ok(path) => {
                     paths.push(path);
                     indices.push(idx);
@@ -102,14 +102,17 @@ pub fn capture_step(
 /// and save it as `step_{step_id:04}_mon{monitor_idx_label}.png` in
 /// `session_dir`.  Returns the saved path on success.
 ///
-/// This helper is used by `capture_step` when "All monitors" is selected.
+/// `monitors` must be the already-enumerated slice from the caller (e.g.
+/// `capture_step`) so that `Monitor::all()` is not called a second time per
+/// extra monitor.  This helper is used by `capture_step` when "All monitors"
+/// is selected.
 pub fn capture_plain(
     monitor_index: usize,
     step_id: usize,
     monitor_idx_label: usize,
     session_dir: &PathBuf,
+    monitors: &[Monitor],
 ) -> Result<PathBuf> {
-    let monitors = Monitor::all()?;
     let monitor = monitors
         .get(monitor_index)
         .ok_or_else(|| anyhow!("Monitor index {} not found", monitor_index))?;

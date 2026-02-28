@@ -156,23 +156,16 @@ pub fn load_session(path: &Path) -> Result<Session> {
 /// Delete a session directory and all its contents from disk.
 /// Validates that the directory is within the sessions base directory to prevent
 /// arbitrary directory deletion attacks.
+///
+/// Reuses `confine_to_sessions_dir` (which canonicalises both paths) instead
+/// of duplicating that logic.
 pub fn delete_session(dir: &Path) -> Result<()> {
-    // Canonicalize the requested path and the base directory
-    let canonical_path = fs::canonicalize(dir)
-        .map_err(|_| anyhow::anyhow!("Session directory not found"))?;
-    let canonical_base = fs::canonicalize(sessions_base_dir())
-        .map_err(|_| anyhow::anyhow!("Sessions directory not found"))?;
-
-    // Ensure the requested path is within the sessions base directory
-    if !canonical_path.starts_with(&canonical_base) {
-        return Err(anyhow::anyhow!(
-            "Access denied: session directory is outside sessions storage area"
-        ));
-    }
+    let canonical_path = confine_to_sessions_dir(dir)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Verify the path is actually a directory (not a file or symlink)
     if !canonical_path.is_dir() {
-        return Err(anyhow::anyhow!("Path is not a directory"));
+        return Err(anyhow::anyhow!("Not a directory: {:?}", canonical_path));
     }
 
     // Only then delete the directory and its contents
