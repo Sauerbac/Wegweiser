@@ -78,12 +78,12 @@
 </script>
 
 <PageLayout
-  headerClass="flex items-center justify-between border-b px-6 py-4"
+  headerClass="flex items-center justify-between border-b px-4 py-2"
   leftClass="flex w-80 flex-col gap-4 border-r p-6"
   rightClass="flex flex-1 flex-col overflow-hidden p-6"
 >
   {#snippet header()}
-    <div>
+    <div class="flex items-center gap-3">
       <h1 class="text-lg font-semibold">Wegweiser</h1>
       <p class="text-sm text-muted-foreground">Windows step recorder</p>
     </div>
