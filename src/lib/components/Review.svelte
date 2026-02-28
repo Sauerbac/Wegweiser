@@ -3,13 +3,14 @@
   import { invoke } from '@tauri-apps/api/core';
   import { save } from '@tauri-apps/plugin-dialog';
   import { Button } from '$lib/components/ui/button';
+  import { Checkbox } from '$lib/components/ui/checkbox';
   import { Input } from '$lib/components/ui/input';
   import { Textarea } from '$lib/components/ui/textarea';
   import { Progress } from '$lib/components/ui/progress';
   import { Tabs, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
-  import { ArrowLeft, Check, ExternalLink, FileCode, FileDown, MousePointer2, Trash2 } from '@lucide/svelte';
+  import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, MousePointer2, Trash2 } from '@lucide/svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -25,6 +26,20 @@
   let descriptionDraft = $state('');
   /** Draft value for the session name input — synced from store on load, editable locally. */
   let sessionNameDraft = $state('');
+
+  /** IDs of steps selected via checkboxes for bulk operations. */
+  let selectedStepIds = $state<Set<number>>(new Set());
+  let selectAllChecked = $state(false);
+  let selectAllIndeterminate = $state(false);
+
+  // Derive select-all checkbox state from selection
+  $effect(() => {
+    const steps = store.session?.steps ?? [];
+    const total = steps.length;
+    const count = selectedStepIds.size;
+    selectAllChecked = total > 0 && count === total;
+    selectAllIndeterminate = count > 0 && count < total;
+  });
 
   let selectedStep = $derived<Step | null>(
     selectedStepIdx !== null ? ((store.session?.steps ?? [])[selectedStepIdx] ?? null) : null
@@ -72,13 +87,19 @@
     activeMonitorTab = step ? tabFromExportChoice(step.export_choice) : 'primary';
   });
 
-  // Pre-select first step when session loads.
+  // Pre-select first step only when a genuinely new session is loaded.
+  // _initializedSessionId is a plain JS variable (not $state) so writing to it
+  // doesn't trigger reactive updates — this prevents the effect from re-running
+  // every time setExportChoice replaces store.session with the same session ID.
+  let _initializedSessionId = '';
   $effect(() => {
-    const steps = store.session?.steps ?? [];
-    if (steps.length > 0) {
-      selectedStepIdx = 0;
-    } else {
-      selectedStepIdx = null;
+    const sessionId = store.session?.id ?? '';
+    if (sessionId && sessionId !== _initializedSessionId) {
+      _initializedSessionId = sessionId;
+      untrack(() => {
+        const steps = store.session?.steps ?? [];
+        selectedStepIdx = steps.length > 0 ? 0 : null;
+      });
     }
   });
 
@@ -131,6 +152,78 @@
         selectedStepIdx = newLen > 0 ? newLen - 1 : null;
       }
     }
+    // Remove from bulk selection if present
+    if (selectedStepIds.has(stepId)) {
+      const next = new Set(selectedStepIds);
+      next.delete(stepId);
+      selectedStepIds = next;
+    }
+  }
+
+  function toggleStepSelection(stepId: number) {
+    const next = new Set(selectedStepIds);
+    if (next.has(stepId)) {
+      next.delete(stepId);
+    } else {
+      next.add(stepId);
+    }
+    selectedStepIds = next;
+  }
+
+  function toggleSelectAll() {
+    const steps = store.session?.steps ?? [];
+    if (selectedStepIds.size === steps.length) {
+      selectedStepIds = new Set();
+    } else {
+      selectedStepIds = new Set(steps.map((s) => s.id));
+    }
+  }
+
+  async function deleteSelectedSteps() {
+    const ids = [...selectedStepIds];
+    // Delete in reverse order to avoid index shifting issues
+    for (const id of ids) {
+      await invoke('delete_step', { stepId: id });
+    }
+    selectedStepIds = new Set();
+    // Recompute selected index after bulk delete
+    const remaining = store.session?.steps ?? [];
+    if (remaining.length === 0) {
+      selectedStepIdx = null;
+    } else if (selectedStepIdx !== null && selectedStepIdx >= remaining.length) {
+      selectedStepIdx = remaining.length - 1;
+    }
+  }
+
+  /**
+   * Count keystrokes in a keystroke string.
+   * Bracket tokens [Ctrl+C] count as 1 shortcut each;
+   * non-bracket plain character runs each count as their character length.
+   */
+  function countKeystrokes(raw: string | null): number {
+    if (!raw) return 0;
+    let count = 0;
+    const parts = raw.split(/(\[[^\]]+\])/);
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.startsWith('[') && part.endsWith(']')) {
+        count += 1;
+      } else {
+        count += part.length;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Compute how many monitor images will be exported for a step based on its export_choice.
+   * Primary / Extra = 1 monitor; All = primary + all extra images.
+   */
+  function monitorExportCount(step: Step): number {
+    const choice = step.export_choice;
+    if (!choice || choice.type === 'Primary' || choice.type === 'Extra') return 1;
+    // 'All': primary image + all extra images
+    return 1 + (step.extra_image_paths?.length ?? 0);
   }
 
   async function exportMarkdown() {
@@ -307,32 +400,91 @@
   <!-- Main content -->
   <div class="flex flex-1 overflow-hidden">
     <!-- Step list -->
-    <div class="w-56 overflow-y-auto border-r bg-muted/30">
-      {#each store.session?.steps ?? [] as step, idx (step.id)}
-        <Button
-          variant="ghost"
-          class="flex h-auto w-full items-center gap-2 rounded-none border-b px-3 py-2 text-left transition-colors hover:bg-accent {selectedStepIdx === idx ? 'bg-accent' : ''}"
-          onclick={() => selectStep(idx)}
-        >
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
-            {idx + 1}
+    <div class="flex w-80 shrink-0 flex-col overflow-hidden border-r p-6">
+      <!-- Header -->
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Steps</h2>
+        <div class="flex items-center gap-2">
+          {#if selectedStepIds.size > 0}
+            <span class="text-xs text-muted-foreground">{selectedStepIds.size} selected</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onclick={deleteSelectedSteps}
+              class="gap-1.5 text-destructive hover:text-destructive"
+            >
+              <Trash2 size={13} />Delete Selected
+            </Button>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Select-all row -->
+      {#if (store.session?.steps.length ?? 0) > 0}
+        <div class="mb-2 flex items-center gap-2">
+          <Checkbox
+            checked={selectAllChecked}
+            indeterminate={selectAllIndeterminate}
+            onCheckedChange={toggleSelectAll}
+            class="cursor-pointer"
+          />
+          <span class="text-xs text-muted-foreground">
+            {selectedStepIds.size > 0 && selectedStepIds.size < (store.session?.steps.length ?? 0)
+              ? `${selectedStepIds.size} of ${store.session?.steps.length}`
+              : selectedStepIds.size === (store.session?.steps.length ?? 0) && selectedStepIds.size > 0
+                ? `All ${store.session?.steps.length}`
+                : 'Select all'}
+          </span>
+        </div>
+      {/if}
+
+      <!-- Card list -->
+      <div class="flex flex-col gap-2 overflow-y-auto">
+        {#each store.session?.steps ?? [] as step, idx (step.id)}
+          {@const isActive = selectedStepIdx === idx}
+          {@const isChecked = selectedStepIds.has(step.id)}
+          {@const keystrokeCount = countKeystrokes(step.keystrokes)}
+          {@const monCount = monitorExportCount(step)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            role="button"
+            tabindex="0"
+            class="cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'border-primary bg-accent/60' : isChecked ? 'border-primary/50 bg-accent/40' : 'hover:bg-accent/40'}"
+            onclick={(e) => {
+              if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
+              selectStep(idx);
+            }}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectStep(idx); }}
+          >
+            <div class="flex items-center gap-2">
+              <!-- Checkbox -->
+              <div data-checkbox class="shrink-0">
+                <Checkbox
+                  checked={isChecked}
+                  onCheckedChange={() => toggleStepSelection(step.id)}
+                  class="cursor-pointer"
+                />
+              </div>
+              <!-- Step number -->
+              <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
+                {idx + 1}
+              </span>
+              <!-- Spacer -->
+              <div class="flex-1"></div>
+              <!-- Indicators: all three icons together, consistently sized and spaced -->
+              <span class="shrink-0 {step.description ? 'text-foreground' : 'text-muted-foreground/25'}" title={step.description ?? 'No description'}>
+                <AlignLeft size={13} />
+              </span>
+              <span class="shrink-0 text-muted-foreground {keystrokeCount > 0 ? '' : 'invisible'}">
+                <Keyboard size={13} />
+              </span>
+              <span class="shrink-0 text-muted-foreground {monCount > 1 ? '' : 'invisible'}">
+                <Monitor size={13} />
+              </span>
+            </div>
           </div>
-          <div class="min-w-0 flex-1">
-            {#if imageCache[step.id]}
-              <img
-                src={imageCache[step.id]}
-                alt="Step {idx + 1}"
-                class="h-10 w-full rounded object-contain"
-              />
-            {:else}
-              <div class="h-10 w-full animate-pulse rounded bg-muted"></div>
-            {/if}
-            {#if step.description}
-              <p class="mt-1 truncate text-xs text-muted-foreground">{step.description}</p>
-            {/if}
-          </div>
-        </Button>
-      {/each}
+        {/each}
+      </div>
     </div>
 
     <!-- Step detail -->
