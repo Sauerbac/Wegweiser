@@ -22,17 +22,17 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.0", features = [] }
-tauri-plugin-log = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-opener = "2"
-tauri-plugin-global-shortcut = "2"
+tauri-plugin-log = "2.8"
+tauri-plugin-dialog = "2.6"
+tauri-plugin-opener = "2.5"
+tauri-plugin-global-shortcut = "2.3"
 anyhow = "1.0"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 image = "0.25"
-imageproc = "0.25"
-rdev = "0.5.3"
+imageproc = "0.26"
+rdev = "^0.5.3"
 uuid = { version = "1", features = ["v4"] }
 xcap = "0.8"
 
