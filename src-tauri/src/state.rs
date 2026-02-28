@@ -32,6 +32,12 @@ pub struct AppState {
     /// Physical-pixel bounding box (x, y, w, h) of the recording mini-bar window.
     /// Used to filter out self-clicks on the mini-bar.
     pub rec_window_bounds: Option<(i32, i32, i32, i32)>,
+    /// Window geometry saved just before morphing to mini-bar, used to restore after stop.
+    /// `restore_rect` is the un-maximized (x, y, w, h) from GetWindowPlacement — valid
+    /// whether the window was maximized or not.  `maximized` records whether it was
+    /// maximized so we know whether to call maximize() on restore.
+    pub pre_recording_restore_rect: Option<(i32, i32, u32, u32)>,
+    pub pre_recording_maximized: bool,
 }
 
 impl AppState {
@@ -48,6 +54,8 @@ impl AppState {
             shift_held: false,
             alt_held: false,
             rec_window_bounds: None,
+            pre_recording_restore_rect: None,
+            pre_recording_maximized: false,
         }
     }
 }

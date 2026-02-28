@@ -56,6 +56,44 @@ pub fn start_recording(
         st.monitor_infos = list_monitor_infos();
     }
 
+    // Save current geometry so we can restore it after recording stops.
+    // - Position: GetWindowPlacement gives the correct restore position even when
+    //   the window is currently maximized (outer_position() would return the
+    //   maximized/offscreen position instead).
+    // - Size: window.inner_size() is what set_size() consumes. rcNormalPosition
+    //   gives the *outer* rect; using it for set_size would grow the window by one
+    //   decoration height on every record/stop cycle.
+    {
+        let is_maximized = window.is_maximized().unwrap_or(false);
+        let mut st = state.lock().unwrap();
+        st.pre_recording_maximized = is_maximized;
+
+        #[cfg(windows)]
+        let restore_pos: Option<(i32, i32)> = window
+            .hwnd()
+            .ok()
+            .and_then(|hwnd| crate::platform::get_window_restore_rect(hwnd.0 as isize))
+            .map(|(rx, ry, _, _)| (rx, ry));
+        #[cfg(not(windows))]
+        let restore_pos: Option<(i32, i32)> = window
+            .outer_position()
+            .ok()
+            .map(|p| (p.x, p.y));
+
+        // When maximized we don't know the pre-maximized inner size; fall back to default.
+        let restore_size: Option<(u32, u32)> = if !is_maximized {
+            window.inner_size().ok().map(|s| (s.width, s.height))
+        } else {
+            None
+        };
+
+        if let (Some((rx, ry)), Some((rw, rh))) = (restore_pos, restore_size) {
+            st.pre_recording_restore_rect = Some((rx, ry, rw, rh));
+        } else if let Some((rx, ry)) = restore_pos {
+            st.pre_recording_restore_rect = Some((rx, ry, 900, 650));
+        }
+    }
+
     // Morph window to mini-bar: 380×64, borderless, always-on-top
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 380, height: 64 }));
     let _ = window.set_decorations(false);
@@ -176,7 +214,20 @@ pub fn stop_recording(
     }
     let _ = window.set_always_on_top(false);
     let _ = window.set_decorations(true);
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
+
+    // Restore pre-recording geometry; fall back to defaults if nothing was saved.
+    let (restore_rect, was_maximized) = {
+        let mut st = state.lock().unwrap();
+        (st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
+    };
+    let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
+    // Always set the restore rect first so Windows knows where to place the window
+    // when un-maximizing (rcNormalPosition).
+    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
+    let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+    if was_maximized {
+        let _ = window.maximize();
+    }
 
     // Auto-delete recordings with 0 steps
     if let Some(ref sess) = current_session {
@@ -315,16 +366,27 @@ pub fn load_session_cmd(
     let json_path = dir.join("session.json");
     let loaded = session::load_session(&json_path).map_err(|e| e.to_string())?;
 
-    {
+    let (was_recording, restore_rect, was_maximized) = {
         let mut st = state.lock().unwrap();
+        let was_recording = st.recording_state == RecordingState::Recording
+            || st.recording_state == RecordingState::Paused;
         st.session = Some(loaded.clone());
         st.recording_state = RecordingState::Reviewing;
-    }
+        (was_recording, st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
+    };
 
-    // Restore full window (in case coming from mini-bar)
-    let _ = window.set_always_on_top(false);
-    let _ = window.set_decorations(true);
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
+    // Only restore window geometry if coming from mini-bar; otherwise preserve
+    // the user's current window size.
+    if was_recording {
+        let _ = window.set_always_on_top(false);
+        let _ = window.set_decorations(true);
+        let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
+        let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+        if was_maximized {
+            let _ = window.maximize();
+        }
+    }
 
     app_handle
         .emit("recording-state-changed", RecordingState::Reviewing)
@@ -347,17 +409,29 @@ pub fn new_recording(
     app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<(), String> {
-    {
+    let (was_recording, restore_rect, was_maximized) = {
         let mut st = state.lock().unwrap();
+        let was_recording = st.recording_state == RecordingState::Recording
+            || st.recording_state == RecordingState::Paused;
         st.recording_state = RecordingState::Idle;
         st.session = None;
         st.rec_window_bounds = None;
-    }
+        (was_recording, st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
+    };
 
-    // Restore full window
-    let _ = window.set_always_on_top(false);
-    let _ = window.set_decorations(true);
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
+    // Only restore the window geometry if we were actually in mini-bar mode.
+    // When navigating from Reviewing → Idle the window is already at full size;
+    // resizing it would reset any user resize the user made.
+    if was_recording {
+        let _ = window.set_always_on_top(false);
+        let _ = window.set_decorations(true);
+        let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
+        let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+        if was_maximized {
+            let _ = window.maximize();
+        }
+    }
 
     app_handle
         .emit("recording-state-changed", RecordingState::Idle)
