@@ -418,7 +418,7 @@
         <div
           role="button"
           tabindex="0"
-          class="cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'border-primary bg-accent/60' : isChecked ? 'border-primary/50 bg-accent/40' : 'hover:bg-accent/40'}"
+          class="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-accent/40"
           onclick={(e) => {
             if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
             selectStep(idx);

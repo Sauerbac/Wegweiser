@@ -72,7 +72,7 @@
 {/if}
 
 <!-- Scrollable row container -->
-<div class="flex flex-col gap-2 overflow-y-auto">
+<div class="flex flex-col gap-2 overflow-y-auto pr-2">
   {#each items as item, idx (getKey(item))}
     {@render row(item, idx)}
   {/each}
