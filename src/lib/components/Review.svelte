@@ -393,7 +393,7 @@
 
   {#if store.exportError}
     <div class="border-b bg-destructive/10 px-4 py-2">
-      <p class="text-xs text-destructive">Export error: {store.exportError}</p>
+      <p class="text-sm text-destructive">Export error: {store.exportError}</p>
     </div>
   {/if}
 

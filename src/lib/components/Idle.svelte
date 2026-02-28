@@ -86,7 +86,7 @@
 <div class="flex h-screen flex-col bg-background text-foreground">
   <!-- Header -->
   <div class="border-b px-6 py-4">
-    <h1 class="text-xl font-semibold">rec</h1>
+    <h1 class="text-lg font-semibold">rec</h1>
     <p class="text-sm text-muted-foreground">Windows step recorder</p>
   </div>
 
@@ -206,7 +206,7 @@
                 </div>
                 <div class="ml-3 flex shrink-0 items-center gap-2">
                   {#if pendingDelete === meta.session_dir}
-                    <span class="text-xs font-medium text-destructive">Delete?</span>
+                    <span class="text-sm font-medium text-destructive">Delete?</span>
                     <Button
                       variant="destructive"
                       size="sm"

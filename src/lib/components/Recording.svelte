@@ -48,7 +48,7 @@
       variant="ghost"
       size="sm"
       onclick={togglePause}
-      class="h-7 gap-1 text-xs"
+      class="h-7 gap-1 text-sm"
     >
       {#if isPaused}
         <Play size={12} />{' '}Resume
@@ -59,7 +59,7 @@
     <Button
       size="sm"
       onclick={stopRecording}
-      class="h-7 gap-1 bg-red-600 text-xs hover:bg-red-700 text-white"
+      class="h-7 gap-1 bg-red-600 text-sm hover:bg-red-700 text-white"
     >
       <Square size={12} />Stop
     </Button>
