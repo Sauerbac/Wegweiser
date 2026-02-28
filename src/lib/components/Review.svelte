@@ -19,6 +19,7 @@
    */
   let activeMonitorTab = $state<string>('primary');
   let descriptionDraft = $state('');
+  let toastVisible = $state(false);
 
   let selectedStep = $derived<Step | null>(
     selectedStepIdx !== null ? (store.session?.steps[selectedStepIdx] ?? null) : null
@@ -166,6 +167,17 @@
     }
   }
 
+  // Show toast when export completes, auto-dismiss after 5 seconds
+  $effect(() => {
+    if (store.exportedPath) {
+      toastVisible = true;
+      const timer = setTimeout(() => {
+        toastVisible = false;
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  });
+
   // Handle back mouse button (button 3 / XButton1) and browser history back (popstate)
   // so that the back navigation gesture returns the user to the idle screen.
   function handleMouseUp(event: MouseEvent) {
@@ -209,10 +221,10 @@
     </div>
   {/if}
 
-  {#if store.exportedPath}
-    <div class="flex items-center gap-2 border-b bg-green-50 px-4 py-2 dark:bg-green-950">
-      <span class="flex-1 truncate text-xs text-green-700 dark:text-green-300">
-        Exported: {store.exportedPath}
+  {#if store.exportedPath && toastVisible}
+    <div class="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-3 border-t bg-green-50 px-4 py-3 shadow-lg dark:bg-green-950">
+      <span class="flex-1 text-sm text-green-700 dark:text-green-300">
+        Exported to: {store.exportedPath}
       </span>
       <Button variant="outline" size="sm" onclick={openExported} class="gap-1.5"><ExternalLink size={13} />Open</Button>
     </div>
@@ -264,10 +276,10 @@
             variant="ghost"
             size="sm"
             onclick={() => deleteStep(selectedStep!.id)}
-            class="text-destructive hover:text-destructive"
+            class="gap-1.5 text-destructive hover:text-destructive"
             title="Delete step"
           >
-            <Trash2 size={15} />
+            <Trash2 size={13} />Delete
           </Button>
         </div>
 
