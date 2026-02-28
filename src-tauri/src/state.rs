@@ -29,9 +29,10 @@ pub struct AppState {
     pub ctrl_held: bool,
     pub shift_held: bool,
     pub alt_held: bool,
-    /// Physical-pixel bounding box (x, y, w, h) of the recording mini-bar window.
-    /// Used to filter out self-clicks on the mini-bar.
-    pub rec_window_bounds: Option<(i32, i32, i32, i32)>,
+    /// Physical-pixel bounding box of the recording mini-bar window.
+    /// Cached once when recording starts; used to filter out self-clicks on the mini-bar
+    /// without querying the OS on every mouse click.
+    pub rec_window_bounds: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>,
     /// Window geometry saved just before morphing to mini-bar, used to restore after stop.
     /// `restore_rect` is the un-maximized (x, y, w, h) from GetWindowPlacement — valid
     /// whether the window was maximized or not.  `maximized` records whether it was

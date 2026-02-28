@@ -161,6 +161,9 @@
     <Button onclick={startRecording} class="mt-auto w-full">
       <Circle class="fill-current" />Start Recording
     </Button>
+    <p class="text-center text-xs text-muted-foreground">
+      Keystrokes from all applications are captured while recording.
+    </p>
   {/snippet}
 
   {#snippet right()}

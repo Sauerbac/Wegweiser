@@ -15,15 +15,19 @@ pub fn set_window_exclude_from_capture(hwnd: isize, exclude: bool) {
     };
     use windows::Win32::Foundation::HWND;
 
+    if hwnd == 0 {
+        return;
+    }
+
     let affinity: WINDOW_DISPLAY_AFFINITY = if exclude {
         WDA_EXCLUDEFROMCAPTURE
     } else {
         WDA_NONE
     };
 
-    // SAFETY: hwnd is obtained from Tauri's WebviewWindow::hwnd() which
-    // guarantees it is a valid, live Win32 window handle while the window
-    // object is alive.
+    // SAFETY: hwnd is obtained from window.hwnd().0 immediately before this call
+    // and is verified non-zero. The window object is alive for the duration of
+    // this call as it is referenced via the &WebviewWindow parameter.
     unsafe {
         let _ = SetWindowDisplayAffinity(HWND(hwnd as *mut core::ffi::c_void), affinity);
     }
@@ -43,9 +47,15 @@ pub fn get_window_restore_rect(hwnd: isize) -> Option<(i32, i32, u32, u32)> {
     use windows::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, WINDOWPLACEMENT};
     use windows::Win32::Foundation::HWND;
 
+    if hwnd == 0 {
+        return None;
+    }
+
     let mut wp = WINDOWPLACEMENT::default();
     wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
-    // SAFETY: hwnd is a valid live Win32 handle from Tauri.
+    // SAFETY: hwnd is obtained from window.hwnd().0 immediately before this call
+    // and is verified non-zero. The window object is alive for the duration of
+    // this call as it is referenced via the &WebviewWindow parameter.
     unsafe {
         if GetWindowPlacement(HWND(hwnd as *mut core::ffi::c_void), &mut wp).is_ok() {
             let r = wp.rcNormalPosition;

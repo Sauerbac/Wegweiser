@@ -21,7 +21,8 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
     fs::create_dir_all(&images_dir)?;
 
     let mut md = String::new();
-    md.push_str(&format!("# {}\n\n", session.name));
+    let safe_name = session.name.replace('\n', " ").replace('\r', "");
+    md.push_str(&format!("# {}\n\n", safe_name));
     md.push_str(&format!(
         "*Created: {}*\n\n",
         session.created_at.format("%Y-%m-%d %H:%M UTC")
@@ -88,13 +89,15 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
         }
 
         if !step.description.is_empty() {
-            md.push_str(&step.description);
+            let safe_desc = step.description.replace('<', "&lt;").replace('>', "&gt;");
+            md.push_str(&safe_desc);
             md.push_str("\n\n");
         }
 
         if let Some(ref ks) = step.keystrokes {
             if !ks.is_empty() {
-                md.push_str(&format!("> Typed: `{ks}`\n\n"));
+                let safe_ks = ks.replace('<', "&lt;").replace('>', "&gt;");
+                md.push_str(&format!("> Typed: `{safe_ks}`\n\n"));
             }
         }
 

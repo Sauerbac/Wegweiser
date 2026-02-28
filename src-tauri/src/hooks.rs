@@ -40,22 +40,16 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 return;
                             }
 
-                            // Filter clicks on the mini-bar window itself.
-                            // Query the current bounds dynamically so the filter
-                            // stays accurate after the user drags the mini-bar.
-                            if st.rec_window_bounds.is_some() {
-                                if let Some(window) = app_handle.get_webview_window("main") {
-                                    if let (Ok(pos), Ok(size)) =
-                                        (window.outer_position(), window.outer_size())
-                                    {
-                                        if click_x >= pos.x
-                                            && click_x < pos.x + size.width as i32
-                                            && click_y >= pos.y
-                                            && click_y < pos.y + size.height as i32
-                                        {
-                                            return;
-                                        }
-                                    }
+                            // Filter clicks on the mini-bar window itself using the
+                            // cached position/size — avoids per-click get_webview_window
+                            // + OS API calls.
+                            if let Some((pos, size)) = st.rec_window_bounds {
+                                if click_x >= pos.x
+                                    && click_x < pos.x + size.width as i32
+                                    && click_y >= pos.y
+                                    && click_y < pos.y + size.height as i32
+                                {
+                                    return;
                                 }
                             }
 
@@ -164,6 +158,11 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                             st.alt_held = true;
                         }
                         _ => {
+                            // SECURITY: This hook captures keystrokes from ALL applications system-wide
+                            // while recording is active. Users should avoid typing passwords or other
+                            // sensitive input in any application during a recording session.
+                            // The hook thread runs for the entire process lifetime (rdev has no cancellation
+                            // API); events are only accumulated during RecordingState::Recording.
                             // Accumulate keystrokes for the next step
                             let alt = {
                                 let st = state.lock().unwrap();

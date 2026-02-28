@@ -123,10 +123,24 @@ pub fn start_recording(
         }
     }
 
-    // Record mini-bar window position for self-click filtering
+    // Record mini-bar window position and size for self-click filtering.
+    // Set the initial position, then keep it updated via a WindowEvent::Moved listener
+    // so that dragging the mini-bar doesn't leave a stale cache.
     if let Ok(pos) = window.outer_position() {
         let mut st = state.lock().unwrap();
-        st.rec_window_bounds = Some((pos.x, pos.y, 380, 64));
+        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: 380u32, height: 64u32 }));
+    }
+    {
+        let state_arc = Arc::clone(&*state);
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::Moved(new_pos) = event {
+                if let Ok(mut st) = state_arc.lock() {
+                    if let Some((_, size)) = st.rec_window_bounds {
+                        st.rec_window_bounds = Some((*new_pos, size));
+                    }
+                }
+            }
+        });
     }
 
     // Make the mini-bar invisible to screen-capture APIs so it never appears

@@ -33,6 +33,7 @@
   <div
     class="flex flex-1 items-center gap-2 h-full px-3 cursor-move"
     data-tauri-drag-region
+    title="Keystrokes from all applications are being captured while recording"
   >
     <!-- Grip dots -->
     <GripVertical
