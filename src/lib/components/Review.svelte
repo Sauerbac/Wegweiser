@@ -6,6 +6,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Textarea } from '$lib/components/ui/textarea';
   import { Progress } from '$lib/components/ui/progress';
+  import { Tabs, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
   import { ArrowLeft, Check, ExternalLink, FileCode, FileDown, MousePointer2, Trash2 } from '@lucide/svelte';
@@ -16,7 +17,9 @@
   let extraImageCache = $state<Record<string, string>>({});
   /**
    * Which monitor tab is shown in the detail view.
-   * 'primary' = the annotated click-monitor image; 'extra_N' = the N-th extra image.
+   * 'primary' = the annotated click-monitor image
+   * 'extra_N' = the N-th extra image
+   * 'all' = all images stacked (scrollable)
    */
   let activeMonitorTab = $state<string>('primary');
   let descriptionDraft = $state('');
@@ -24,13 +27,28 @@
   let sessionNameDraft = $state('');
 
   let selectedStep = $derived<Step | null>(
-    selectedStepIdx !== null ? (store.session?.steps[selectedStepIdx] ?? null) : null
+    selectedStepIdx !== null ? ((store.session?.steps ?? [])[selectedStepIdx] ?? null) : null
   );
 
-  // 1-based display number for the currently selected step (tracks array position, not step.order)
+  // 1-based display number for the currently selected step
   let selectedStepDisplayNum = $derived<number | null>(
     selectedStepIdx !== null ? selectedStepIdx + 1 : null
   );
+
+  /** Derive activeMonitorTab from a step's persisted export_choice. */
+  function tabFromExportChoice(choice: StepExportChoice | undefined): string {
+    if (!choice || choice.type === 'Primary') return 'primary';
+    if (choice.type === 'All') return 'all';
+    return `extra_${(choice as { type: 'Extra'; value: number }).value}`;
+  }
+
+  /** Map a tab value back to a StepExportChoice. */
+  function choiceFromTab(tab: string): StepExportChoice {
+    if (tab === 'primary') return { type: 'Primary' };
+    if (tab === 'all') return { type: 'All' };
+    const idx = parseInt(tab.replace('extra_', ''), 10);
+    return { type: 'Extra', value: idx };
+  }
 
   // Sync session name draft when session changes (e.g. on load)
   $effect(() => {
@@ -42,7 +60,7 @@
     });
   });
 
-  // Load image when selection changes; reset the monitor tab to primary.
+  // Load image when selection changes; restore monitor tab from the step's export_choice.
   $effect(() => {
     const step = selectedStep;
     if (step && !imageCache[step.id]) {
@@ -51,19 +69,20 @@
       });
     }
     descriptionDraft = step?.description ?? '';
-    // Always start on the primary (annotated) image when a new step is selected.
-    activeMonitorTab = 'primary';
+    activeMonitorTab = step ? tabFromExportChoice(step.export_choice) : 'primary';
   });
 
-  // Pre-select first step when session loads
+  // Pre-select first step when session loads.
   $effect(() => {
-    if (store.session && store.session.steps.length > 0 && selectedStepIdx === null) {
+    const steps = store.session?.steps ?? [];
+    if (steps.length > 0) {
       selectedStepIdx = 0;
+    } else {
+      selectedStepIdx = null;
     }
   });
 
-  // Eagerly pre-load images for all steps not yet in the cache (bug-006).
-  // Also pre-load extra monitor images for "All monitors" sessions.
+  // Eagerly pre-load images for all steps not yet in the cache.
   $effect(() => {
     const steps = store.session?.steps ?? [];
     for (const step of steps) {
@@ -101,15 +120,13 @@
     const trimmed = sessionNameDraft.trim();
     if (!trimmed || trimmed === store.session?.name) return;
     await invoke('rename_session', { name: trimmed });
-    // The session-updated event from the backend will update store.session.name;
-    // keep the draft in sync without triggering the external-change guard.
     sessionNameDraft = trimmed;
   }
 
   async function deleteStep(stepId: number) {
     await invoke('delete_step', { stepId });
-    if (selectedStepIdx !== null && store.session) {
-      const newLen = (store.session.steps.length ?? 1) - 1;
+    if (selectedStepIdx !== null) {
+      const newLen = (store.session?.steps.length ?? 0) - 1;
       if (selectedStepIdx >= newLen) {
         selectedStepIdx = newLen > 0 ? newLen - 1 : null;
       }
@@ -160,8 +177,7 @@
 
   function selectStep(idx: number) {
     selectedStepIdx = idx;
-    activeMonitorTab = 'primary';
-    const step = store.session?.steps[idx];
+    const step = (store.session?.steps ?? [])[idx];
     if (!step) return;
     if (!imageCache[step.id]) {
       invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
@@ -181,7 +197,6 @@
   async function setExportChoice(choice: StepExportChoice) {
     if (!selectedStep) return;
     await invoke('set_step_export_choice', { stepId: selectedStep.id, choice });
-    // Optimistically update the local store so the UI stays in sync.
     if (store.session) {
       const steps = store.session.steps.map((s) =>
         s.id === selectedStep!.id ? { ...s, export_choice: choice } : s
@@ -190,16 +205,17 @@
     }
   }
 
+  /** Select a monitor tab: updates the view AND persists the export choice for this step. */
+  async function selectMonitorTab(tab: string) {
+    activeMonitorTab = tab;
+    await setExportChoice(choiceFromTab(tab));
+  }
+
   /**
    * Parse a keystroke string into an array of segments.
    * Each segment is either:
    *   { kind: 'shortcut', key: 'Ctrl+Shift+Left' }  — rendered as <kbd>
    *   { kind: 'text', value: 'hello world' }          — rendered as plain text
-   *
-   * The raw format uses bracket notation for shortcuts: [Ctrl+C]hello[Shift+Space]
-   * A bracketed token that contains '+' is treated as a multi-key shortcut.
-   * A bracketed token without '+' (e.g. [Enter]) is also rendered as <kbd> since
-   * it represents a special key press, not a typed character.
    */
   type KeystrokeSegment =
     | { kind: 'shortcut'; key: string }
@@ -207,15 +223,11 @@
 
   function parseKeystrokes(raw: string): KeystrokeSegment[] {
     const segments: KeystrokeSegment[] = [];
-    // Split on [...] tokens while keeping the delimiters
     const parts = raw.split(/(\[[^\]]+\])/);
     for (const part of parts) {
       if (!part) continue;
       if (part.startsWith('[') && part.endsWith(']')) {
-        // Bracketed token — extract the inner content
         const inner = part.slice(1, -1);
-        // Treat anything with '+' as a multi-key shortcut, plus single special keys
-        // (anything that isn't a single printable character) as a <kbd> element.
         const isSingleChar = inner.length === 1;
         if (!isSingleChar || inner === '+') {
           segments.push({ kind: 'shortcut', key: inner });
@@ -229,8 +241,6 @@
     return segments;
   }
 
-  // Handle back mouse button (button 3 / XButton1) and browser history back (popstate)
-  // so that the back navigation gesture returns the user to the idle screen.
   function handleMouseUp(event: MouseEvent) {
     if (event.button === 3) {
       event.preventDefault();
@@ -342,112 +352,88 @@
           </Button>
         </div>
 
-        <!-- Monitor tabs (only visible when extra monitor images exist) -->
+        <!-- Per-step monitor tabs (only when extra monitor images exist) -->
         {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
-          <div class="mb-2 flex flex-wrap gap-1">
-            <Button
-              size="sm"
-              variant={activeMonitorTab === 'primary' ? 'default' : 'outline'}
-              class="h-auto gap-1 px-2 py-0.5 text-xs font-medium"
-              onclick={() => (activeMonitorTab = 'primary')}
-            >
-              <MousePointer2 size={12} class="shrink-0" />
-              {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
-            </Button>
-            {#each selectedStep.extra_image_paths as _path, i (i)}
-              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              <Button
-                size="sm"
-                variant={activeMonitorTab === `extra_${i}` ? 'default' : 'outline'}
-                class="h-auto px-2 py-0.5 text-xs font-medium"
-                onclick={() => (activeMonitorTab = `extra_${i}`)}
-              >
-                {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
-              </Button>
-            {/each}
+          <div class="mb-2 flex justify-center">
+            <Tabs value={activeMonitorTab} onValueChange={selectMonitorTab}>
+              <TabsList class="h-auto gap-1 bg-transparent p-0">
+                <TabsTrigger value="primary" class="gap-1 border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
+                  <MousePointer2 size={12} />
+                  {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+                </TabsTrigger>
+                {#each selectedStep.extra_image_paths as _path, i (i)}
+                  {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+                  <TabsTrigger value="extra_{i}" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
+                    {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+                  </TabsTrigger>
+                {/each}
+                <TabsTrigger value="all" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">All</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
         {/if}
 
-        <!-- Export monitor picker (only when extra monitor images exist) -->
-        {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
-          {@const choice = selectedStep.export_choice ?? { type: 'Primary' }}
-          <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border bg-muted/30 px-3 py-1.5">
-            <span class="text-xs font-medium text-muted-foreground">Export:</span>
-
-            <!-- Primary option -->
-            <label class="flex cursor-pointer items-center gap-1 text-xs">
-              <input
-                type="radio"
-                name="export-choice-{selectedStep.id}"
-                checked={choice.type === 'Primary'}
-                onchange={() => setExportChoice({ type: 'Primary' })}
-                class="accent-primary"
-              />
-              <MousePointer2 size={11} class="shrink-0 text-muted-foreground" />
-              {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`} (clicked)
-            </label>
-
-            <!-- One option per extra monitor -->
-            {#each selectedStep.extra_image_paths as _path, i (i)}
-              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              <label class="flex cursor-pointer items-center gap-1 text-xs">
-                <input
-                  type="radio"
-                  name="export-choice-{selectedStep.id}"
-                  checked={choice.type === 'Extra' && (choice as { type: 'Extra'; value: number }).value === i}
-                  onchange={() => setExportChoice({ type: 'Extra', value: i })}
-                  class="accent-primary"
-                />
-                {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
-              </label>
-            {/each}
-
-            <!-- All monitors option -->
-            <label class="flex cursor-pointer items-center gap-1 text-xs">
-              <input
-                type="radio"
-                name="export-choice-{selectedStep.id}"
-                checked={choice.type === 'All'}
-                onchange={() => setExportChoice({ type: 'All' })}
-                class="accent-primary"
-              />
-              All monitors
-            </label>
-          </div>
-        {/if}
-
-        <!-- Image -->
-        <div class="mb-3 flex flex-1 items-start justify-center overflow-auto rounded border bg-muted/20">
-          {#if activeMonitorTab === 'primary'}
-            {#if imageCache[selectedStep.id]}
-              <img
-                src={imageCache[selectedStep.id]}
-                alt="Step {selectedStepDisplayNum}"
-                class="max-h-full max-w-full object-contain"
-              />
-            {:else}
-              <div class="flex h-full items-center justify-center text-sm text-muted-foreground">
-                Loading…
+        <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
+        <div class="mb-3 flex-1 overflow-y-auto rounded border bg-muted/20">
+          {#if activeMonitorTab === 'all'}
+            <!-- All monitors: stacked scrollable view -->
+            <div class="flex flex-col gap-4 p-3">
+              <div class="flex flex-col gap-1">
+                <span class="flex items-center gap-1 text-xs text-muted-foreground">
+                  <MousePointer2 size={11} />
+                  {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+                </span>
+                {#if imageCache[selectedStep.id]}
+                  <img src={imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
+                {:else}
+                  <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
+                {/if}
               </div>
-            {/if}
+              {#each selectedStep.extra_image_paths as _path, i (i)}
+                {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+                {@const key = `${selectedStep.id}_extra_${i}`}
+                <div class="flex flex-col gap-1">
+                  <span class="text-xs text-muted-foreground">
+                    {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+                  </span>
+                  {#if extraImageCache[key]}
+                    <img src={extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
+                  {:else}
+                    <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {:else if activeMonitorTab === 'primary'}
+            <div class="flex h-full items-center justify-center p-2">
+              {#if imageCache[selectedStep.id]}
+                <img
+                  src={imageCache[selectedStep.id]}
+                  alt="Step {selectedStepDisplayNum}"
+                  class="max-h-full max-w-full object-contain"
+                />
+              {:else}
+                <span class="text-sm text-muted-foreground">Loading…</span>
+              {/if}
+            </div>
           {:else}
             {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
             {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
-            {#if extraImageCache[extraKey]}
-              <img
-                src={extraImageCache[extraKey]}
-                alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
-                class="max-h-full max-w-full object-contain"
-              />
-            {:else}
-              <div class="flex h-full items-center justify-center text-sm text-muted-foreground">
-                Loading…
-              </div>
-            {/if}
+            <div class="flex h-full items-center justify-center p-2">
+              {#if extraImageCache[extraKey]}
+                <img
+                  src={extraImageCache[extraKey]}
+                  alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
+                  class="max-h-full max-w-full object-contain"
+                />
+              {:else}
+                <span class="text-sm text-muted-foreground">Loading…</span>
+              {/if}
+            </div>
           {/if}
         </div>
 
-        <!-- Description -->
+        <!-- Description and keystrokes -->
         <div class="flex flex-col gap-2">
           <Textarea
             bind:value={descriptionDraft}
