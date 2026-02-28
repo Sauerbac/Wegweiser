@@ -362,7 +362,7 @@
   <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
     <!-- Left: back button -->
     <div class="flex items-center">
-      <Button size="sm" onclick={newRecording} class="gap-1.5"><ArrowLeft size={14} />Back</Button>
+      <Button variant="outline" size="sm" onclick={newRecording}><ArrowLeft />Back</Button>
     </div>
 
     <!-- Center: editable session name -->
@@ -378,8 +378,8 @@
 
     <!-- Right: export buttons -->
     <div class="flex items-center justify-end gap-2">
-      <Button variant="outline" size="sm" onclick={exportMarkdown} class="gap-1.5"><FileDown size={14} />Export MD</Button>
-      <Button variant="outline" size="sm" onclick={exportHtml} class="gap-1.5"><FileCode size={14} />Export HTML</Button>
+      <Button variant="outline" size="sm" onclick={exportMarkdown}><FileDown />Export MD</Button>
+      <Button variant="outline" size="sm" onclick={exportHtml}><FileCode />Export HTML</Button>
     </div>
   </div>
 
@@ -408,12 +408,11 @@
           {#if selectedStepIds.size > 0}
             <span class="text-xs text-muted-foreground">{selectedStepIds.size} selected</span>
             <Button
-              variant="outline"
+              variant="destructive"
               size="sm"
               onclick={deleteSelectedSteps}
-              class="gap-1.5 text-destructive hover:text-destructive"
             >
-              <Trash2 size={13} />Delete Selected
+              <Trash2 />Delete Selected
             </Button>
           {/if}
         </div>
@@ -494,13 +493,12 @@
           <span class="text-sm font-semibold">Step {selectedStepDisplayNum}</span>
           <div class="flex-1"></div>
           <Button
-            variant="ghost"
+            variant="destructive"
             size="sm"
             onclick={() => deleteStep(selectedStep!.id)}
-            class="gap-1.5 text-destructive hover:text-destructive"
             title="Delete step"
           >
-            <Trash2 size={13} />Delete
+            <Trash2 />Delete
           </Button>
         </div>
 
@@ -625,8 +623,8 @@
     <span class="flex-1 truncate text-xs {store.exportedPath ? 'text-card-foreground' : 'text-muted-foreground'}">
       {store.exportedPath ? `Exported to: ${store.exportedPath}` : 'Ready'}
     </span>
-    <Button variant="outline" size="sm" onclick={openExported} class="gap-1.5 shrink-0 {store.exportedPath ? '' : 'invisible'}">
-      <ExternalLink size={13} />Open
+    <Button variant="outline" size="sm" onclick={openExported} class="shrink-0 {store.exportedPath ? '' : 'invisible'}">
+      <ExternalLink />Open
     </Button>
   </div>
 </div>

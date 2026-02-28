@@ -136,8 +136,8 @@
         </div>
       </div>
 
-      <Button onclick={startRecording} class="mt-auto w-full gap-2">
-        <Circle size={14} class="fill-current" />Start Recording
+      <Button onclick={startRecording} class="mt-auto w-full">
+        <Circle class="fill-current" />Start Recording
       </Button>
     </div>
 
@@ -153,12 +153,11 @@
               {selectedRecordings.size} selected
             </span>
             <Button
-              variant="outline"
+              variant="destructive"
               size="sm"
               onclick={deleteSelected}
-              class="gap-1.5 text-destructive hover:text-destructive"
             >
-              <Trash2 size={13} />Delete Selected
+              <Trash2 />Delete Selected
             </Button>
           {/if}
           <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
@@ -219,16 +218,15 @@
                       No
                     </Button>
                   {:else}
-                    <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)} class="gap-1.5">
-                      <FolderOpen size={13} />Load
+                    <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)}>
+                      <FolderOpen />Load
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="destructive"
                       size="sm"
                       onclick={() => (pendingDelete = meta.session_dir)}
-                      class="gap-1.5 text-destructive hover:text-destructive"
                     >
-                      <Trash2 size={13} />Delete
+                      <Trash2 />Delete
                     </Button>
                   {/if}
                 </div>

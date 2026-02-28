@@ -121,7 +121,13 @@ No tests exist yet.
 - **Always use Tailwind utility classes** for all frontend styling. Do not write raw CSS in `<style>` blocks unless it is genuinely impossible with Tailwind (e.g. `:global()` overrides targeting child components, or per-route `html`/`body` resets).
 - Use **shadcn CSS variables** (`--primary`, `--muted`, `--border`, etc.) via their Tailwind token equivalents (`bg-primary`, `text-muted-foreground`, `border-border`, etc.) — never hardcode color hex/hsl values in components.
 - `src/routes/layout.css` is the theme foundation (shadcn variable definitions + `@import` directives) — do not add utility-style rules there.
-- **Icons**: always use `@lucide/svelte` — no hand-authored SVGs. Buttons with icons use `gap-1.5` or `gap-2`. Icon sizes: `size={14}` in toolbar buttons, `size={13}` in small action buttons, `size={12}` for inline/tab icons. Icon-only buttons (e.g. delete) use a `title` attribute for tooltip. Destructive actions use `Trash2`; navigation uses `ArrowLeft`; exports use `FileDown`/`FileCode`.
+- **Icons**: always use `@lucide/svelte` — no hand-authored SVGs. Do not set explicit `size` props on icons inside `<Button>` — the button component sizes them automatically via `[&_svg:not([class*='size-'])]:size-4`. Destructive actions use `Trash2`; navigation uses `ArrowLeft`; exports use `FileDown`/`FileCode`.
+- **Button conventions** — only set `variant`, `size`, event handlers, and pure layout classes (e.g. `mt-auto`, `w-full`, `shrink-0`). Never add custom styling classes (hover overrides, gap, color, etc.) to a `<Button>`:
+  - Gap between icon and label is automatic — never add `gap-*` to a `<Button class>`.
+  - Icon-only buttons use `size="icon"` / `size="icon-sm"` / `size="icon-lg"` with an `aria-label`.
+  - All destructive actions (delete, confirm-delete) use `variant="destructive"`.
+  - Navigation and export buttons in toolbars use `variant="outline"`.
+  - The minibar (Recording.svelte) is the only exception: its buttons carry compact overrides (`h-7 gap-1 text-xs`) required by the 64 px height constraint.
 - **shadcn-svelte component mapping** — always use the designated component, never a raw HTML element:
   | Element | Component |
   |---|---|
