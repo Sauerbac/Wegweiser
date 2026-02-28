@@ -12,6 +12,7 @@
   import type { Step, StepExportChoice } from '$lib/types';
   import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Sun, Trash2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
+  import PageLayout from '$lib/components/PageLayout.svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -358,272 +359,272 @@
   });
 </script>
 
-<div class="flex h-screen flex-col bg-background text-foreground">
-  <!-- Toolbar: three-zone grid (left | center | right) -->
-  <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
-    <!-- Left: back button -->
-    <div class="flex items-center">
-      <Button variant="outline" size="sm" onclick={newRecording}><ArrowLeft />Back</Button>
-    </div>
-
-    <!-- Center: editable session name -->
-    <div class="flex justify-center">
-      <Input
-        bind:value={sessionNameDraft}
-        class="h-8 max-w-64 text-center text-sm font-semibold"
-        aria-label="Session name"
-        onblur={saveSessionName}
-        onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
-      />
-    </div>
-
-    <!-- Right: export buttons + theme toggle -->
-    <div class="flex items-center justify-end gap-2">
-      <Button variant="outline" size="sm" onclick={exportMarkdown}><FileDown />Export MD</Button>
-      <Button variant="outline" size="sm" onclick={exportHtml}><FileCode />Export HTML</Button>
-      <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
-        <Sun class="dark:hidden" />
-        <Moon class="hidden dark:block" />
-      </Button>
-    </div>
-  </div>
-
-  <!-- Export progress -->
-  {#if store.exportProgress !== null}
-    <div class="border-b px-4 py-2">
-      <p class="mb-1 text-xs text-muted-foreground">Exporting…</p>
-      <Progress value={store.exportProgress * 100} class="h-1.5" />
-    </div>
-  {/if}
-
-  {#if store.exportError}
-    <div class="border-b bg-destructive/10 px-4 py-2">
-      <p class="text-sm text-destructive">Export error: {store.exportError}</p>
-    </div>
-  {/if}
-
-  <!-- Main content -->
-  <div class="flex flex-1 overflow-hidden">
-    <!-- Step list -->
-    <div class="flex w-80 shrink-0 flex-col overflow-hidden border-r p-6">
-      <!-- Header -->
-      <div class="mb-3 flex items-center justify-between">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Steps</h2>
-        <div class="flex items-center gap-2">
-          {#if selectedStepIds.size > 0}
-            <span class="text-xs text-muted-foreground">{selectedStepIds.size} selected</span>
-            <Button
-              variant="destructive"
-              size="sm"
-              onclick={deleteSelectedSteps}
-            >
-              <Trash2 />Delete Selected
-            </Button>
-          {/if}
-        </div>
+<PageLayout
+  leftClass="flex w-80 shrink-0 flex-col overflow-hidden border-r p-6"
+  rightClass="flex flex-1 flex-col overflow-hidden p-4"
+  footerClass="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2"
+>
+  {#snippet header()}
+    <!-- Toolbar: three-zone grid (left | center | right) -->
+    <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
+      <!-- Left: back button -->
+      <div class="flex items-center">
+        <Button variant="outline" size="sm" onclick={newRecording}><ArrowLeft />Back</Button>
       </div>
 
-      <!-- Select-all row -->
-      {#if (store.session?.steps.length ?? 0) > 0}
-        <div class="mb-2 flex items-center gap-2">
-          <Checkbox
-            checked={selectAllChecked}
-            indeterminate={selectAllIndeterminate}
-            onCheckedChange={toggleSelectAll}
-            class="cursor-pointer"
-          />
-          <span class="text-xs text-muted-foreground">
-            {selectedStepIds.size > 0 && selectedStepIds.size < (store.session?.steps.length ?? 0)
-              ? `${selectedStepIds.size} of ${store.session?.steps.length}`
-              : selectedStepIds.size === (store.session?.steps.length ?? 0) && selectedStepIds.size > 0
-                ? `All ${store.session?.steps.length}`
-                : 'Select all'}
-          </span>
-        </div>
-      {/if}
+      <!-- Center: editable session name -->
+      <div class="flex justify-center">
+        <Input
+          bind:value={sessionNameDraft}
+          class="h-8 max-w-64 text-center text-sm font-semibold"
+          aria-label="Session name"
+          onblur={saveSessionName}
+          onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+        />
+      </div>
 
-      <!-- Card list -->
-      <div class="flex flex-col gap-2 overflow-y-auto">
-        {#each store.session?.steps ?? [] as step, idx (step.id)}
-          {@const isActive = selectedStepIdx === idx}
-          {@const isChecked = selectedStepIds.has(step.id)}
-          {@const keystrokeCount = countKeystrokes(step.keystrokes)}
-          {@const monCount = monitorExportCount(step)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            role="button"
-            tabindex="0"
-            class="cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'border-primary bg-accent/60' : isChecked ? 'border-primary/50 bg-accent/40' : 'hover:bg-accent/40'}"
-            onclick={(e) => {
-              if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
-              selectStep(idx);
-            }}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectStep(idx); }}
-          >
-            <div class="flex items-center gap-2">
-              <!-- Checkbox -->
-              <div data-checkbox class="shrink-0">
-                <Checkbox
-                  checked={isChecked}
-                  onCheckedChange={() => toggleStepSelection(step.id)}
-                  class="cursor-pointer"
-                />
-              </div>
-              <!-- Step number -->
-              <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
-                {idx + 1}
-              </span>
-              <!-- Spacer -->
-              <div class="flex-1"></div>
-              <!-- Indicators: all three icons together, consistently sized and spaced -->
-              <span class="shrink-0 {step.description ? 'text-foreground' : 'text-muted-foreground/25'}" title={step.description ?? 'No description'}>
-                <AlignLeft size={13} />
-              </span>
-              <span class="shrink-0 text-muted-foreground {keystrokeCount > 0 ? '' : 'invisible'}">
-                <Keyboard size={13} />
-              </span>
-              <span class="shrink-0 text-muted-foreground {monCount > 1 ? '' : 'invisible'}">
-                <Monitor size={13} />
-              </span>
-            </div>
-          </div>
-        {/each}
+      <!-- Right: export buttons + theme toggle -->
+      <div class="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onclick={exportMarkdown}><FileDown />Export MD</Button>
+        <Button variant="outline" size="sm" onclick={exportHtml}><FileCode />Export HTML</Button>
+        <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
+          <Sun class="dark:hidden" />
+          <Moon class="hidden dark:block" />
+        </Button>
       </div>
     </div>
 
-    <!-- Step detail -->
-    <div class="flex flex-1 flex-col overflow-hidden p-4">
-      {#if selectedStep}
-        <div class="mb-3 flex items-center gap-2">
-          <span class="text-sm font-semibold">Step {selectedStepDisplayNum}</span>
-          <div class="flex-1"></div>
+    <!-- Export progress -->
+    {#if store.exportProgress !== null}
+      <div class="border-b px-4 py-2">
+        <p class="mb-1 text-xs text-muted-foreground">Exporting…</p>
+        <Progress value={store.exportProgress * 100} class="h-1.5" />
+      </div>
+    {/if}
+
+    {#if store.exportError}
+      <div class="border-b bg-destructive/10 px-4 py-2">
+        <p class="text-sm text-destructive">Export error: {store.exportError}</p>
+      </div>
+    {/if}
+  {/snippet}
+
+  {#snippet left()}
+    <!-- Header -->
+    <div class="mb-3 flex items-center justify-between">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Steps</h2>
+      <div class="flex items-center gap-2">
+        {#if selectedStepIds.size > 0}
+          <span class="text-xs text-muted-foreground">{selectedStepIds.size} selected</span>
           <Button
             variant="destructive"
             size="sm"
-            onclick={() => deleteStep(selectedStep!.id)}
-            title="Delete step"
+            onclick={deleteSelectedSteps}
           >
-            <Trash2 />Delete
+            <Trash2 />Delete Selected
           </Button>
-        </div>
-
-        <!-- Per-step monitor tabs (only when extra monitor images exist) -->
-        {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
-          <div class="mb-2 flex justify-center">
-            <Tabs value={activeMonitorTab} onValueChange={selectMonitorTab}>
-              <TabsList class="h-auto gap-1 bg-transparent p-0">
-                <TabsTrigger value="primary" class="gap-1 border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
-                  <MousePointer2 size={12} />
-                  {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
-                </TabsTrigger>
-                {#each selectedStep.extra_image_paths as _path, i (i)}
-                  {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-                  <TabsTrigger value="extra_{i}" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
-                    {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
-                  </TabsTrigger>
-                {/each}
-                <TabsTrigger value="all" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">All</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
         {/if}
+      </div>
+    </div>
 
-        <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
-        <div class="mb-3 flex-1 overflow-y-auto rounded border bg-muted/20">
-          {#if activeMonitorTab === 'all'}
-            <!-- All monitors: stacked scrollable view -->
-            <div class="flex flex-col gap-4 p-3">
+    <!-- Select-all row -->
+    {#if (store.session?.steps.length ?? 0) > 0}
+      <div class="mb-2 flex items-center gap-2">
+        <Checkbox
+          checked={selectAllChecked}
+          indeterminate={selectAllIndeterminate}
+          onCheckedChange={toggleSelectAll}
+          class="cursor-pointer"
+        />
+        <span class="text-xs text-muted-foreground">
+          {selectedStepIds.size > 0 && selectedStepIds.size < (store.session?.steps.length ?? 0)
+            ? `${selectedStepIds.size} of ${store.session?.steps.length}`
+            : selectedStepIds.size === (store.session?.steps.length ?? 0) && selectedStepIds.size > 0
+              ? `All ${store.session?.steps.length}`
+              : 'Select all'}
+        </span>
+      </div>
+    {/if}
+
+    <!-- Card list -->
+    <div class="flex flex-col gap-2 overflow-y-auto">
+      {#each store.session?.steps ?? [] as step, idx (step.id)}
+        {@const isActive = selectedStepIdx === idx}
+        {@const isChecked = selectedStepIds.has(step.id)}
+        {@const keystrokeCount = countKeystrokes(step.keystrokes)}
+        {@const monCount = monitorExportCount(step)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          role="button"
+          tabindex="0"
+          class="cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'border-primary bg-accent/60' : isChecked ? 'border-primary/50 bg-accent/40' : 'hover:bg-accent/40'}"
+          onclick={(e) => {
+            if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
+            selectStep(idx);
+          }}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectStep(idx); }}
+        >
+          <div class="flex items-center gap-2">
+            <!-- Checkbox -->
+            <div data-checkbox class="shrink-0">
+              <Checkbox
+                checked={isChecked}
+                onCheckedChange={() => toggleStepSelection(step.id)}
+                class="cursor-pointer"
+              />
+            </div>
+            <!-- Step number -->
+            <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
+              {idx + 1}
+            </span>
+            <!-- Spacer -->
+            <div class="flex-1"></div>
+            <!-- Indicators: all three icons together, consistently sized and spaced -->
+            <span class="shrink-0 {step.description ? 'text-foreground' : 'text-muted-foreground/25'}" title={step.description ?? 'No description'}>
+              <AlignLeft size={13} />
+            </span>
+            <span class="shrink-0 text-muted-foreground {keystrokeCount > 0 ? '' : 'invisible'}">
+              <Keyboard size={13} />
+            </span>
+            <span class="shrink-0 text-muted-foreground {monCount > 1 ? '' : 'invisible'}">
+              <Monitor size={13} />
+            </span>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/snippet}
+
+  {#snippet right()}
+    {#if selectedStep}
+      <div class="mb-3 flex items-center gap-2">
+        <span class="text-sm font-semibold">Step {selectedStepDisplayNum}</span>
+        <div class="flex-1"></div>
+        <Button
+          variant="destructive"
+          size="sm"
+          onclick={() => deleteStep(selectedStep!.id)}
+          title="Delete step"
+        >
+          <Trash2 />Delete
+        </Button>
+      </div>
+
+      <!-- Per-step monitor tabs (only when extra monitor images exist) -->
+      {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
+        <div class="mb-2 flex justify-center">
+          <Tabs value={activeMonitorTab} onValueChange={selectMonitorTab}>
+            <TabsList class="h-auto gap-1 bg-transparent p-0">
+              <TabsTrigger value="primary" class="gap-1 border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
+                <MousePointer2 size={12} />
+                {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+              </TabsTrigger>
+              {#each selectedStep.extra_image_paths as _path, i (i)}
+                {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+                <TabsTrigger value="extra_{i}" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
+                  {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+                </TabsTrigger>
+              {/each}
+              <TabsTrigger value="all" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">All</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      {/if}
+
+      <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
+      <div class="mb-3 flex-1 overflow-y-auto rounded border bg-muted/20">
+        {#if activeMonitorTab === 'all'}
+          <!-- All monitors: stacked scrollable view -->
+          <div class="flex flex-col gap-4 p-3">
+            <div class="flex flex-col gap-1">
+              <span class="flex items-center gap-1 text-xs text-muted-foreground">
+                <MousePointer2 size={11} />
+                {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+              </span>
+              {#if imageCache[selectedStep.id]}
+                <img src={imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
+              {:else}
+                <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
+              {/if}
+            </div>
+            {#each selectedStep.extra_image_paths as _path, i (i)}
+              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+              {@const key = `${selectedStep.id}_extra_${i}`}
               <div class="flex flex-col gap-1">
-                <span class="flex items-center gap-1 text-xs text-muted-foreground">
-                  <MousePointer2 size={11} />
-                  {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+                <span class="text-xs text-muted-foreground">
+                  {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
                 </span>
-                {#if imageCache[selectedStep.id]}
-                  <img src={imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
+                {#if extraImageCache[key]}
+                  <img src={extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
                 {:else}
                   <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
                 {/if}
               </div>
-              {#each selectedStep.extra_image_paths as _path, i (i)}
-                {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-                {@const key = `${selectedStep.id}_extra_${i}`}
-                <div class="flex flex-col gap-1">
-                  <span class="text-xs text-muted-foreground">
-                    {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
-                  </span>
-                  {#if extraImageCache[key]}
-                    <img src={extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
-                  {:else}
-                    <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {:else if activeMonitorTab === 'primary'}
-            <div class="flex h-full items-center justify-center p-2">
-              {#if imageCache[selectedStep.id]}
-                <img
-                  src={imageCache[selectedStep.id]}
-                  alt="Step {selectedStepDisplayNum}"
-                  class="max-h-full max-w-full object-contain"
-                />
-              {:else}
-                <span class="text-sm text-muted-foreground">Loading…</span>
-              {/if}
-            </div>
-          {:else}
-            {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
-            {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
-            <div class="flex h-full items-center justify-center p-2">
-              {#if extraImageCache[extraKey]}
-                <img
-                  src={extraImageCache[extraKey]}
-                  alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
-                  class="max-h-full max-w-full object-contain"
-                />
-              {:else}
-                <span class="text-sm text-muted-foreground">Loading…</span>
-              {/if}
-            </div>
-          {/if}
-        </div>
+            {/each}
+          </div>
+        {:else if activeMonitorTab === 'primary'}
+          <div class="flex h-full items-center justify-center p-2">
+            {#if imageCache[selectedStep.id]}
+              <img
+                src={imageCache[selectedStep.id]}
+                alt="Step {selectedStepDisplayNum}"
+                class="max-h-full max-w-full object-contain"
+              />
+            {:else}
+              <span class="text-sm text-muted-foreground">Loading…</span>
+            {/if}
+          </div>
+        {:else}
+          {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
+          {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
+          <div class="flex h-full items-center justify-center p-2">
+            {#if extraImageCache[extraKey]}
+              <img
+                src={extraImageCache[extraKey]}
+                alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
+                class="max-h-full max-w-full object-contain"
+              />
+            {:else}
+              <span class="text-sm text-muted-foreground">Loading…</span>
+            {/if}
+          </div>
+        {/if}
+      </div>
 
-        <!-- Description and keystrokes -->
-        <div class="flex flex-col gap-2">
-          <Textarea
-            bind:value={descriptionDraft}
-            placeholder="Add a description…"
-            class="resize-none text-sm"
-            rows={3}
-            onblur={saveDescription}
-          />
-          {#if selectedStep.keystrokes}
-            <div class="rounded bg-muted px-3 py-2 text-xs font-mono">
-              <span class="text-muted-foreground">Typed: </span>
-              {#each parseKeystrokes(selectedStep.keystrokes) as segment}
-                {#if segment.kind === 'shortcut'}
-                  <kbd class="inline-flex items-center rounded border border-border px-1 py-0.5 font-mono text-xs">{segment.key}</kbd>
-                {:else}
-                  {segment.value}
-                {/if}
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          {#if (store.session?.steps.length ?? 0) === 0}
-            No steps recorded yet.
-          {:else}
-            Select a step on the left.
-          {/if}
-        </div>
-      {/if}
-    </div>
-  </div>
+      <!-- Description and keystrokes -->
+      <div class="flex flex-col gap-2">
+        <Textarea
+          bind:value={descriptionDraft}
+          placeholder="Add a description…"
+          class="resize-none text-sm"
+          rows={3}
+          onblur={saveDescription}
+        />
+        {#if selectedStep.keystrokes}
+          <div class="rounded bg-muted px-3 py-2 text-xs font-mono">
+            <span class="text-muted-foreground">Typed: </span>
+            {#each parseKeystrokes(selectedStep.keystrokes) as segment}
+              {#if segment.kind === 'shortcut'}
+                <kbd class="inline-flex items-center rounded border border-border px-1 py-0.5 font-mono text-xs">{segment.key}</kbd>
+              {:else}
+                {segment.value}
+              {/if}
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        {#if (store.session?.steps.length ?? 0) === 0}
+          No steps recorded yet.
+        {:else}
+          Select a step on the left.
+        {/if}
+      </div>
+    {/if}
+  {/snippet}
 
-  <!-- Status bar (always visible, fixed height) -->
-  <div class="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2">
+  {#snippet footer()}
     <Check size={13} class="shrink-0 {store.exportedPath ? 'text-primary' : 'text-transparent'}" />
     <span class="flex-1 truncate text-xs {store.exportedPath ? 'text-card-foreground' : 'text-muted-foreground'}">
       {store.exportedPath ? `Exported to: ${store.exportedPath}` : 'Ready'}
@@ -631,5 +632,5 @@
     <Button variant="outline" size="sm" onclick={openExported} class="shrink-0 {store.exportedPath ? '' : 'invisible'}">
       <ExternalLink />Open
     </Button>
-  </div>
-</div>
+  {/snippet}
+</PageLayout>
