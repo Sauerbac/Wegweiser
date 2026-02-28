@@ -1,10 +1,12 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
+  import { Checkbox } from '$lib/components/ui/checkbox';
   import { store } from '$lib/stores/session.svelte';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
 
-  let selectAllCheckbox = $state<HTMLInputElement | null>(null);
+  let selectAllIndeterminate = $state(false);
+  let selectAllChecked = $state(false);
 
   let pendingDelete = $state<string | null>(null);
   let selectedRecordings = $state<Set<string>>(new Set());
@@ -72,12 +74,12 @@
     await invoke('identify_monitors');
   }
 
-  // Svelte 5: indeterminate is not a reflected attribute, must be set via DOM property
+  // Derive checkbox state from selection
   $effect(() => {
-    if (selectAllCheckbox) {
-      selectAllCheckbox.indeterminate =
-        selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length;
-    }
+    const total = store.sessions.length;
+    const count = selectedRecordings.size;
+    selectAllChecked = count > 0 && count === total;
+    selectAllIndeterminate = count > 0 && count < total;
   });
 </script>
 
@@ -172,12 +174,11 @@
         </div>
       {:else}
         <div class="mb-2 flex items-center gap-2">
-          <input
-            bind:this={selectAllCheckbox}
-            type="checkbox"
-            checked={selectedRecordings.size > 0 && selectedRecordings.size === store.sessions.length}
-            onchange={toggleSelectAll}
-            class="h-4 w-4 cursor-pointer accent-primary"
+          <Checkbox
+            checked={selectAllChecked}
+            indeterminate={selectAllIndeterminate}
+            onCheckedChange={toggleSelectAll}
+            class="cursor-pointer"
           />
           <span class="text-xs text-muted-foreground">
             {selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length
@@ -192,11 +193,10 @@
             <div class="rounded-lg border p-4 transition-colors {selectedRecordings.has(meta.session_dir) ? 'border-primary bg-accent/60' : 'hover:bg-accent/40'}">
               <div class="flex items-center justify-between">
                 <div class="flex min-w-0 flex-1 items-center gap-3">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selectedRecordings.has(meta.session_dir)}
-                    onchange={() => toggleSelection(meta.session_dir)}
-                    class="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                    onCheckedChange={() => toggleSelection(meta.session_dir)}
+                    class="shrink-0 cursor-pointer"
                   />
                   <div class="min-w-0 flex-1">
                     <p class="truncate text-sm font-medium">{meta.name}</p>

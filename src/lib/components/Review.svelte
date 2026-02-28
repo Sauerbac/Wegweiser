@@ -7,7 +7,7 @@
   import { Progress } from '$lib/components/ui/progress';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
-  import { ArrowLeft, ExternalLink, FileCode, FileDown, MousePointer2, Trash2 } from '@lucide/svelte';
+  import { ArrowLeft, ExternalLink, FileCode, FileDown, MousePointer2, Trash2, CheckCircle } from '@lucide/svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -222,8 +222,9 @@
   {/if}
 
   {#if store.exportedPath && toastVisible}
-    <div class="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-3 border-t bg-green-50 px-4 py-3 shadow-lg dark:bg-green-950">
-      <span class="flex-1 text-sm text-green-700 dark:text-green-300">
+    <div class="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-3 border-t bg-card px-4 py-3 shadow-lg">
+      <CheckCircle size={16} class="shrink-0 text-primary" />
+      <span class="flex-1 text-sm text-card-foreground">
         Exported to: {store.exportedPath}
       </span>
       <Button variant="outline" size="sm" onclick={openExported} class="gap-1.5"><ExternalLink size={13} />Open</Button>
@@ -241,11 +242,12 @@
     <!-- Step list -->
     <div class="w-56 overflow-y-auto border-r bg-muted/30">
       {#each store.session?.steps ?? [] as step, idx (step.id)}
-        <button
-          class="flex w-full items-center gap-2 border-b px-3 py-2 text-left transition-colors hover:bg-accent {selectedStepIdx === idx ? 'bg-accent' : ''}"
+        <Button
+          variant="ghost"
+          class="flex h-auto w-full items-center gap-2 rounded-none border-b px-3 py-2 text-left transition-colors hover:bg-accent {selectedStepIdx === idx ? 'bg-accent' : ''}"
           onclick={() => selectStep(idx)}
         >
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-zinc-200 text-xs font-bold dark:bg-zinc-700">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
             {idx + 1}
           </div>
           <div class="min-w-0 flex-1">
@@ -256,13 +258,13 @@
                 class="h-10 w-full rounded object-contain"
               />
             {:else}
-              <div class="h-10 w-full animate-pulse rounded bg-zinc-300 dark:bg-zinc-600"></div>
+              <div class="h-10 w-full animate-pulse rounded bg-muted"></div>
             {/if}
             {#if step.description}
               <p class="mt-1 truncate text-xs text-muted-foreground">{step.description}</p>
             {/if}
           </div>
-        </button>
+        </Button>
       {/each}
     </div>
 
@@ -286,21 +288,25 @@
         <!-- Monitor tabs (only visible when extra monitor images exist) -->
         {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
           <div class="mb-2 flex flex-wrap gap-1">
-            <button
-              class="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors {activeMonitorTab === 'primary' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
+            <Button
+              size="sm"
+              variant={activeMonitorTab === 'primary' ? 'default' : 'outline'}
+              class="h-auto gap-1 px-2 py-0.5 text-xs font-medium"
               onclick={() => (activeMonitorTab = 'primary')}
             >
               <MousePointer2 size={12} class="shrink-0" />
               {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
-            </button>
+            </Button>
             {#each selectedStep.extra_image_paths as _path, i (i)}
               {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              <button
-                class="rounded px-2 py-0.5 text-xs font-medium transition-colors {activeMonitorTab === `extra_${i}` ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
+              <Button
+                size="sm"
+                variant={activeMonitorTab === `extra_${i}` ? 'default' : 'outline'}
+                class="h-auto px-2 py-0.5 text-xs font-medium"
                 onclick={() => (activeMonitorTab = `extra_${i}`)}
               >
                 {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
-              </button>
+              </Button>
             {/each}
           </div>
         {/if}
@@ -354,7 +360,7 @@
         {/if}
 
         <!-- Image -->
-        <div class="mb-3 flex flex-1 items-start justify-center overflow-auto rounded border bg-black/5 dark:bg-white/5">
+        <div class="mb-3 flex flex-1 items-start justify-center overflow-auto rounded border bg-muted/20">
           {#if activeMonitorTab === 'primary'}
             {#if imageCache[selectedStep.id]}
               <img

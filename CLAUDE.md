@@ -122,6 +122,21 @@ No tests exist yet.
 - Use **shadcn CSS variables** (`--primary`, `--muted`, `--border`, etc.) via their Tailwind token equivalents (`bg-primary`, `text-muted-foreground`, `border-border`, etc.) — never hardcode color hex/hsl values in components.
 - `src/routes/layout.css` is the theme foundation (shadcn variable definitions + `@import` directives) — do not add utility-style rules there.
 - **Icons**: always use `@lucide/svelte` — no hand-authored SVGs. Buttons with icons use `gap-1.5` or `gap-2`. Icon sizes: `size={14}` in toolbar buttons, `size={13}` in small action buttons, `size={12}` for inline/tab icons. Icon-only buttons (e.g. delete) use a `title` attribute for tooltip. Destructive actions use `Trash2`; navigation uses `ArrowLeft`; exports use `FileDown`/`FileCode`.
+- **shadcn-svelte component mapping** — always use the designated component, never a raw HTML element:
+  | Element | Component |
+  |---|---|
+  | Buttons | `Button` (with correct `variant`) |
+  | Checkboxes | `Checkbox` (supports `indeterminate` prop) |
+  | Selects | `Select` |
+  | Confirmation dialogs | `AlertDialog` |
+  | Tabs | `Tabs` / `TabsList` / `TabsTrigger` / `TabsContent` |
+  | Scrollable areas | `ScrollArea` |
+  | Text inputs / textareas | `Textarea` |
+  | Metadata labels | `Badge` |
+  | Dropdown menus | `DropdownMenu` |
+
+  `<input type="radio">` is acceptable when no `RadioGroup` component is installed. Add missing components with `npx shadcn-svelte@latest add <name>` before using them.
+- **Intentional semantic colors** (do not replace with theme tokens): Stop button `bg-red-600 hover:bg-red-700`; recording status dot `bg-red-500 animate-pulse`; paused status dot `bg-yellow-400`.
 
 ## Workflow
 

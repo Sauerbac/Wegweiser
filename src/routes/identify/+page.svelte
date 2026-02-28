@@ -19,7 +19,7 @@
 
 <div class="w-full h-full flex items-center justify-center bg-transparent">
   <div
-    class="w-full h-full flex items-center justify-center bg-primary rounded-none text-[2.5rem] font-black text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.4)] tracking-[-0.02em]"
+    class="w-full h-full flex items-center justify-center bg-primary rounded-none text-[2.5rem] font-black text-primary-foreground shadow-2xl tracking-[-0.02em]"
   >
     {displayNumber}
   </div>
