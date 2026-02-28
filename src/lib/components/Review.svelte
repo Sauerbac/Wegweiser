@@ -10,7 +10,8 @@
   import { Tabs, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
-  import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, MousePointer2, Trash2 } from '@lucide/svelte';
+  import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Sun, Trash2 } from '@lucide/svelte';
+  import { toggleMode } from 'mode-watcher';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -376,10 +377,14 @@
       />
     </div>
 
-    <!-- Right: export buttons -->
+    <!-- Right: export buttons + theme toggle -->
     <div class="flex items-center justify-end gap-2">
       <Button variant="outline" size="sm" onclick={exportMarkdown}><FileDown />Export MD</Button>
       <Button variant="outline" size="sm" onclick={exportHtml}><FileCode />Export HTML</Button>
+      <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
+        <Sun class="dark:hidden" />
+        <Moon class="hidden dark:block" />
+      </Button>
     </div>
   </div>
 

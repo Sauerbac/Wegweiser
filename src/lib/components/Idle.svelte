@@ -3,7 +3,8 @@
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { store } from '$lib/stores/session.svelte';
-  import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
+  import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
+  import { toggleMode } from 'mode-watcher';
 
   let selectAllIndeterminate = $state(false);
   let selectAllChecked = $state(false);
@@ -85,9 +86,15 @@
 
 <div class="flex h-screen flex-col bg-background text-foreground">
   <!-- Header -->
-  <div class="border-b px-6 py-4">
-    <h1 class="text-lg font-semibold">rec</h1>
-    <p class="text-sm text-muted-foreground">Windows step recorder</p>
+  <div class="flex items-center justify-between border-b px-6 py-4">
+    <div>
+      <h1 class="text-lg font-semibold">rec</h1>
+      <p class="text-sm text-muted-foreground">Windows step recorder</p>
+    </div>
+    <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
+      <Sun class="dark:hidden" />
+      <Moon class="hidden dark:block" />
+    </Button>
   </div>
 
   <div class="flex flex-1 gap-0 overflow-hidden">
