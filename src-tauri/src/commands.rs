@@ -448,6 +448,29 @@ pub fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn rename_session(
+    name: String,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    {
+        let mut st = state.lock().unwrap();
+        if let Some(ref mut session) = st.session {
+            session.name = name;
+            let _ = session::save_session(session);
+        }
+    }
+    let session = {
+        let st = state.lock().unwrap();
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
     let infos = crate::capture::list_monitor_infos();
 

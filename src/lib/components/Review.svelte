@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { save } from '@tauri-apps/plugin-dialog';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import { Textarea } from '$lib/components/ui/textarea';
   import { Progress } from '$lib/components/ui/progress';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
-  import { ArrowLeft, ExternalLink, FileCode, FileDown, MousePointer2, Trash2, CheckCircle } from '@lucide/svelte';
+  import { ArrowLeft, Check, ExternalLink, FileCode, FileDown, MousePointer2, Trash2 } from '@lucide/svelte';
 
   let selectedStepIdx = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
@@ -19,7 +20,8 @@
    */
   let activeMonitorTab = $state<string>('primary');
   let descriptionDraft = $state('');
-  let toastVisible = $state(false);
+  /** Draft value for the session name input — synced from store on load, editable locally. */
+  let sessionNameDraft = $state('');
 
   let selectedStep = $derived<Step | null>(
     selectedStepIdx !== null ? (store.session?.steps[selectedStepIdx] ?? null) : null
@@ -29,6 +31,16 @@
   let selectedStepDisplayNum = $derived<number | null>(
     selectedStepIdx !== null ? selectedStepIdx + 1 : null
   );
+
+  // Sync session name draft when session changes (e.g. on load)
+  $effect(() => {
+    const name = store.session?.name ?? '';
+    // Only reset if name actually changed externally (avoid clobbering user typing).
+    // untrack the draft read so typing doesn't re-trigger this effect.
+    untrack(() => {
+      if (name !== sessionNameDraft) sessionNameDraft = name;
+    });
+  });
 
   // Load image when selection changes; reset the monitor tab to primary.
   $effect(() => {
@@ -85,6 +97,15 @@
     }
   }
 
+  async function saveSessionName() {
+    const trimmed = sessionNameDraft.trim();
+    if (!trimmed || trimmed === store.session?.name) return;
+    await invoke('rename_session', { name: trimmed });
+    // The session-updated event from the backend will update store.session.name;
+    // keep the draft in sync without triggering the external-change guard.
+    sessionNameDraft = trimmed;
+  }
+
   async function deleteStep(stepId: number) {
     await invoke('delete_step', { stepId });
     if (selectedStepIdx !== null && store.session) {
@@ -102,6 +123,8 @@
       defaultPath: `${store.session?.name ?? 'tutorial'}.md`,
     });
     if (!filePath) return;
+    store.exportedPath = null;
+    store.exportError = null;
     const outPath = await invoke<string>('export_markdown', { outputPath: filePath });
     store.exportedPath = outPath;
   }
@@ -167,17 +190,6 @@
     }
   }
 
-  // Show toast when export completes, auto-dismiss after 5 seconds
-  $effect(() => {
-    if (store.exportedPath) {
-      toastVisible = true;
-      const timer = setTimeout(() => {
-        toastVisible = false;
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  });
-
   // Handle back mouse button (button 3 / XButton1) and browser history back (popstate)
   // so that the back navigation gesture returns the user to the idle screen.
   function handleMouseUp(event: MouseEvent) {
@@ -204,30 +216,36 @@
 </script>
 
 <div class="flex h-screen flex-col bg-background text-foreground">
-  <!-- Toolbar -->
-  <div class="flex items-center gap-2 border-b px-4 py-2">
-    <span class="mr-2 text-sm font-semibold">{store.session?.name ?? 'Review'}</span>
-    <div class="flex-1"></div>
-    <Button variant="outline" size="sm" onclick={exportMarkdown} class="gap-1.5"><FileDown size={14} />Export MD</Button>
-    <Button variant="outline" size="sm" onclick={exportHtml} class="gap-1.5"><FileCode size={14} />Export HTML</Button>
-    <Button size="sm" onclick={newRecording} class="gap-1.5"><ArrowLeft size={14} />Back to Home</Button>
+  <!-- Toolbar: three-zone grid (left | center | right) -->
+  <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
+    <!-- Left: back button -->
+    <div class="flex items-center">
+      <Button size="sm" onclick={newRecording} class="gap-1.5"><ArrowLeft size={14} />Back</Button>
+    </div>
+
+    <!-- Center: editable session name -->
+    <div class="flex justify-center">
+      <Input
+        bind:value={sessionNameDraft}
+        class="h-8 max-w-64 text-center text-sm font-semibold"
+        aria-label="Session name"
+        onblur={saveSessionName}
+        onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+      />
+    </div>
+
+    <!-- Right: export buttons -->
+    <div class="flex items-center justify-end gap-2">
+      <Button variant="outline" size="sm" onclick={exportMarkdown} class="gap-1.5"><FileDown size={14} />Export MD</Button>
+      <Button variant="outline" size="sm" onclick={exportHtml} class="gap-1.5"><FileCode size={14} />Export HTML</Button>
+    </div>
   </div>
 
-  <!-- Export progress / result -->
+  <!-- Export progress -->
   {#if store.exportProgress !== null}
     <div class="border-b px-4 py-2">
       <p class="mb-1 text-xs text-muted-foreground">Exporting…</p>
       <Progress value={store.exportProgress * 100} class="h-1.5" />
-    </div>
-  {/if}
-
-  {#if store.exportedPath && toastVisible}
-    <div class="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-3 border-t bg-card px-4 py-3 shadow-lg">
-      <CheckCircle size={16} class="shrink-0 text-primary" />
-      <span class="flex-1 text-sm text-card-foreground">
-        Exported to: {store.exportedPath}
-      </span>
-      <Button variant="outline" size="sm" onclick={openExported} class="gap-1.5"><ExternalLink size={13} />Open</Button>
     </div>
   {/if}
 
@@ -415,5 +433,16 @@
         </div>
       {/if}
     </div>
+  </div>
+
+  <!-- Status bar (always visible, fixed height) -->
+  <div class="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2">
+    <Check size={13} class="shrink-0 {store.exportedPath ? 'text-primary' : 'text-transparent'}" />
+    <span class="flex-1 truncate text-xs {store.exportedPath ? 'text-card-foreground' : 'text-muted-foreground'}">
+      {store.exportedPath ? `Exported to: ${store.exportedPath}` : 'Ready'}
+    </span>
+    <Button variant="outline" size="sm" onclick={openExported} class="gap-1.5 shrink-0 {store.exportedPath ? '' : 'invisible'}">
+      <ExternalLink size={13} />Open
+    </Button>
   </div>
 </div>

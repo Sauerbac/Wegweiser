@@ -56,6 +56,7 @@ pub fn run() {
             commands::export_markdown,
             commands::export_html,
             commands::open_path,
+            commands::rename_session,
             commands::identify_monitors,
         ])
         .run(tauri::generate_context!())
