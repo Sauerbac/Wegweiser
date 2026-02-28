@@ -15,7 +15,8 @@
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
 
-  let selectedStepIdx = $state<number | null>(null);
+  /** ID of the currently selected step (null = none selected). */
+  let selectedStepId = $state<number | null>(null);
   let imageCache = $state<Record<number, string>>({});
   /** Cache for extra (non-primary) monitor images. Key: `${step.id}_extra_${i}` */
   let extraImageCache = $state<Record<string, string>>({});
@@ -33,20 +34,29 @@
   /** IDs of steps selected via checkboxes for bulk operations. */
   let selectedStepIds = $state<Set<number>>(new Set());
 
+  /** Derive the selected step by ID lookup — safe against array reordering and deletions. */
   let selectedStep = $derived<Step | null>(
-    selectedStepIdx !== null ? ((store.session?.steps ?? [])[selectedStepIdx] ?? null) : null
+    selectedStepId !== null
+      ? (store.session?.steps.find(s => s.id === selectedStepId) ?? null)
+      : null
   );
 
   // 1-based display number for the currently selected step
-  let selectedStepDisplayNum = $derived<number | null>(
-    selectedStepIdx !== null ? selectedStepIdx + 1 : null
-  );
+  let selectedStepDisplayNum = $derived.by<number | null>(() => {
+    if (selectedStepId === null) return null;
+    const steps = store.session?.steps ?? [];
+    const idx = steps.findIndex(s => s.id === selectedStepId);
+    return idx >= 0 ? idx + 1 : null;
+  });
 
   /** Derive activeMonitorTab from a step's persisted export_choice. */
   function tabFromExportChoice(choice: StepExportChoice | undefined): string {
     if (!choice || choice.type === 'Primary') return 'primary';
     if (choice.type === 'All') return 'all';
-    return `extra_${(choice as { type: 'Extra'; value: number }).value}`;
+    if (choice.type === 'Extra') return `extra_${choice.value}`;
+    // exhaustiveness check
+    const _exhaustive: never = choice;
+    return 'primary';
   }
 
   /** Map a tab value back to a StepExportChoice. */
@@ -54,6 +64,7 @@
     if (tab === 'primary') return { type: 'Primary' };
     if (tab === 'all') return { type: 'All' };
     const idx = parseInt(tab.replace('extra_', ''), 10);
+    if (isNaN(idx)) return { type: 'Primary' };
     return { type: 'Extra', value: idx };
   }
 
@@ -73,7 +84,7 @@
     if (step && !imageCache[step.id]) {
       invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
         imageCache = { ...imageCache, [step.id]: uri };
-      });
+      }).catch(err => console.error('Failed to load image:', err));
     }
     descriptionDraft = step?.description ?? '';
     activeMonitorTab = step ? tabFromExportChoice(step.export_choice) : 'primary';
@@ -90,7 +101,7 @@
       _initializedSessionId = sessionId;
       untrack(() => {
         const steps = store.session?.steps ?? [];
-        selectedStepIdx = steps.length > 0 ? 0 : null;
+        selectedStepId = steps.length > 0 ? (steps[0]?.id ?? null) : null;
       });
     }
   });
@@ -102,14 +113,17 @@
       if (!imageCache[step.id]) {
         invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
           imageCache = { ...imageCache, [step.id]: uri };
-        });
+        }).catch(err => console.error('Failed to load image:', err));
       }
       for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
         const key = `${step.id}_extra_${i}`;
         if (!extraImageCache[key]) {
-          invoke<string>('get_step_image', { imagePath: step.extra_image_paths[i] }).then((uri) => {
-            extraImageCache = { ...extraImageCache, [key]: uri };
-          });
+          const path = step.extra_image_paths[i] ?? null;
+          if (path !== null) {
+            invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
+              extraImageCache = { ...extraImageCache, [key]: uri };
+            }).catch(err => console.error('Failed to load extra image:', err));
+          }
         }
       }
     }
@@ -117,13 +131,18 @@
 
   async function saveDescription() {
     if (!selectedStep) return;
-    await invoke('update_step_description', {
-      stepId: selectedStep.id,
-      description: descriptionDraft,
-    });
+    try {
+      await invoke('update_step_description', {
+        stepId: selectedStep.id,
+        description: descriptionDraft,
+      });
+    } catch (err) {
+      console.error('Failed to save description:', err);
+    }
     if (store.session) {
+      const id = selectedStep.id;
       const steps = store.session.steps.map((s) =>
-        s.id === selectedStep!.id ? { ...s, description: descriptionDraft } : s
+        s.id === id ? { ...s, description: descriptionDraft } : s
       );
       store.session = { ...store.session, steps };
     }
@@ -132,16 +151,33 @@
   async function saveSessionName() {
     const trimmed = sessionNameDraft.trim();
     if (!trimmed || trimmed === store.session?.name) return;
-    await invoke('rename_session', { name: trimmed });
+    try {
+      await invoke('rename_session', { name: trimmed });
+    } catch (err) {
+      console.error('Failed to rename session:', err);
+    }
     sessionNameDraft = trimmed;
   }
 
   async function deleteStep(stepId: number) {
-    await invoke('delete_step', { stepId });
-    if (selectedStepIdx !== null) {
-      const newLen = (store.session?.steps.length ?? 0) - 1;
-      if (selectedStepIdx >= newLen) {
-        selectedStepIdx = newLen > 0 ? newLen - 1 : null;
+    // Capture position BEFORE the invoke — store.session is updated by session-updated
+    // event after the await, so the deleted step will no longer be in the array by then.
+    const deletedIdx = (store.session?.steps ?? []).findIndex(s => s.id === stepId);
+    try {
+      await invoke('delete_step', { stepId });
+    } catch (err) {
+      console.error('Failed to delete step:', err);
+      return;
+    }
+    // If the deleted step was selected, move selection to an adjacent step
+    if (selectedStepId === stepId) {
+      const remaining = store.session?.steps ?? [];
+      if (remaining.length === 0) {
+        selectedStepId = null;
+      } else {
+        // Pick the step that slid into the same position, or the new last step
+        const nextIdx = Math.min(Math.max(deletedIdx, 0), remaining.length - 1);
+        selectedStepId = remaining[nextIdx]?.id ?? null;
       }
     }
     // Remove from bulk selection if present
@@ -173,17 +209,18 @@
 
   async function deleteSelectedSteps() {
     const ids = [...selectedStepIds];
-    // Delete in reverse order to avoid index shifting issues
     for (const id of ids) {
-      await invoke('delete_step', { stepId: id });
+      try {
+        await invoke('delete_step', { stepId: id });
+      } catch (err) {
+        console.error('Failed to delete step:', id, err);
+      }
     }
     selectedStepIds = new Set();
-    // Recompute selected index after bulk delete
-    const remaining = store.session?.steps ?? [];
-    if (remaining.length === 0) {
-      selectedStepIdx = null;
-    } else if (selectedStepIdx !== null && selectedStepIdx >= remaining.length) {
-      selectedStepIdx = remaining.length - 1;
+    // If the selected step was among the deleted ones, clear selection
+    if (selectedStepId !== null && ids.includes(selectedStepId)) {
+      const remaining = store.session?.steps ?? [];
+      selectedStepId = remaining.length > 0 ? (remaining[0]?.id ?? null) : null;
     }
   }
 
@@ -227,8 +264,12 @@
     if (!filePath) return;
     store.exportedPath = null;
     store.exportError = null;
-    const outPath = await invoke<string>('export_markdown', { outputPath: filePath });
-    store.exportedPath = outPath;
+    try {
+      const outPath = await invoke<string>('export_markdown', { outputPath: filePath });
+      store.exportedPath = outPath;
+    } catch (err) {
+      console.error('Failed to export Markdown:', err);
+    }
   }
 
   async function exportHtml() {
@@ -240,51 +281,71 @@
     if (!path) return;
     store.exportedPath = null;
     store.exportError = null;
-    await invoke('export_html', { outputPath: path });
+    try {
+      await invoke('export_html', { outputPath: path });
+    } catch (err) {
+      console.error('Failed to export HTML:', err);
+    }
   }
 
   async function openExported() {
     if (store.exportedPath) {
-      await invoke('open_path', { path: store.exportedPath });
+      try {
+        await invoke('open_path', { path: store.exportedPath });
+      } catch (err) {
+        console.error('Failed to open exported file:', err);
+      }
     }
   }
 
   async function newRecording() {
-    selectedStepIdx = null;
+    selectedStepId = null;
     imageCache = {};
     extraImageCache = {};
     activeMonitorTab = 'primary';
     store.exportedPath = null;
     store.exportError = null;
-    await invoke('new_recording');
+    try {
+      await invoke('new_recording');
+    } catch (err) {
+      console.error('Failed to start new recording:', err);
+    }
     await store.refreshSessions();
   }
 
-  function selectStep(idx: number) {
-    selectedStepIdx = idx;
-    const step = (store.session?.steps ?? [])[idx];
+  function selectStep(stepId: number) {
+    selectedStepId = stepId;
+    const step = store.session?.steps.find(s => s.id === stepId);
     if (!step) return;
     if (!imageCache[step.id]) {
       invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
         imageCache = { ...imageCache, [step.id]: uri };
-      });
+      }).catch(err => console.error('Failed to load image:', err));
     }
     for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
       const key = `${step.id}_extra_${i}`;
       if (!extraImageCache[key]) {
-        invoke<string>('get_step_image', { imagePath: step.extra_image_paths[i] }).then((uri) => {
-          extraImageCache = { ...extraImageCache, [key]: uri };
-        });
+        const path = step.extra_image_paths[i] ?? null;
+        if (path !== null) {
+          invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
+            extraImageCache = { ...extraImageCache, [key]: uri };
+          }).catch(err => console.error('Failed to load extra image:', err));
+        }
       }
     }
   }
 
   async function setExportChoice(choice: StepExportChoice) {
     if (!selectedStep) return;
-    await invoke('set_step_export_choice', { stepId: selectedStep.id, choice });
+    const id = selectedStep.id;
+    try {
+      await invoke('set_step_export_choice', { stepId: id, choice });
+    } catch (err) {
+      console.error('Failed to set export choice:', err);
+    }
     if (store.session) {
       const steps = store.session.steps.map((s) =>
-        s.id === selectedStep!.id ? { ...s, export_choice: choice } : s
+        s.id === id ? { ...s, export_choice: choice } : s
       );
       store.session = { ...store.session, steps };
     }
@@ -410,7 +471,7 @@
       onDeleteSelected={deleteSelectedSteps}
     >
       {#snippet row(step, idx)}
-        {@const isActive = selectedStepIdx === idx}
+        {@const isActive = selectedStepId === step.id}
         {@const isChecked = selectedStepIds.has(step.id)}
         {@const keystrokeCount = countKeystrokes(step.keystrokes)}
         {@const monCount = monitorExportCount(step)}
@@ -421,9 +482,9 @@
           class="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-accent/40"
           onclick={(e) => {
             if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
-            selectStep(idx);
+            selectStep(step.id);
           }}
-          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectStep(idx); }}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectStep(step.id); }}
         >
           <div class="flex items-center gap-2">
             <!-- Checkbox -->
@@ -537,18 +598,20 @@
           </div>
         {:else}
           {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
-          {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
-          <div class="flex h-full items-center justify-center p-2">
-            {#if extraImageCache[extraKey]}
-              <img
-                src={extraImageCache[extraKey]}
-                alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
-                class="max-h-full max-w-full object-contain"
-              />
-            {:else}
-              <span class="text-sm text-muted-foreground">Loading…</span>
-            {/if}
-          </div>
+          {#if !isNaN(extraIdx)}
+            {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
+            <div class="flex h-full items-center justify-center p-2">
+              {#if extraImageCache[extraKey]}
+                <img
+                  src={extraImageCache[extraKey]}
+                  alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
+                  class="max-h-full max-w-full object-contain"
+                />
+              {:else}
+                <span class="text-sm text-muted-foreground">Loading…</span>
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
 

@@ -5,7 +5,9 @@
 
   let monitorIndex = $derived.by(() => {
     const param = page.url.searchParams.get('monitor');
-    return param ? parseInt(param, 10) : 0;
+    if (!param) return 0;
+    const parsed = parseInt(param, 10);
+    return isNaN(parsed) ? 0 : parsed;
   });
 
   let displayNumber = $derived(monitorIndex + 1);

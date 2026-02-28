@@ -8,15 +8,23 @@
   let isPaused = $derived(store.recordingState === 'paused');
 
   async function togglePause() {
-    if (isPaused) {
-      await invoke('resume_recording');
-    } else {
-      await invoke('pause_recording');
+    try {
+      if (isPaused) {
+        await invoke('resume_recording');
+      } else {
+        await invoke('pause_recording');
+      }
+    } catch (err) {
+      console.error('Failed to toggle pause:', err);
     }
   }
 
   async function stopRecording() {
-    await invoke('stop_recording');
+    try {
+      await invoke('stop_recording');
+    } catch (err) {
+      console.error('Failed to stop recording:', err);
+    }
   }
 </script>
 

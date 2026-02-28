@@ -12,17 +12,30 @@
   let selectedRecordings = $state<Set<string>>(new Set());
 
   async function startRecording() {
-    await invoke('start_recording', {
-      monitorIndex: store.selectedMonitor,
-    });
+    try {
+      await invoke('start_recording', {
+        monitorIndex: store.selectedMonitor,
+      });
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+    }
   }
 
   async function loadSession(sessionDir: string) {
-    await invoke('load_session_cmd', { sessionDir });
+    try {
+      await invoke('load_session_cmd', { sessionDir });
+    } catch (err) {
+      console.error('Failed to load session:', err);
+    }
   }
 
   async function confirmDelete(sessionDir: string) {
-    await invoke('delete_session_cmd', { sessionDir });
+    try {
+      await invoke('delete_session_cmd', { sessionDir });
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+      return;
+    }
     pendingDelete = null;
     const next = new Set(selectedRecordings);
     next.delete(sessionDir);
@@ -58,7 +71,11 @@
 
   async function deleteSelected() {
     for (const sessionDir of selectedRecordings) {
-      await invoke('delete_session_cmd', { sessionDir });
+      try {
+        await invoke('delete_session_cmd', { sessionDir });
+      } catch (err) {
+        console.error('Failed to delete session:', sessionDir, err);
+      }
     }
     selectedRecordings = new Set();
     await store.refreshSessions();
@@ -71,7 +88,11 @@
   }
 
   async function identifyMonitors() {
-    await invoke('identify_monitors');
+    try {
+      await invoke('identify_monitors');
+    } catch (err) {
+      console.error('Failed to identify monitors:', err);
+    }
   }
 
 

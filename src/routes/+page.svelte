@@ -6,7 +6,11 @@
   import { store } from '$lib/stores/session.svelte';
 
   onMount(async () => {
-    await store.init();
+    try {
+      await store.init();
+    } catch (err) {
+      console.error('Failed to initialize app store:', err);
+    }
   });
 </script>
 
