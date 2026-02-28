@@ -95,9 +95,16 @@ pub fn start_recording(
     }
 
     // Morph window to mini-bar: 380×64, borderless, always-on-top
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 380, height: 64 }));
-    let _ = window.set_decorations(false);
-    let _ = window.set_always_on_top(true);
+    // error-handling-010: log window API failures instead of silently dropping them
+    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 380, height: 64 })) {
+        eprintln!("start_recording: set_size failed: {e}");
+    }
+    if let Err(e) = window.set_decorations(false) {
+        eprintln!("start_recording: set_decorations failed: {e}");
+    }
+    if let Err(e) = window.set_always_on_top(true) {
+        eprintln!("start_recording: set_always_on_top failed: {e}");
+    }
 
     // Position at top-center of the active monitor (where mouse is currently)
     let infos = {
@@ -111,7 +118,9 @@ pub fn start_recording(
         let window_width = 380i32;
         let x = monitor.x + (monitor.width as i32 - window_width) / 2;
         let y = monitor.y;
-        let _ = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 });
+        if let Err(e) = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 }) {
+            eprintln!("start_recording: set_position failed: {e}");
+        }
     }
 
     // Record mini-bar window position for self-click filtering
@@ -212,8 +221,13 @@ pub fn stop_recording(
     if let Ok(hwnd) = window.hwnd() {
         crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
     }
-    let _ = window.set_always_on_top(false);
-    let _ = window.set_decorations(true);
+    // error-handling-010: log window API failures
+    if let Err(e) = window.set_always_on_top(false) {
+        eprintln!("stop_recording: set_always_on_top failed: {e}");
+    }
+    if let Err(e) = window.set_decorations(true) {
+        eprintln!("stop_recording: set_decorations failed: {e}");
+    }
 
     // Restore pre-recording geometry; fall back to defaults if nothing was saved.
     let (restore_rect, was_maximized) = {
@@ -223,17 +237,26 @@ pub fn stop_recording(
     let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
     // Always set the restore rect first so Windows knows where to place the window
     // when un-maximizing (rcNormalPosition).
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
-    let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
+        eprintln!("stop_recording: set_size failed: {e}");
+    }
+    if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
+        eprintln!("stop_recording: set_position failed: {e}");
+    }
     if was_maximized {
-        let _ = window.maximize();
+        if let Err(e) = window.maximize() {
+            eprintln!("stop_recording: maximize failed: {e}");
+        }
     }
 
     // Auto-delete recordings with 0 steps
     if let Some(ref sess) = current_session {
         if sess.steps.is_empty() {
             // Delete the session directory from disk
-            let _ = session::delete_session(&sess.session_dir);
+            // error-handling-015: log failure to delete empty session directory
+            if let Err(e) = session::delete_session(&sess.session_dir) {
+                eprintln!("Failed to delete empty session directory: {e}");
+            }
             // Reset state back to Idle
             {
                 let mut st = state.lock().unwrap();
@@ -329,6 +352,10 @@ pub fn update_step_description(
     description: String,
     state: State<'_, AppStateHandle>,
 ) -> Result<(), String> {
+    // security-009: reject excessively long descriptions
+    if description.len() > 65536 {
+        return Err("Description is too long (max 64 KB)".to_string());
+    }
     let mut st = state.lock().unwrap();
     if let Some(ref mut session) = st.session {
         if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
@@ -363,6 +390,16 @@ pub fn load_session_cmd(
     window: WebviewWindow,
 ) -> Result<(), String> {
     let dir = PathBuf::from(&session_dir);
+
+    // security-003: path confinement check — reject directories outside sessions base
+    let canonical_dir = std::fs::canonicalize(&dir)
+        .map_err(|_| "Invalid session directory".to_string())?;
+    let canonical_base = std::fs::canonicalize(session::sessions_base_dir())
+        .map_err(|_| "Sessions directory not found".to_string())?;
+    if !canonical_dir.starts_with(&canonical_base) {
+        return Err("Access denied: path is outside sessions directory".to_string());
+    }
+
     let json_path = dir.join("session.json");
     let loaded = session::load_session(&json_path).map_err(|e| e.to_string())?;
 
@@ -378,13 +415,24 @@ pub fn load_session_cmd(
     // Only restore window geometry if coming from mini-bar; otherwise preserve
     // the user's current window size.
     if was_recording {
-        let _ = window.set_always_on_top(false);
-        let _ = window.set_decorations(true);
+        // error-handling-010: log window API failures
+        if let Err(e) = window.set_always_on_top(false) {
+            eprintln!("load_session_cmd: set_always_on_top failed: {e}");
+        }
+        if let Err(e) = window.set_decorations(true) {
+            eprintln!("load_session_cmd: set_decorations failed: {e}");
+        }
         let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
-        let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+        if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
+            eprintln!("load_session_cmd: set_size failed: {e}");
+        }
+        if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
+            eprintln!("load_session_cmd: set_position failed: {e}");
+        }
         if was_maximized {
-            let _ = window.maximize();
+            if let Err(e) = window.maximize() {
+                eprintln!("load_session_cmd: maximize failed: {e}");
+            }
         }
     }
 
@@ -423,13 +471,24 @@ pub fn new_recording(
     // When navigating from Reviewing → Idle the window is already at full size;
     // resizing it would reset any user resize the user made.
     if was_recording {
-        let _ = window.set_always_on_top(false);
-        let _ = window.set_decorations(true);
+        // error-handling-010: log window API failures
+        if let Err(e) = window.set_always_on_top(false) {
+            eprintln!("new_recording: set_always_on_top failed: {e}");
+        }
+        if let Err(e) = window.set_decorations(true) {
+            eprintln!("new_recording: set_decorations failed: {e}");
+        }
         let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
-        let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+        if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
+            eprintln!("new_recording: set_size failed: {e}");
+        }
+        if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
+            eprintln!("new_recording: set_position failed: {e}");
+        }
         if was_maximized {
-            let _ = window.maximize();
+            if let Err(e) = window.maximize() {
+                eprintln!("new_recording: maximize failed: {e}");
+            }
         }
     }
 
@@ -442,18 +501,9 @@ pub fn new_recording(
 #[tauri::command]
 pub fn get_step_image(image_path: String) -> Result<String, String> {
     let path = std::path::Path::new(&image_path);
-    let base_dir = session::sessions_base_dir();
 
-    // Canonicalize the requested path and the base directory
-    let canonical_path = std::fs::canonicalize(path)
-        .map_err(|_| "Invalid file path".to_string())?;
-    let canonical_base = std::fs::canonicalize(&base_dir)
-        .map_err(|_| "Sessions directory not found".to_string())?;
-
-    // Ensure the requested path is within the sessions base directory
-    if !canonical_path.starts_with(&canonical_base) {
-        return Err("Access denied: path is outside sessions directory".to_string());
-    }
+    // architecture-014: use the shared confine_to_sessions_dir helper
+    let canonical_path = session::confine_to_sessions_dir(path)?;
 
     // Verify the file has a .png extension
     if !canonical_path
@@ -480,6 +530,10 @@ pub fn export_markdown(
     output_path: String,
     state: State<'_, AppStateHandle>,
 ) -> Result<String, String> {
+    // security-004: reject paths containing null bytes
+    if output_path.contains('\0') {
+        return Err("Invalid output path".to_string());
+    }
     let session = {
         let st = state.lock().unwrap();
         st.session.clone().ok_or("No active session")?
@@ -506,6 +560,10 @@ pub fn export_html(
     state: State<'_, AppStateHandle>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
+    // security-004: reject paths containing null bytes
+    if output_path.contains('\0') {
+        return Err("Invalid output path".to_string());
+    }
     let session = {
         let st = state.lock().unwrap();
         st.session.clone().ok_or("No active session")?
@@ -530,6 +588,13 @@ pub fn export_html(
 
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
+    // security-002: reject non-filesystem URI schemes
+    let lower = path.to_lowercase();
+    for scheme in &["javascript:", "data:", "vbscript:", "cmd:", "powershell:"] {
+        if lower.starts_with(scheme) {
+            return Err(format!("Rejected: '{}' scheme is not allowed", scheme));
+        }
+    }
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
 
@@ -539,6 +604,10 @@ pub fn rename_session(
     state: State<'_, AppStateHandle>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
+    // security-009: reject excessively long session names
+    if name.len() > 512 {
+        return Err("Session name is too long (max 512 bytes)".to_string());
+    }
     {
         let mut st = state.lock().unwrap();
         if let Some(ref mut session) = st.session {
@@ -590,10 +659,16 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
                 .visible(false)          // hidden until page signals ready → no flash
                 .build();
 
-            if result.is_ok() {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                if let Some(w) = app_clone.get_webview_window(&label_clone) {
-                    let _ = w.destroy();
+            // error-handling-009: log badge window build failures
+            match result {
+                Ok(_) => {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    if let Some(w) = app_clone.get_webview_window(&label_clone) {
+                        let _ = w.destroy();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("identify_monitors: failed to create badge window '{}': {}", label_clone, e);
                 }
             }
         });
@@ -601,4 +676,3 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
 
     Ok(())
 }
-

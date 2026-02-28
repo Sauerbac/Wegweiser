@@ -21,6 +21,19 @@ pub fn sessions_base_dir() -> PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join("wegweiser_sessions"))
 }
 
+/// Canonicalize `path` and verify it lies within the sessions base directory.
+/// Returns the canonical path on success, or an error string on failure.
+pub fn confine_to_sessions_dir(path: &Path) -> Result<PathBuf, String> {
+    let canonical_path = std::fs::canonicalize(path)
+        .map_err(|_| "Invalid path".to_string())?;
+    let canonical_base = std::fs::canonicalize(sessions_base_dir())
+        .map_err(|_| "Sessions directory not found".to_string())?;
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err("Access denied: path is outside sessions directory".to_string());
+    }
+    Ok(canonical_path)
+}
+
 /// Create a new session directory inside `sessions_base_dir()` and return its path.
 /// Directory name: `<uuid8>` (8-character prefix of a random UUID v4).
 pub fn create_session_dir() -> Result<PathBuf> {
@@ -89,6 +102,39 @@ pub fn save_session(session: &Session) -> Result<()> {
 pub fn load_session(path: &Path) -> Result<Session> {
     let json = fs::read_to_string(path)?;
     let mut session: Session = serde_json::from_str(&json)?;
+
+    // --- security-005: validate session_dir confinement and step image paths ---
+    let canonical_base = fs::canonicalize(sessions_base_dir())
+        .map_err(|e| anyhow::anyhow!("Sessions base dir not found: {}", e))?;
+    // Use canonicalize if dir exists, otherwise just check string prefix
+    let canonical_session_dir = fs::canonicalize(&session.session_dir)
+        .unwrap_or_else(|_| session.session_dir.clone());
+    if !canonical_session_dir.starts_with(&canonical_base) {
+        return Err(anyhow::anyhow!(
+            "Session directory is outside sessions base: {:?}",
+            session.session_dir
+        ));
+    }
+    // Clear any step image paths that escape the session directory
+    for step in &mut session.steps {
+        let canonical_step_dir = fs::canonicalize(&session.session_dir)
+            .unwrap_or_else(|_| session.session_dir.clone());
+        if !step.image_path.as_os_str().is_empty() {
+            let canonical_img = fs::canonicalize(&step.image_path)
+                .unwrap_or_else(|_| step.image_path.clone());
+            if !canonical_img.starts_with(&canonical_step_dir) {
+                step.image_path = PathBuf::new();
+            }
+        }
+        step.extra_image_paths.retain(|p| {
+            if p.as_os_str().is_empty() {
+                return true;
+            }
+            let c = fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+            c.starts_with(&canonical_step_dir)
+        });
+    }
+    // --- end security-005 ---
 
     // Migrate: old sessions stored order=1 for every step due to a race
     // condition that has since been fixed. Re-number sequentially on load

@@ -274,7 +274,10 @@ pub fn register_global_hotkeys(
         // Auto-delete empty recordings and reset to Idle
         if let Some(ref sess) = current_session {
             if sess.steps.is_empty() {
-                let _ = crate::session::delete_session(&sess.session_dir);
+                // error-handling-015: log failure to delete empty session directory
+                if let Err(e) = crate::session::delete_session(&sess.session_dir) {
+                    eprintln!("Failed to delete empty session directory: {e}");
+                }
                 {
                     let mut st = state_stop.lock().unwrap();
                     st.recording_state = RecordingState::Idle;
