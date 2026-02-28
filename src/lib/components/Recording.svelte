@@ -20,7 +20,7 @@
   }
 </script>
 
-<div class="flex h-screen items-center bg-zinc-900 text-white select-none">
+<div class="flex h-screen items-center bg-card text-card-foreground select-none">
   <!-- Drag handle: fills all space between dots and buttons, covers most of the bar -->
   <div
     class="flex flex-1 items-center gap-2 h-full px-3 cursor-move"
@@ -29,14 +29,14 @@
     <!-- Grip dots -->
     <GripVertical
       size={16}
-      class="text-zinc-500 shrink-0 pointer-events-none"
+      class="text-muted-foreground shrink-0 pointer-events-none"
       aria-hidden="true"
     />
     <!-- Status info sits inside drag region; pointer-events:none so it doesn't block dragging -->
     <div class="flex items-center gap-2 pointer-events-none">
       <div class="h-2.5 w-2.5 rounded-full {isPaused ? 'bg-yellow-400' : 'bg-red-500 animate-pulse'}"></div>
       <span class="text-sm font-medium">{isPaused ? 'Paused' : 'Recording'}</span>
-      <span class="rounded bg-zinc-700 px-2 py-0.5 text-xs tabular-nums">
+      <span class="rounded bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
         {stepCount} step{stepCount !== 1 ? 's' : ''}
       </span>
     </div>
@@ -48,7 +48,7 @@
       variant="ghost"
       size="sm"
       onclick={togglePause}
-      class="h-7 gap-1 text-xs text-white hover:bg-zinc-700 hover:text-white"
+      class="h-7 gap-1 text-xs"
     >
       {#if isPaused}
         <Play size={12} />{' '}Resume

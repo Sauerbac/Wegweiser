@@ -4,6 +4,8 @@
   import { store } from '$lib/stores/session.svelte';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
 
+  let selectAllCheckbox = $state<HTMLInputElement | null>(null);
+
   let pendingDelete = $state<string | null>(null);
   let selectedRecordings = $state<Set<string>>(new Set());
 
@@ -20,16 +22,20 @@
   async function confirmDelete(sessionDir: string) {
     await invoke('delete_session_cmd', { sessionDir });
     pendingDelete = null;
+    const next = new Set(selectedRecordings);
+    next.delete(sessionDir);
+    selectedRecordings = next;
     await store.refreshSessions();
   }
 
   function toggleSelection(sessionDir: string) {
-    if (selectedRecordings.has(sessionDir)) {
-      selectedRecordings.delete(sessionDir);
+    const next = new Set(selectedRecordings);
+    if (next.has(sessionDir)) {
+      next.delete(sessionDir);
     } else {
-      selectedRecordings.add(sessionDir);
+      next.add(sessionDir);
     }
-    selectedRecordings = selectedRecordings;
+    selectedRecordings = next;
   }
 
   function selectAll() {
@@ -65,6 +71,14 @@
   async function identifyMonitors() {
     await invoke('identify_monitors');
   }
+
+  // Svelte 5: indeterminate is not a reflected attribute, must be set via DOM property
+  $effect(() => {
+    if (selectAllCheckbox) {
+      selectAllCheckbox.indeterminate =
+        selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length;
+    }
+  });
 </script>
 
 <div class="flex h-screen flex-col bg-background text-foreground">
@@ -137,10 +151,10 @@
               {selectedRecordings.size} selected
             </span>
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
               onclick={deleteSelected}
-              class="gap-1.5"
+              class="gap-1.5 text-destructive hover:text-destructive"
             >
               <Trash2 size={13} />Delete Selected
             </Button>
@@ -159,11 +173,11 @@
       {:else}
         <div class="mb-2 flex items-center gap-2">
           <input
+            bind:this={selectAllCheckbox}
             type="checkbox"
             checked={selectedRecordings.size > 0 && selectedRecordings.size === store.sessions.length}
-            indeterminate={selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length}
             onchange={toggleSelectAll}
-            class="accent-primary"
+            class="h-4 w-4 cursor-pointer accent-primary"
           />
           <span class="text-xs text-muted-foreground">
             {selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length
@@ -176,13 +190,13 @@
         <div class="flex flex-col gap-2 overflow-y-auto">
           {#each store.sessions as meta (meta.session_dir)}
             <div class="rounded-lg border p-4 transition-colors {selectedRecordings.has(meta.session_dir) ? 'border-primary bg-accent/60' : 'hover:bg-accent/40'}">
-              <div class="flex items-start justify-between">
-                <div class="flex min-w-0 flex-1 items-start gap-3">
+              <div class="flex items-center justify-between">
+                <div class="flex min-w-0 flex-1 items-center gap-3">
                   <input
                     type="checkbox"
                     checked={selectedRecordings.has(meta.session_dir)}
                     onchange={() => toggleSelection(meta.session_dir)}
-                    class="mt-1 accent-primary"
+                    class="h-4 w-4 shrink-0 cursor-pointer accent-primary"
                   />
                   <div class="min-w-0 flex-1">
                     <p class="truncate text-sm font-medium">{meta.name}</p>
