@@ -17,10 +17,6 @@
   });
 </script>
 
-<div class="w-full h-full flex items-center justify-center bg-transparent">
-  <div
-    class="w-full h-full flex items-center justify-center bg-primary rounded-none text-[2.5rem] font-black text-primary-foreground shadow-2xl tracking-[-0.02em]"
-  >
-    {displayNumber}
-  </div>
+<div class="fixed inset-0 flex items-center justify-center bg-background text-foreground text-[2.5rem] font-black tracking-[-0.02em]">
+  {displayNumber}
 </div>
