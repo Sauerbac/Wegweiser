@@ -18,7 +18,7 @@ pub fn run() {
 
     // Populate monitor list at startup
     {
-        let mut st = app_state.lock().unwrap();
+        let mut st = app_state.lock().unwrap_or_else(|e| e.into_inner());
         st.monitor_infos = list_monitor_infos();
     }
 

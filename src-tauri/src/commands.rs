@@ -13,7 +13,7 @@ type AppStateHandle = Arc<Mutex<AppState>>;
 
 #[tauri::command]
 pub fn list_monitors(state: State<'_, AppStateHandle>) -> Vec<crate::model::MonitorInfo> {
-    state.lock().unwrap().monitor_infos.clone()
+    state.lock().unwrap_or_else(|e| e.into_inner()).monitor_infos.clone()
 }
 
 #[tauri::command]
@@ -45,7 +45,7 @@ pub fn start_recording(
     };
 
     {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session = Some(new_session.clone());
         st.selected_monitor = monitor_index;
         st.recording_state = RecordingState::Recording;
@@ -65,7 +65,7 @@ pub fn start_recording(
     //   decoration height on every record/stop cycle.
     {
         let is_maximized = window.is_maximized().unwrap_or(false);
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.pre_recording_maximized = is_maximized;
 
         #[cfg(windows)]
@@ -108,7 +108,7 @@ pub fn start_recording(
 
     // Position at top-center of the active monitor (where mouse is currently)
     let infos = {
-        let st = state.lock().unwrap();
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.monitor_infos.clone()
     };
 
@@ -127,7 +127,7 @@ pub fn start_recording(
     // Set the initial position, then keep it updated via a WindowEvent::Moved listener
     // so that dragging the mini-bar doesn't leave a stale cache.
     if let Ok(pos) = window.outer_position() {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: 380u32, height: 64u32 }));
     }
     {
@@ -169,7 +169,7 @@ pub fn stop_recording(
 ) -> Result<(), String> {
     // Collect everything we need from state and transition to Reviewing.
     let (current_session, pending_ks, step_id, order, monitor_index, all_monitors) = {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if st.recording_state != RecordingState::Recording
             && st.recording_state != RecordingState::Paused
         {
@@ -195,7 +195,9 @@ pub fn stop_recording(
         }
 
         if let Some(ref session) = st.session {
-            let _ = session::save_session(session);
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
         }
 
         (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors)
@@ -210,10 +212,12 @@ pub fn stop_recording(
                 Ok(new_step) => {
                     // Push the step into the session and persist.
                     {
-                        let mut st = state.lock().unwrap();
+                        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(ref mut session) = st.session {
                             session.steps.push(new_step.clone());
-                            let _ = session::save_session(session);
+                            if let Err(e) = session::save_session(session) {
+                                eprintln!("[save_session] failed: {e}");
+                            }
                         }
                     }
                     let _ = app_handle.emit("step-captured", &new_step);
@@ -225,7 +229,7 @@ pub fn stop_recording(
 
     // Re-read session (may now include the keystroke-only step).
     let current_session = {
-        let st = state.lock().unwrap();
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
 
@@ -245,7 +249,7 @@ pub fn stop_recording(
 
     // Restore pre-recording geometry; fall back to defaults if nothing was saved.
     let (restore_rect, was_maximized) = {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         (st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
     };
     let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
@@ -273,7 +277,7 @@ pub fn stop_recording(
             }
             // Reset state back to Idle
             {
-                let mut st = state.lock().unwrap();
+                let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                 st.recording_state = RecordingState::Idle;
                 st.session = None;
             }
@@ -304,7 +308,7 @@ pub fn pause_recording(
     app_handle: AppHandle,
 ) -> Result<(), String> {
     {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if st.recording_state == RecordingState::Recording {
             st.recording_state = RecordingState::Paused;
         }
@@ -321,7 +325,7 @@ pub fn resume_recording(
     app_handle: AppHandle,
 ) -> Result<(), String> {
     {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if st.recording_state == RecordingState::Paused {
             st.recording_state = RecordingState::Recording;
         }
@@ -339,19 +343,21 @@ pub fn delete_step(
     app_handle: AppHandle,
 ) -> Result<(), String> {
     {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut session) = st.session {
             session.steps.retain(|s| s.id != step_id);
             // Renumber orders
             for (i, step) in session.steps.iter_mut().enumerate() {
                 step.order = i + 1;
             }
-            let _ = session::save_session(session);
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
         }
     }
 
     let session = {
-        let st = state.lock().unwrap();
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
     if let Some(s) = session {
@@ -370,12 +376,14 @@ pub fn update_step_description(
     if description.len() > 65536 {
         return Err("Description is too long (max 64 KB)".to_string());
     }
-    let mut st = state.lock().unwrap();
+    let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(ref mut session) = st.session {
         if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
             step.description = description;
         }
-        let _ = session::save_session(session);
+        if let Err(e) = session::save_session(session) {
+            eprintln!("[save_session] failed: {e}");
+        }
     }
     Ok(())
 }
@@ -386,12 +394,14 @@ pub fn set_step_export_choice(
     choice: StepExportChoice,
     state: State<'_, AppStateHandle>,
 ) -> Result<(), String> {
-    let mut st = state.lock().unwrap();
+    let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(ref mut session) = st.session {
         if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
             step.export_choice = choice;
         }
-        let _ = session::save_session(session);
+        if let Err(e) = session::save_session(session) {
+            eprintln!("[save_session] failed: {e}");
+        }
     }
     Ok(())
 }
@@ -418,7 +428,7 @@ pub fn load_session_cmd(
     let loaded = session::load_session(&json_path).map_err(|e| e.to_string())?;
 
     let (was_recording, restore_rect, was_maximized) = {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         let was_recording = st.recording_state == RecordingState::Recording
             || st.recording_state == RecordingState::Paused;
         st.session = Some(loaded.clone());
@@ -472,7 +482,7 @@ pub fn new_recording(
     window: WebviewWindow,
 ) -> Result<(), String> {
     let (was_recording, restore_rect, was_maximized) = {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         let was_recording = st.recording_state == RecordingState::Recording
             || st.recording_state == RecordingState::Paused;
         st.recording_state = RecordingState::Idle;
@@ -536,7 +546,7 @@ pub fn get_step_image(image_path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn get_session(state: State<'_, AppStateHandle>) -> Option<Session> {
-    state.lock().unwrap().session.clone()
+    state.lock().unwrap_or_else(|e| e.into_inner()).session.clone()
 }
 
 #[tauri::command]
@@ -549,7 +559,7 @@ pub fn export_markdown(
         return Err("Invalid output path".to_string());
     }
     let session = {
-        let st = state.lock().unwrap();
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone().ok_or("No active session")?
     };
     let path = PathBuf::from(&output_path);
@@ -557,10 +567,12 @@ pub fn export_markdown(
 
     // Mark session as exported
     {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut s) = st.session {
             s.exported = true;
-            let _ = session::save_session(s);
+            if let Err(e) = session::save_session(s) {
+                eprintln!("[save_session] failed: {e}");
+            }
         }
     }
 
@@ -579,7 +591,7 @@ pub fn export_html(
         return Err("Invalid output path".to_string());
     }
     let session = {
-        let st = state.lock().unwrap();
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone().ok_or("No active session")?
     };
     let path = PathBuf::from(&output_path);
@@ -623,14 +635,16 @@ pub fn rename_session(
         return Err("Session name is too long (max 512 bytes)".to_string());
     }
     {
-        let mut st = state.lock().unwrap();
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut session) = st.session {
             session.name = name;
-            let _ = session::save_session(session);
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
         }
     }
     let session = {
-        let st = state.lock().unwrap();
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
     if let Some(s) = session {

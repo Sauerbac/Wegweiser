@@ -23,6 +23,10 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
             let mut last_x: f64 = 0.0;
             let mut last_y: f64 = 0.0;
 
+            // Keep a handle outside the callback closure so we can emit hook-error
+            // if rdev::listen() exits with an error (issue error-handling-005).
+            let app_handle_for_error = app_handle.clone();
+
             let callback = move |event: rdev::Event| {
                 match event.event_type {
                     EventType::MouseMove { x, y } => {
@@ -34,7 +38,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                         let click_y = last_y as i32;
 
                         let (should_capture, monitor_idx, all_monitors, step_id, order, session_dir, keystrokes) = {
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
 
                             if st.recording_state != RecordingState::Recording {
                                 return;
@@ -128,16 +132,19 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 all_monitors,
                             ) {
                                 Ok(step) => {
-                                    let mut st = state_clone.lock().unwrap();
+                                    let mut st = state_clone.lock().unwrap_or_else(|e| e.into_inner());
                                     if let Some(ref mut session) = st.session {
                                         session.steps.push(step.clone());
-                                        let _ = save_session(session);
+                                        if let Err(e) = save_session(session) {
+                                            eprintln!("[save_session] failed: {e}");
+                                        }
                                     }
                                     drop(st);
                                     let _ = app_handle_clone.emit("step-captured", &step);
                                 }
                                 Err(e) => {
-                                    eprintln!("[capture] error: {e}");
+                                    eprintln!("[capture] step capture error: {e}");
+                                    let _ = app_handle_clone.emit("step-capture-error", format!("{e}"));
                                 }
                             }
                         });
@@ -145,16 +152,16 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                     EventType::KeyPress(key) => match key {
                         Key::ControlLeft | Key::ControlRight => {
                             ctrl_held = true;
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             st.ctrl_held = true;
                         }
                         Key::ShiftLeft | Key::ShiftRight => {
                             shift_held = true;
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             st.shift_held = true;
                         }
                         Key::Alt | Key::AltGr => {
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             st.alt_held = true;
                         }
                         _ => {
@@ -165,10 +172,10 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                             // API); events are only accumulated during RecordingState::Recording.
                             // Accumulate keystrokes for the next step
                             let alt = {
-                                let st = state.lock().unwrap();
+                                let st = state.lock().unwrap_or_else(|e| e.into_inner());
                                 st.alt_held
                             };
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             if st.recording_state == RecordingState::Recording {
                                 if let Some(token) = key_token(&key, ctrl_held, shift_held, alt) {
                                     st.pending_keystrokes.push_str(&token);
@@ -179,16 +186,16 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                     EventType::KeyRelease(key) => match key {
                         Key::ControlLeft | Key::ControlRight => {
                             ctrl_held = false;
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             st.ctrl_held = false;
                         }
                         Key::ShiftLeft | Key::ShiftRight => {
                             shift_held = false;
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             st.shift_held = false;
                         }
                         Key::Alt | Key::AltGr => {
-                            let mut st = state.lock().unwrap();
+                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             st.alt_held = false;
                         }
                         _ => {}
@@ -199,6 +206,8 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
 
             if let Err(e) = listen(callback) {
                 eprintln!("[hook] rdev listen error: {e:?}");
+                // Notify the frontend so the user knows recording input is broken
+                let _ = app_handle_for_error.emit("hook-error", format!("Input capture failed: {e:?}"));
             }
         })
         .expect("failed to spawn hook thread");
@@ -222,7 +231,7 @@ pub fn register_global_hotkeys(
         if event.state != ShortcutState::Pressed {
             return;
         }
-        let mut st = state_pause.lock().unwrap();
+        let mut st = state_pause.lock().unwrap_or_else(|e| e.into_inner());
         match st.recording_state {
             RecordingState::Recording => {
                 st.recording_state = RecordingState::Paused;
@@ -244,8 +253,8 @@ pub fn register_global_hotkeys(
         if event.state != ShortcutState::Pressed {
             return;
         }
-        let current_session = {
-            let mut st = state_stop.lock().unwrap();
+        let (current_session, restore_rect, was_maximized) = {
+            let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
             if st.recording_state != RecordingState::Recording
                 && st.recording_state != RecordingState::Paused
             {
@@ -254,9 +263,13 @@ pub fn register_global_hotkeys(
             st.recording_state = RecordingState::Reviewing;
             st.rec_window_bounds = None;
             if let Some(ref session) = st.session {
-                let _ = save_session(session);
+                if let Err(e) = save_session(session) {
+                    eprintln!("[save_session] failed: {e}");
+                }
             }
-            st.session.clone()
+            let restore_rect = st.pre_recording_restore_rect.take();
+            let was_maximized = st.pre_recording_maximized;
+            (st.session.clone(), restore_rect, was_maximized)
         };
 
         // Restore full window — reset capture-affinity first.
@@ -267,7 +280,15 @@ pub fn register_global_hotkeys(
             }
             let _ = window.set_always_on_top(false);
             let _ = window.set_decorations(true);
-            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
+            // Restore pre-recording geometry rather than hard-coding 900×650.
+            let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
+            // Set size and position first so Windows knows the restore rect when
+            // un-maximizing (rcNormalPosition).
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
+            let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
+            if was_maximized {
+                let _ = window.maximize();
+            }
         }
 
         // Auto-delete empty recordings and reset to Idle
@@ -278,7 +299,7 @@ pub fn register_global_hotkeys(
                     eprintln!("Failed to delete empty session directory: {e}");
                 }
                 {
-                    let mut st = state_stop.lock().unwrap();
+                    let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
                     st.recording_state = RecordingState::Idle;
                     st.session = None;
                 }
@@ -394,7 +415,10 @@ fn key_token(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<String> {
             if matches!(key, Key::Space) {
                 Some("[Shift+Space]".to_string())
             } else {
-                let ch = name.chars().next().unwrap();
+                let ch = match name.chars().next() {
+                    Some(c) => c,
+                    None => return None,
+                };
                 Some(ch.to_ascii_uppercase().to_string())
             }
         } else {

@@ -7,7 +7,10 @@ use xcap::Monitor;
 
 /// Return position + size info for every connected monitor.
 pub fn list_monitor_infos() -> Vec<MonitorInfo> {
-    Monitor::all().unwrap_or_default()
+    Monitor::all().unwrap_or_else(|e| {
+        eprintln!("[capture] Monitor::all() failed: {e}");
+        Vec::new()
+    })
         .into_iter()
         .map(|m| MonitorInfo {
             name: m.name().unwrap_or_default(),
@@ -72,7 +75,7 @@ pub fn capture_step(
                     paths.push(path);
                     indices.push(idx);
                 }
-                Err(e) => eprintln!("[capture] extra monitor {idx} error: {e}"),
+                Err(e) => eprintln!("[capture] step {step_id}: extra monitor {idx} failed: {e}"),
             }
         }
         (paths, indices)

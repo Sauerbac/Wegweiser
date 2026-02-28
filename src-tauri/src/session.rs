@@ -145,7 +145,9 @@ pub fn load_session(path: &Path) -> Result<Session> {
         for (i, step) in session.steps.iter_mut().enumerate() {
             step.order = i + 1;
         }
-        let _ = save_session(&session);
+        if let Err(e) = save_session(&session) {
+            eprintln!("[session] migration save failed: {e}");
+        }
     }
 
     Ok(session)
