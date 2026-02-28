@@ -190,6 +190,45 @@
     }
   }
 
+  /**
+   * Parse a keystroke string into an array of segments.
+   * Each segment is either:
+   *   { kind: 'shortcut', key: 'Ctrl+Shift+Left' }  — rendered as <kbd>
+   *   { kind: 'text', value: 'hello world' }          — rendered as plain text
+   *
+   * The raw format uses bracket notation for shortcuts: [Ctrl+C]hello[Shift+Space]
+   * A bracketed token that contains '+' is treated as a multi-key shortcut.
+   * A bracketed token without '+' (e.g. [Enter]) is also rendered as <kbd> since
+   * it represents a special key press, not a typed character.
+   */
+  type KeystrokeSegment =
+    | { kind: 'shortcut'; key: string }
+    | { kind: 'text'; value: string };
+
+  function parseKeystrokes(raw: string): KeystrokeSegment[] {
+    const segments: KeystrokeSegment[] = [];
+    // Split on [...] tokens while keeping the delimiters
+    const parts = raw.split(/(\[[^\]]+\])/);
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.startsWith('[') && part.endsWith(']')) {
+        // Bracketed token — extract the inner content
+        const inner = part.slice(1, -1);
+        // Treat anything with '+' as a multi-key shortcut, plus single special keys
+        // (anything that isn't a single printable character) as a <kbd> element.
+        const isSingleChar = inner.length === 1;
+        if (!isSingleChar || inner === '+') {
+          segments.push({ kind: 'shortcut', key: inner });
+        } else {
+          segments.push({ kind: 'text', value: inner });
+        }
+      } else {
+        segments.push({ kind: 'text', value: part });
+      }
+    }
+    return segments;
+  }
+
   // Handle back mouse button (button 3 / XButton1) and browser history back (popstate)
   // so that the back navigation gesture returns the user to the idle screen.
   function handleMouseUp(event: MouseEvent) {
@@ -418,9 +457,16 @@
             onblur={saveDescription}
           />
           {#if selectedStep.keystrokes}
-            <p class="text-xs text-muted-foreground">
-              Typed: <code class="break-all whitespace-normal rounded bg-muted px-1 py-0.5">{selectedStep.keystrokes}</code>
-            </p>
+            <div class="rounded bg-muted px-3 py-2 text-xs font-mono">
+              <span class="text-muted-foreground">Typed: </span>
+              {#each parseKeystrokes(selectedStep.keystrokes) as segment}
+                {#if segment.kind === 'shortcut'}
+                  <kbd class="inline-flex items-center rounded border border-border px-1 py-0.5 font-mono text-xs">{segment.key}</kbd>
+                {:else}
+                  {segment.value}
+                {/if}
+              {/each}
+            </div>
           {/if}
         </div>
       {:else}
