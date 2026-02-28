@@ -5,6 +5,7 @@
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
 
   let pendingDelete = $state<string | null>(null);
+  let selectedRecordings = $state<Set<string>>(new Set());
 
   async function startRecording() {
     await invoke('start_recording', {
@@ -19,6 +20,39 @@
   async function confirmDelete(sessionDir: string) {
     await invoke('delete_session_cmd', { sessionDir });
     pendingDelete = null;
+    await store.refreshSessions();
+  }
+
+  function toggleSelection(sessionDir: string) {
+    if (selectedRecordings.has(sessionDir)) {
+      selectedRecordings.delete(sessionDir);
+    } else {
+      selectedRecordings.add(sessionDir);
+    }
+    selectedRecordings = selectedRecordings;
+  }
+
+  function selectAll() {
+    selectedRecordings = new Set(store.sessions.map((s) => s.session_dir));
+  }
+
+  function deselectAll() {
+    selectedRecordings = new Set();
+  }
+
+  function toggleSelectAll() {
+    if (selectedRecordings.size === store.sessions.length) {
+      deselectAll();
+    } else {
+      selectAll();
+    }
+  }
+
+  async function deleteSelected() {
+    for (const sessionDir of selectedRecordings) {
+      await invoke('delete_session_cmd', { sessionDir });
+    }
+    selectedRecordings = new Set();
     await store.refreshSessions();
   }
 
@@ -97,10 +131,25 @@
         <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Past Recordings
         </h2>
-        <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
-          <RefreshCw />
-          Refresh
-        </Button>
+        <div class="flex items-center gap-2">
+          {#if selectedRecordings.size > 0}
+            <span class="text-xs text-muted-foreground">
+              {selectedRecordings.size} selected
+            </span>
+            <Button
+              variant="destructive"
+              size="sm"
+              onclick={deleteSelected}
+              class="gap-1.5"
+            >
+              <Trash2 size={13} />Delete Selected
+            </Button>
+          {/if}
+          <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
+            <RefreshCw />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {#if store.sessions.length === 0}
@@ -108,15 +157,39 @@
           No recordings yet. Start one on the left.
         </div>
       {:else}
+        <div class="mb-2 flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={selectedRecordings.size > 0 && selectedRecordings.size === store.sessions.length}
+            indeterminate={selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length}
+            onchange={toggleSelectAll}
+            class="accent-primary"
+          />
+          <span class="text-xs text-muted-foreground">
+            {selectedRecordings.size > 0 && selectedRecordings.size < store.sessions.length
+              ? `${selectedRecordings.size} of ${store.sessions.length}`
+              : selectedRecordings.size === store.sessions.length
+                ? `All ${store.sessions.length}`
+                : 'Select all'}
+          </span>
+        </div>
         <div class="flex flex-col gap-2 overflow-y-auto">
           {#each store.sessions as meta (meta.session_dir)}
-            <div class="rounded-lg border p-4 transition-colors hover:bg-accent/40">
+            <div class="rounded-lg border p-4 transition-colors {selectedRecordings.has(meta.session_dir) ? 'border-primary bg-accent/60' : 'hover:bg-accent/40'}">
               <div class="flex items-start justify-between">
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium">{meta.name}</p>
-                  <p class="mt-0.5 text-xs text-muted-foreground">
-                    {meta.step_count} step{meta.step_count !== 1 ? 's' : ''}
-                  </p>
+                <div class="flex min-w-0 flex-1 items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedRecordings.has(meta.session_dir)}
+                    onchange={() => toggleSelection(meta.session_dir)}
+                    class="mt-1 accent-primary"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-medium">{meta.name}</p>
+                    <p class="mt-0.5 text-xs text-muted-foreground">
+                      {meta.step_count} step{meta.step_count !== 1 ? 's' : ''}
+                    </p>
+                  </div>
                 </div>
                 <div class="ml-3 flex shrink-0 items-center gap-2">
                   {#if pendingDelete === meta.session_dir}
