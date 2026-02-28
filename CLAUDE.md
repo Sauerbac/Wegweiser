@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`rec` is a Windows step recorder (modern replacement for the deprecated `psr.exe`). It captures screenshots on mouse clicks, annotates them with an orange click indicator, and exports annotated tutorials as Markdown or self-contained HTML.
+`Wegweiser` is a Windows step recorder (modern replacement for the deprecated `psr.exe`). It captures screenshots on mouse clicks, annotates them with an orange click indicator, and exports annotated tutorials as Markdown or self-contained HTML.
+
+### User-facing description
+
+> **Wegweiser** is a Windows tool for recording step-by-step guides. As you click through a workflow, it automatically captures a screenshot at each step and marks the click location with an orange indicator. When you're done, you export the result as a Markdown file or a self-contained HTML page — ready to share with colleagues as a polished, visual Anleitung. It replaces the long-deprecated Windows Step Recorder (psr.exe) with a modern, lightweight alternative.
 
 ## Architecture
 

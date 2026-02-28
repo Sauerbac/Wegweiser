@@ -84,7 +84,7 @@
 >
   {#snippet header()}
     <div>
-      <h1 class="text-lg font-semibold">rec</h1>
+      <h1 class="text-lg font-semibold">Wegweiser</h1>
       <p class="text-sm text-muted-foreground">Windows step recorder</p>
     </div>
     <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">

@@ -14,11 +14,11 @@ pub struct SessionMeta {
 }
 
 /// Returns the base directory where all sessions are stored:
-/// `{LocalAppData}/rec/sessions/` on Windows (falls back to `%TEMP%/rec_sessions/`).
+/// `{LocalAppData}/Wegweiser/sessions/` on Windows (falls back to `%TEMP%/wegweiser_sessions/`).
 pub fn sessions_base_dir() -> PathBuf {
     dirs::data_local_dir()
-        .map(|d| d.join("rec").join("sessions"))
-        .unwrap_or_else(|| std::env::temp_dir().join("rec_sessions"))
+        .map(|d| d.join("Wegweiser").join("sessions"))
+        .unwrap_or_else(|| std::env::temp_dir().join("wegweiser_sessions"))
 }
 
 /// Create a new session directory inside `sessions_base_dir()` and return its path.

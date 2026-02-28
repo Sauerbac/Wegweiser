@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "rec",
+  "productName": "Wegweiser",
   "version": "0.1.0",
-  "identifier": "com.rec.app",
+  "identifier": "de.sauerbach.wegweiser",
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "rec — Step Recorder",
+        "title": "Wegweiser — Step Recorder",
         "width": 900,
         "height": 650,
         "minWidth": 600,
