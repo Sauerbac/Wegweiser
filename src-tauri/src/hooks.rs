@@ -82,6 +82,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
         .spawn(move || {
             let mut ctrl_held = false;
             let mut shift_held = false;
+            let mut alt_held = false;
             let mut last_x: f64 = 0.0;
             let mut last_y: f64 = 0.0;
 
@@ -194,17 +195,12 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                     EventType::KeyPress(key) => match key {
                         Key::ControlLeft | Key::ControlRight => {
                             ctrl_held = true;
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            st.ctrl_held = true;
                         }
                         Key::ShiftLeft | Key::ShiftRight => {
                             shift_held = true;
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            st.shift_held = true;
                         }
                         Key::Alt | Key::AltGr => {
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            st.alt_held = true;
+                            alt_held = true;
                         }
                         _ => {
                             // SECURITY: This hook captures keystrokes from ALL applications system-wide
@@ -216,8 +212,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                             // alt_held and pending_keystrokes to avoid a double-lock.
                             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                             if st.recording_state == RecordingState::Recording {
-                                let alt = st.alt_held;
-                                if let Some(token) = key_token(&key, ctrl_held, shift_held, alt) {
+                                if let Some(token) = key_token(&key, ctrl_held, shift_held, alt_held) {
                                     st.pending_keystrokes.push_str(&token);
                                 }
                             }
@@ -226,17 +221,12 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                     EventType::KeyRelease(key) => match key {
                         Key::ControlLeft | Key::ControlRight => {
                             ctrl_held = false;
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            st.ctrl_held = false;
                         }
                         Key::ShiftLeft | Key::ShiftRight => {
                             shift_held = false;
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            st.shift_held = false;
                         }
                         Key::Alt | Key::AltGr => {
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            st.alt_held = false;
+                            alt_held = false;
                         }
                         _ => {}
                     },
@@ -293,23 +283,73 @@ pub fn register_global_hotkeys(
         if event.state != ShortcutState::Pressed {
             return;
         }
-        let (current_session, restore_rect, was_maximized) = {
+        let (current_session, pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized) = {
             let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
             if st.recording_state != RecordingState::Recording
                 && st.recording_state != RecordingState::Paused
             {
                 return;
             }
+            // Transition to Reviewing BEFORE extracting pending_ks so no new
+            // keystrokes can be added by the hook thread after this point.
             st.recording_state = RecordingState::Reviewing;
             st.rec_window_bounds = None;
+
+            let pending_ks = std::mem::take(&mut st.pending_keystrokes);
+            let step_id = st.next_step_id;
+            let order = st.next_order;
+            let monitor_index = st.selected_monitor;
+            let all_monitors = st.session.as_ref().map_or(false, |s| s.monitor_index.is_none());
+
+            if !pending_ks.is_empty() {
+                st.next_step_id += 1;
+                st.next_order += 1;
+            }
+
             if let Some(ref session) = st.session {
                 if let Err(e) = save_session(session) {
                     eprintln!("[save_session] failed: {e}");
                 }
             }
+
             let restore_rect = st.pre_recording_restore_rect.take();
             let was_maximized = st.pre_recording_maximized;
-            (st.session.clone(), restore_rect, was_maximized)
+            (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized)
+        };
+
+        // If there were buffered keystrokes with no trailing click, capture a final
+        // step now (synchronous call is acceptable — we are stopping).
+        let current_session = if !pending_ks.is_empty() {
+            if let Some(ref sess) = current_session {
+                let mon_idx = monitor_index.unwrap_or(0);
+                match crate::capture::capture_step(
+                    mon_idx, None, step_id, order, &sess.session_dir,
+                    Some(pending_ks), all_monitors,
+                ) {
+                    Ok(new_step) => {
+                        let updated_session = {
+                            let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
+                            if let Some(ref mut session) = st.session {
+                                session.steps.push(new_step.clone());
+                                if let Err(e) = save_session(session) {
+                                    eprintln!("[save_session] failed: {e}");
+                                }
+                            }
+                            st.session.clone()
+                        };
+                        let _ = app_stop.emit("step-captured", &new_step);
+                        updated_session
+                    }
+                    Err(e) => {
+                        eprintln!("[stop hotkey] keystroke-only step capture failed: {e}");
+                        current_session
+                    }
+                }
+            } else {
+                current_session
+            }
+        } else {
+            current_session
         };
 
         // Restore full window — reset capture-affinity first.
@@ -318,12 +358,13 @@ pub fn register_global_hotkeys(
             if let Ok(hwnd) = window.hwnd() {
                 crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
             }
-            let _ = window.set_always_on_top(false);
-            let _ = window.set_decorations(true);
-            // Restore pre-recording geometry rather than hard-coding 900×650.
-            let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
-            // Set size and position first so Windows knows the restore rect when
-            // un-maximizing (rcNormalPosition).
+            if let Err(e) = window.set_always_on_top(false) {
+                eprintln!("stop hotkey: set_always_on_top failed: {e}");
+            }
+            if let Err(e) = window.set_decorations(true) {
+                eprintln!("stop hotkey: set_decorations failed: {e}");
+            }
+            let (rx, ry, rw, rh) = restore_rect.unwrap_or(crate::commands::DEFAULT_RESTORE_RECT);
             let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
             let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
             if was_maximized {
@@ -391,52 +432,45 @@ fn key_token(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<String> {
         _ => {}
     }
 
-    // The display name used inside bracketed tokens.
-    let name: &str = match key {
-        Key::KeyA => "A", Key::KeyB => "B", Key::KeyC => "C", Key::KeyD => "D",
-        Key::KeyE => "E", Key::KeyF => "F", Key::KeyG => "G", Key::KeyH => "H",
-        Key::KeyI => "I", Key::KeyJ => "J", Key::KeyK => "K", Key::KeyL => "L",
-        Key::KeyM => "M", Key::KeyN => "N", Key::KeyO => "O", Key::KeyP => "P",
-        Key::KeyQ => "Q", Key::KeyR => "R", Key::KeyS => "S", Key::KeyT => "T",
-        Key::KeyU => "U", Key::KeyV => "V", Key::KeyW => "W", Key::KeyX => "X",
-        Key::KeyY => "Y", Key::KeyZ => "Z",
-        Key::Num0 => "0", Key::Num1 => "1", Key::Num2 => "2", Key::Num3 => "3",
-        Key::Num4 => "4", Key::Num5 => "5", Key::Num6 => "6", Key::Num7 => "7",
-        Key::Num8 => "8", Key::Num9 => "9",
-        Key::Return    => "Enter",
-        Key::Space     => "Space",
-        Key::Tab       => "Tab",
-        Key::Backspace => "Backspace",
-        Key::Delete    => "Delete",
-        Key::Escape    => "Esc",
-        Key::Home      => "Home",
-        Key::End       => "End",
-        Key::PageUp    => "PgUp",
-        Key::PageDown  => "PgDn",
-        Key::UpArrow   => "Up",
-        Key::DownArrow => "Down",
-        Key::LeftArrow => "Left",
-        Key::RightArrow => "Right",
-        Key::F1  => "F1",  Key::F2  => "F2",  Key::F3  => "F3",  Key::F4  => "F4",
-        Key::F5  => "F5",  Key::F6  => "F6",  Key::F7  => "F7",  Key::F8  => "F8",
-        Key::F9  => "F9",  Key::F10 => "F10", Key::F11 => "F11", Key::F12 => "F12",
-        Key::Unknown(_) => "?",
+    // Combined match: display name and printability in one pass.
+    let (name, is_printable): (&str, bool) = match key {
+        Key::KeyA => ("A", true), Key::KeyB => ("B", true), Key::KeyC => ("C", true),
+        Key::KeyD => ("D", true), Key::KeyE => ("E", true), Key::KeyF => ("F", true),
+        Key::KeyG => ("G", true), Key::KeyH => ("H", true), Key::KeyI => ("I", true),
+        Key::KeyJ => ("J", true), Key::KeyK => ("K", true), Key::KeyL => ("L", true),
+        Key::KeyM => ("M", true), Key::KeyN => ("N", true), Key::KeyO => ("O", true),
+        Key::KeyP => ("P", true), Key::KeyQ => ("Q", true), Key::KeyR => ("R", true),
+        Key::KeyS => ("S", true), Key::KeyT => ("T", true), Key::KeyU => ("U", true),
+        Key::KeyV => ("V", true), Key::KeyW => ("W", true), Key::KeyX => ("X", true),
+        Key::KeyY => ("Y", true), Key::KeyZ => ("Z", true),
+        Key::Num0 => ("0", true), Key::Num1 => ("1", true), Key::Num2 => ("2", true),
+        Key::Num3 => ("3", true), Key::Num4 => ("4", true), Key::Num5 => ("5", true),
+        Key::Num6 => ("6", true), Key::Num7 => ("7", true), Key::Num8 => ("8", true),
+        Key::Num9 => ("9", true),
+        Key::Space     => ("Space", true),
+        Key::Return    => ("Enter", false),
+        Key::Tab       => ("Tab", false),
+        Key::Backspace => ("Backspace", false),
+        Key::Delete    => ("Delete", false),
+        Key::Escape    => ("Esc", false),
+        Key::Home      => ("Home", false),
+        Key::End       => ("End", false),
+        Key::PageUp    => ("PgUp", false),
+        Key::PageDown  => ("PgDn", false),
+        Key::UpArrow   => ("Up", false),
+        Key::DownArrow => ("Down", false),
+        Key::LeftArrow => ("Left", false),
+        Key::RightArrow => ("Right", false),
+        Key::F1  => ("F1",  false), Key::F2  => ("F2",  false),
+        Key::F3  => ("F3",  false), Key::F4  => ("F4",  false),
+        Key::F5  => ("F5",  false), Key::F6  => ("F6",  false),
+        Key::F7  => ("F7",  false), Key::F8  => ("F8",  false),
+        Key::F9  => ("F9",  false), Key::F10 => ("F10", false),
+        Key::F11 => ("F11", false), Key::F12 => ("F12", false),
+        Key::Unknown(_) => ("?", false),
         // Anything else (numpad, media keys, etc.) — ignore silently.
         _ => return None,
     };
-
-    // Printable single-character keys (letters, digits, and Space).
-    let is_printable = matches!(
-        key,
-        Key::KeyA | Key::KeyB | Key::KeyC | Key::KeyD | Key::KeyE | Key::KeyF
-        | Key::KeyG | Key::KeyH | Key::KeyI | Key::KeyJ | Key::KeyK | Key::KeyL
-        | Key::KeyM | Key::KeyN | Key::KeyO | Key::KeyP | Key::KeyQ | Key::KeyR
-        | Key::KeyS | Key::KeyT | Key::KeyU | Key::KeyV | Key::KeyW | Key::KeyX
-        | Key::KeyY | Key::KeyZ
-        | Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4
-        | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9
-        | Key::Space
-    );
 
     if ctrl || alt {
         // Modifier combo: [Ctrl+Shift+Z], [Alt+F4], etc.

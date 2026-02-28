@@ -39,10 +39,6 @@ pub struct AppState {
     pub next_order: usize,
     /// Keystrokes typed since the last click; drained into the next Step on click.
     pub pending_keystrokes: String,
-    /// Modifier key state.
-    pub ctrl_held: bool,
-    pub shift_held: bool,
-    pub alt_held: bool,
     /// Physical-pixel bounding box of the recording mini-bar window.
     /// Cached once when recording starts; used to filter out self-clicks on the mini-bar
     /// without querying the OS on every mouse click.
@@ -70,9 +66,6 @@ impl AppState {
             next_step_id: 1,
             next_order: 1,
             pending_keystrokes: String::new(),
-            ctrl_held: false,
-            shift_held: false,
-            alt_held: false,
             rec_window_bounds: None,
             pre_recording_restore_rect: None,
             pre_recording_maximized: false,

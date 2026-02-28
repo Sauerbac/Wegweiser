@@ -11,6 +11,59 @@ use uuid::Uuid;
 
 type AppStateHandle = Arc<Mutex<AppState>>;
 
+/// Width of the recording mini-bar window in physical pixels.
+const MINIBAR_WIDTH: u32 = 380;
+/// Height of the recording mini-bar window in physical pixels.
+const MINIBAR_HEIGHT: u32 = 64;
+/// Fallback window restore position and size used when no saved geometry is available.
+pub const DEFAULT_RESTORE_RECT: (i32, i32, u32, u32) = (100, 100, 900, 650);
+
+/// Width of a monitor-identification badge window in logical pixels.
+const BADGE_WIDTH: f64 = 120.0;
+/// Height of a monitor-identification badge window in logical pixels.
+const BADGE_HEIGHT: f64 = 76.0;
+/// Margin from the screen edge for badge windows in logical pixels.
+const BADGE_MARGIN: f64 = 24.0;
+/// How long (in seconds) each identification badge window stays visible.
+const BADGE_DISPLAY_SECS: u64 = 3;
+
+/// Normalize a filesystem path to forward slashes for consistent frontend display.
+fn normalize_path_for_frontend(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+/// Restore the main window from mini-bar mode using the saved pre-recording geometry.
+/// Clears the WDA_EXCLUDEFROMCAPTURE flag, disables always-on-top, re-enables decorations,
+/// then restores saved size + position (or falls back to DEFAULT_RESTORE_RECT).
+fn restore_window(
+    window: &WebviewWindow,
+    restore_rect: Option<(i32, i32, u32, u32)>,
+    was_maximized: bool,
+) {
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
+    }
+    if let Err(e) = window.set_always_on_top(false) {
+        eprintln!("restore_window: set_always_on_top failed: {e}");
+    }
+    if let Err(e) = window.set_decorations(true) {
+        eprintln!("restore_window: set_decorations failed: {e}");
+    }
+    let (rx, ry, rw, rh) = restore_rect.unwrap_or(DEFAULT_RESTORE_RECT);
+    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
+        eprintln!("restore_window: set_size failed: {e}");
+    }
+    if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
+        eprintln!("restore_window: set_position failed: {e}");
+    }
+    if was_maximized {
+        if let Err(e) = window.maximize() {
+            eprintln!("restore_window: maximize failed: {e}");
+        }
+    }
+}
+
 #[tauri::command]
 pub fn list_monitors(state: State<'_, AppStateHandle>) -> Vec<crate::model::MonitorInfo> {
     state.lock().unwrap_or_else(|e| e.into_inner()).monitor_infos.clone()
@@ -87,16 +140,17 @@ pub fn start_recording(
             None
         };
 
+        let (_, _, default_w, default_h) = DEFAULT_RESTORE_RECT;
         if let (Some((rx, ry)), Some((rw, rh))) = (restore_pos, restore_size) {
             st.pre_recording_restore_rect = Some((rx, ry, rw, rh));
         } else if let Some((rx, ry)) = restore_pos {
-            st.pre_recording_restore_rect = Some((rx, ry, 900, 650));
+            st.pre_recording_restore_rect = Some((rx, ry, default_w, default_h));
         }
     }
 
-    // Morph window to mini-bar: 380×64, borderless, always-on-top
+    // Morph window to mini-bar: MINIBAR_WIDTH×MINIBAR_HEIGHT, borderless, always-on-top
     // error-handling-010: log window API failures instead of silently dropping them
-    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 380, height: 64 })) {
+    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT })) {
         eprintln!("start_recording: set_size failed: {e}");
     }
     if let Err(e) = window.set_decorations(false) {
@@ -115,7 +169,7 @@ pub fn start_recording(
     // Use selected monitor or primary monitor (index 0) as fallback
     let monitor_idx = monitor_index.unwrap_or(0);
     if let Some(monitor) = infos.get(monitor_idx) {
-        let window_width = 380i32;
+        let window_width = MINIBAR_WIDTH as i32;
         let x = monitor.x + (monitor.width as i32 - window_width) / 2;
         let y = monitor.y;
         if let Err(e) = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 }) {
@@ -128,7 +182,7 @@ pub fn start_recording(
     // so that dragging the mini-bar doesn't leave a stale cache.
     if let Ok(pos) = window.outer_position() {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: 380u32, height: 64u32 }));
+        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT }));
     }
     {
         let state_arc = Arc::clone(&*state);
@@ -235,37 +289,11 @@ pub fn stop_recording(
 
     // Restore full window — reset capture-affinity first so the review window
     // is visible in any subsequent captures the user might take.
-    #[cfg(windows)]
-    if let Ok(hwnd) = window.hwnd() {
-        crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
-    }
-    // error-handling-010: log window API failures
-    if let Err(e) = window.set_always_on_top(false) {
-        eprintln!("stop_recording: set_always_on_top failed: {e}");
-    }
-    if let Err(e) = window.set_decorations(true) {
-        eprintln!("stop_recording: set_decorations failed: {e}");
-    }
-
-    // Restore pre-recording geometry; fall back to defaults if nothing was saved.
     let (restore_rect, was_maximized) = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         (st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
     };
-    let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
-    // Always set the restore rect first so Windows knows where to place the window
-    // when un-maximizing (rcNormalPosition).
-    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
-        eprintln!("stop_recording: set_size failed: {e}");
-    }
-    if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
-        eprintln!("stop_recording: set_position failed: {e}");
-    }
-    if was_maximized {
-        if let Err(e) = window.maximize() {
-            eprintln!("stop_recording: maximize failed: {e}");
-        }
-    }
+    restore_window(&window, restore_rect, was_maximized);
 
     // Auto-delete recordings with 0 steps
     if let Some(ref sess) = current_session {
@@ -342,7 +370,7 @@ pub fn delete_step(
     state: State<'_, AppStateHandle>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    {
+    let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut session) = st.session {
             session.steps.retain(|s| s.id != step_id);
@@ -354,10 +382,6 @@ pub fn delete_step(
                 eprintln!("[save_session] failed: {e}");
             }
         }
-    }
-
-    let session = {
-        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
     if let Some(s) = session {
@@ -372,7 +396,7 @@ pub fn delete_steps(
     state: State<'_, AppStateHandle>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    {
+    let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut session) = st.session {
             let ids_set: std::collections::HashSet<usize> = step_ids.iter().copied().collect();
@@ -384,9 +408,6 @@ pub fn delete_steps(
                 eprintln!("[save_session] failed: {e}");
             }
         }
-    }
-    let session = {
-        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
     if let Some(s) = session {
@@ -468,25 +489,7 @@ pub fn load_session_cmd(
     // Only restore window geometry if coming from mini-bar; otherwise preserve
     // the user's current window size.
     if was_recording {
-        // error-handling-010: log window API failures
-        if let Err(e) = window.set_always_on_top(false) {
-            eprintln!("load_session_cmd: set_always_on_top failed: {e}");
-        }
-        if let Err(e) = window.set_decorations(true) {
-            eprintln!("load_session_cmd: set_decorations failed: {e}");
-        }
-        let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
-        if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
-            eprintln!("load_session_cmd: set_size failed: {e}");
-        }
-        if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
-            eprintln!("load_session_cmd: set_position failed: {e}");
-        }
-        if was_maximized {
-            if let Err(e) = window.maximize() {
-                eprintln!("load_session_cmd: maximize failed: {e}");
-            }
-        }
+        restore_window(&window, restore_rect, was_maximized);
     }
 
     app_handle
@@ -524,25 +527,7 @@ pub fn new_recording(
     // When navigating from Reviewing → Idle the window is already at full size;
     // resizing it would reset any user resize the user made.
     if was_recording {
-        // error-handling-010: log window API failures
-        if let Err(e) = window.set_always_on_top(false) {
-            eprintln!("new_recording: set_always_on_top failed: {e}");
-        }
-        if let Err(e) = window.set_decorations(true) {
-            eprintln!("new_recording: set_decorations failed: {e}");
-        }
-        let (rx, ry, rw, rh) = restore_rect.unwrap_or((100, 100, 900, 650));
-        if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh })) {
-            eprintln!("new_recording: set_size failed: {e}");
-        }
-        if let Err(e) = window.set_position(tauri::PhysicalPosition { x: rx, y: ry }) {
-            eprintln!("new_recording: set_position failed: {e}");
-        }
-        if was_maximized {
-            if let Err(e) = window.maximize() {
-                eprintln!("new_recording: maximize failed: {e}");
-            }
-        }
+        restore_window(&window, restore_rect, was_maximized);
     }
 
     app_handle
@@ -605,8 +590,7 @@ pub fn export_markdown(
         }
     }
 
-    // Normalize to forward slashes so the frontend path display is consistent
-    Ok(output_path.replace('\\', "/"))
+    Ok(normalize_path_for_frontend(&output_path))
 }
 
 #[tauri::command]
@@ -628,8 +612,7 @@ pub fn export_html(
     std::thread::spawn(move || {
         match crate::export::html::export(&session, &path, Some(&app_handle)) {
             Ok(()) => {
-                // Normalize to forward slashes for consistent frontend display
-                let normalized = output_path.replace('\\', "/");
+                let normalized = normalize_path_for_frontend(&output_path);
                 let _ = app_handle.emit("export-done", &normalized);
             }
             Err(e) => {
@@ -663,7 +646,7 @@ pub fn rename_session(
     if name.len() > 512 {
         return Err("Session name is too long (max 512 bytes)".to_string());
     }
-    {
+    let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut session) = st.session {
             session.name = name;
@@ -671,9 +654,6 @@ pub fn rename_session(
                 eprintln!("[save_session] failed: {e}");
             }
         }
-    }
-    let session = {
-        let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
     if let Some(s) = session {
@@ -696,18 +676,15 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
         }
 
         // Small badge at bottom-left of this monitor
-        let badge_w = 120.0f64;
-        let badge_h = 76.0f64;
-        let margin = 24.0f64;
-        let badge_x = info.x as f64 + margin;
-        let badge_y = info.y as f64 + info.height as f64 - badge_h - margin;
+        let badge_x = info.x as f64 + BADGE_MARGIN;
+        let badge_y = info.y as f64 + info.height as f64 - BADGE_HEIGHT - BADGE_MARGIN;
 
         let label_clone = window_label.clone();
         std::thread::spawn(move || {
             let url = WebviewUrl::App(format!("identify?monitor={}", index).into());
             let result = tauri::WebviewWindowBuilder::new(&app_clone, &label_clone, url)
                 .title(format!("Monitor {}", index + 1))
-                .inner_size(badge_w, badge_h)
+                .inner_size(BADGE_WIDTH, BADGE_HEIGHT)
                 .position(badge_x, badge_y)
                 .resizable(false)
                 .decorations(false)
@@ -719,7 +696,7 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
             // error-handling-009: log badge window build failures
             match result {
                 Ok(_) => {
-                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    std::thread::sleep(std::time::Duration::from_secs(BADGE_DISPLAY_SECS));
                     if let Some(w) = app_clone.get_webview_window(&label_clone) {
                         let _ = w.destroy();
                     }

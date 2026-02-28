@@ -17,10 +17,10 @@
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
-  /** Cache for primary step images. Uses Map to avoid O(N²) object spreads on update. */
-  let imageCache = $state(new Map<number, string>());
+  /** Cache for primary step images. Direct property assignment is reactive in Svelte 5. */
+  let imageCache = $state<Record<number, string>>({});
   /** Cache for extra monitor images. Key: `${step.id}_extra_${i}` */
-  let extraImageCache = $state(new Map<string, string>());
+  let extraImageCache = $state<Record<string, string>>({});
   /**
    * Which monitor tab is shown in the detail view.
    * 'primary' = the annotated click-monitor image
@@ -82,9 +82,9 @@
   // Load image when selection changes; restore description draft and monitor tab.
   $effect(() => {
     const step = selectedStep;
-    if (step && !imageCache.has(step.id)) {
+    if (step && !imageCache[step.id]) {
       invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-        imageCache.set(step.id, uri);
+        imageCache[step.id] = uri;
       }).catch(err => console.error('Failed to load image:', err));
     }
     descriptionDraft = step?.description ?? '';
@@ -95,18 +95,18 @@
   $effect(() => {
     const steps = store.session?.steps ?? [];
     for (const step of steps) {
-      if (!imageCache.has(step.id)) {
+      if (!imageCache[step.id]) {
         invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-          imageCache.set(step.id, uri);
+          imageCache[step.id] = uri;
         }).catch(err => console.error('Failed to load image:', err));
       }
       for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
         const key = `${step.id}_extra_${i}`;
-        if (!extraImageCache.has(key)) {
+        if (!extraImageCache[key]) {
           const path = step.extra_image_paths[i] ?? null;
           if (path !== null) {
             invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
-              extraImageCache.set(key, uri);
+              extraImageCache[key] = uri;
             }).catch(err => console.error('Failed to load extra image:', err));
           }
         }
@@ -301,8 +301,8 @@
 
   async function newRecording() {
     selectedStepId = null;
-    imageCache = new Map();
-    extraImageCache = new Map();
+    imageCache = {};
+    extraImageCache = {};
     activeMonitorTab = 'primary';
     store.exportedPath = null;
     store.exportError = null;
@@ -546,8 +546,8 @@
                 <MousePointer2 size={11} />
                 {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
               </span>
-              {#if imageCache.get(selectedStep.id)}
-                <img src={imageCache.get(selectedStep.id)} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
+              {#if imageCache[selectedStep.id]}
+                <img src={imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
               {:else}
                 <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
               {/if}
@@ -559,8 +559,8 @@
                 <span class="text-xs text-muted-foreground">
                   {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
                 </span>
-                {#if extraImageCache.get(key)}
-                  <img src={extraImageCache.get(key)} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
+                {#if extraImageCache[key]}
+                  <img src={extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
                 {:else}
                   <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
                 {/if}
@@ -569,9 +569,9 @@
           </div>
         {:else if activeMonitorTab === 'primary'}
           <div class="flex h-full items-center justify-center p-2">
-            {#if imageCache.get(selectedStep.id)}
+            {#if imageCache[selectedStep.id]}
               <img
-                src={imageCache.get(selectedStep.id)}
+                src={imageCache[selectedStep.id]}
                 alt="Step {selectedStepDisplayNum}"
                 class="max-h-full max-w-full object-contain"
               />
@@ -584,9 +584,9 @@
           {#if !isNaN(extraIdx)}
             {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
             <div class="flex h-full items-center justify-center p-2">
-              {#if extraImageCache.get(extraKey)}
+              {#if extraImageCache[extraKey]}
                 <img
-                  src={extraImageCache.get(extraKey)}
+                  src={extraImageCache[extraKey]}
                   alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
                   class="max-h-full max-w-full object-contain"
                 />
