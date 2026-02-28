@@ -4,6 +4,7 @@ mod commands;
 mod export;
 mod hooks;
 mod model;
+mod platform;
 mod session;
 mod state;
 

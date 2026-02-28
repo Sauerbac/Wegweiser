@@ -40,14 +40,22 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                                 return;
                             }
 
-                            // Filter clicks on the mini-bar window itself
-                            if let Some((wx, wy, ww, wh)) = st.rec_window_bounds {
-                                if click_x >= wx
-                                    && click_x < wx + ww
-                                    && click_y >= wy
-                                    && click_y < wy + wh
-                                {
-                                    return;
+                            // Filter clicks on the mini-bar window itself.
+                            // Query the current bounds dynamically so the filter
+                            // stays accurate after the user drags the mini-bar.
+                            if st.rec_window_bounds.is_some() {
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    if let (Ok(pos), Ok(size)) =
+                                        (window.outer_position(), window.outer_size())
+                                    {
+                                        if click_x >= pos.x
+                                            && click_x < pos.x + size.width as i32
+                                            && click_y >= pos.y
+                                            && click_y < pos.y + size.height as i32
+                                        {
+                                            return;
+                                        }
+                                    }
                                 }
                             }
 
@@ -252,8 +260,12 @@ pub fn register_global_hotkeys(
             st.session.clone()
         };
 
-        // Restore full window
+        // Restore full window — reset capture-affinity first.
         if let Some(window) = app_stop.get_webview_window("main") {
+            #[cfg(windows)]
+            if let Ok(hwnd) = window.hwnd() {
+                crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
+            }
             let _ = window.set_always_on_top(false);
             let _ = window.set_decorations(true);
             let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));

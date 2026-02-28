@@ -82,6 +82,13 @@ pub fn start_recording(
         st.rec_window_bounds = Some((pos.x, pos.y, 380, 64));
     }
 
+    // Make the mini-bar invisible to screen-capture APIs so it never appears
+    // in recorded screenshots (WDA_EXCLUDEFROMCAPTURE, Windows 10 2004+).
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, true);
+    }
+
     app_handle
         .emit("recording-state-changed", RecordingState::Recording)
         .map_err(|e| e.to_string())?;
@@ -161,7 +168,12 @@ pub fn stop_recording(
         st.session.clone()
     };
 
-    // Restore full window
+    // Restore full window — reset capture-affinity first so the review window
+    // is visible in any subsequent captures the user might take.
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
+    }
     let _ = window.set_always_on_top(false);
     let _ = window.set_decorations(true);
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 900, height: 650 }));
