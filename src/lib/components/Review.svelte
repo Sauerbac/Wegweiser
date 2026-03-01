@@ -35,6 +35,19 @@
   /** IDs of steps selected via checkboxes for bulk operations. */
   let selectedStepIds = $state<Set<number>>(new Set());
 
+  /** Build the cache key for an extra monitor image. Single source of truth for the key format. */
+  function extraImageKey(stepId: number, monitorIndex: number): string {
+    return `${stepId}_extra_${monitorIndex}`;
+  }
+
+  /** Return a human-readable label for a monitor by its index. */
+  function monitorLabel(idx: number): string {
+    return store.monitors[idx]?.name ?? `Monitor ${idx + 1}`;
+  }
+
+  /** Tailwind classes shared by every per-monitor TabsTrigger. */
+  const monitorTabClass = 'border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary';
+
   /** Derive the selected step by ID lookup — safe against array reordering and deletions. */
   let selectedStep = $derived<Step | null>(
     selectedStepId !== null
@@ -101,7 +114,7 @@
         }).catch(err => console.error('Failed to load image:', err));
       }
       for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
-        const key = `${step.id}_extra_${i}`;
+        const key = extraImageKey(step.id, i);
         if (!extraImageCache[key]) {
           const path = step.extra_image_paths[i] ?? null;
           if (path !== null) {
@@ -115,14 +128,15 @@
   });
 
   // Pre-select first step only when a genuinely new session is loaded.
-  // _initializedSessionId is a plain JS variable (not $state) so writing to it
+  // lastInitializedSessionId is a plain JS variable (not $state) so writing to it
   // doesn't trigger reactive updates — this prevents the effect from re-running
   // every time setExportChoice replaces store.session with the same session ID.
-  let _initializedSessionId = '';
+  // Intentionally NOT $state: we want a write-only guard, not a reactive dependency.
+  let lastInitializedSessionId = '';
   $effect(() => {
     const sessionId = store.session?.id ?? '';
-    if (sessionId && sessionId !== _initializedSessionId) {
-      _initializedSessionId = sessionId;
+    if (sessionId && sessionId !== lastInitializedSessionId) {
+      lastInitializedSessionId = sessionId;
       untrack(() => {
         const steps = store.session?.steps ?? [];
         selectedStepId = steps.length > 0 ? (steps[0]?.id ?? null) : null;
@@ -520,17 +534,17 @@
         <div class="mb-2 flex justify-center">
           <Tabs value={activeMonitorTab} onValueChange={selectMonitorTab}>
             <TabsList class="h-auto gap-1 bg-transparent p-0">
-              <TabsTrigger value="primary" class="gap-1 border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
+              <TabsTrigger value="primary" class="gap-1 {monitorTabClass}">
                 <MousePointer2 size={12} />
-                {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+                {monitorLabel(selectedStep.click_monitor_index)}
               </TabsTrigger>
               {#each selectedStep.extra_image_paths as _path, i (i)}
                 {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-                <TabsTrigger value="extra_{i}" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">
-                  {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+                <TabsTrigger value="extra_{i}" class={monitorTabClass}>
+                  {monitorLabel(monIdx)}
                 </TabsTrigger>
               {/each}
-              <TabsTrigger value="all" class="border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary">All</TabsTrigger>
+              <TabsTrigger value="all" class={monitorTabClass}>All</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -544,7 +558,7 @@
             <div class="flex flex-col gap-1">
               <span class="flex items-center gap-1 text-xs text-muted-foreground">
                 <MousePointer2 size={11} />
-                {store.monitors[selectedStep.click_monitor_index]?.name ?? `Monitor ${selectedStep.click_monitor_index + 1}`}
+                {monitorLabel(selectedStep.click_monitor_index)}
               </span>
               {#if imageCache[selectedStep.id]}
                 <img src={imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
@@ -554,10 +568,10 @@
             </div>
             {#each selectedStep.extra_image_paths as _path, i (i)}
               {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              {@const key = `${selectedStep.id}_extra_${i}`}
+              {@const key = extraImageKey(selectedStep.id, i)}
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-muted-foreground">
-                  {store.monitors[monIdx]?.name ?? `Monitor ${monIdx + 1}`}
+                  {monitorLabel(monIdx)}
                 </span>
                 {#if extraImageCache[key]}
                   <img src={extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
@@ -582,7 +596,7 @@
         {:else}
           {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
           {#if !isNaN(extraIdx)}
-            {@const extraKey = `${selectedStep.id}_extra_${extraIdx}`}
+            {@const extraKey = extraImageKey(selectedStep.id, extraIdx)}
             <div class="flex h-full items-center justify-center p-2">
               {#if extraImageCache[extraKey]}
                 <img
