@@ -130,9 +130,21 @@ fn maybe_migrate_step_order(session: &mut Session) -> bool {
 }
 
 /// Load a session from a JSON file at `path`.
+///
+/// `session_dir` is derived from `path`'s parent directory and set on the
+/// returned `Session` after deserialisation.  It is intentionally not
+/// serialised into `session.json` (see `#[serde(skip)]` on the field) so
+/// the JSON never contains a stale or incorrect filesystem path.
 pub fn load_session(path: &Path) -> Result<Session> {
     let json = fs::read_to_string(path)?;
     let mut session: Session = serde_json::from_str(&json)?;
+
+    // Derive session_dir from the JSON file's parent directory (not from JSON).
+    let session_dir = path
+        .parent()
+        .unwrap_or(path)
+        .to_path_buf();
+    session.session_dir = session_dir;
 
     // --- security-005: validate session_dir confinement and step image paths ---
     let canonical_base = fs::canonicalize(sessions_base_dir())

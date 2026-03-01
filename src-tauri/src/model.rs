@@ -23,6 +23,7 @@ pub struct Session {
     /// Index of the monitor used for this session, or `None` for "All Monitors".
     pub monitor_index: Option<usize>,
     pub steps: Vec<Step>,
+    #[serde(skip)]
     pub session_dir: PathBuf,
     /// Whether this session has been successfully exported at least once.
     #[serde(default)]
