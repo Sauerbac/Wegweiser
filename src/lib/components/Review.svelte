@@ -9,6 +9,7 @@
   import { Progress } from '$lib/components/ui/progress';
   import { Tabs, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
   import { store } from '$lib/stores/session.svelte';
+  import { createSelectableList } from '$lib/stores/selectable.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
   import { countKeystrokes, parseKeystrokes, tabFromExportChoice, choiceFromTab } from '$lib/utils';
   import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Sun, Trash2 } from '@lucide/svelte';
@@ -29,8 +30,11 @@
   /** Draft value for the session name input — synced from store on load, editable locally. */
   let sessionNameDraft = $state('');
 
-  /** IDs of steps selected via checkboxes for bulk operations. */
-  let selectedStepIds = $state<Set<number>>(new Set());
+  /** Multi-selection state for bulk step operations. */
+  const sel = createSelectableList(
+    () => store.session?.steps ?? [],
+    (s) => s.id,
+  );
 
   /** Return a human-readable label for a monitor by its index. */
   function monitorLabel(idx: number): string {
@@ -145,34 +149,13 @@
       }
     }
     // Remove from bulk selection if present
-    if (selectedStepIds.has(stepId)) {
-      const next = new Set(selectedStepIds);
-      next.delete(stepId);
-      selectedStepIds = next;
-    }
-  }
-
-  function toggleStepSelection(stepId: number) {
-    const next = new Set(selectedStepIds);
-    if (next.has(stepId)) {
-      next.delete(stepId);
-    } else {
-      next.add(stepId);
-    }
-    selectedStepIds = next;
-  }
-
-  function toggleSelectAll() {
-    const steps = store.session?.steps ?? [];
-    if (selectedStepIds.size === steps.length) {
-      selectedStepIds = new Set();
-    } else {
-      selectedStepIds = new Set(steps.map((s) => s.id));
+    if (sel.selected.has(stepId)) {
+      sel.toggleOne(stepId);
     }
   }
 
   async function deleteSelectedSteps() {
-    const ids = [...selectedStepIds];
+    const ids = [...sel.selected] as number[];
     if (ids.length === 0) return;
     try {
       await invoke('delete_steps', { stepIds: ids });
@@ -180,7 +163,7 @@
       console.error('Failed to bulk delete steps:', err);
       return;
     }
-    selectedStepIds = new Set();
+    sel.clear();
     // If the selected step was among the deleted ones, update selection
     if (selectedStepId !== null && ids.includes(selectedStepId)) {
       const remaining = store.session?.steps ?? [];
@@ -355,14 +338,14 @@
     <SelectableList
       title="Steps"
       items={store.session?.steps ?? []}
-      selectedIds={selectedStepIds}
+      selectedIds={sel.selected}
       getKey={(step) => step.id}
-      onToggleAll={toggleSelectAll}
+      onToggleAll={sel.toggleAll}
       onDeleteSelected={deleteSelectedSteps}
     >
       {#snippet row(step, idx)}
         {@const isActive = selectedStepId === step.id}
-        {@const isChecked = selectedStepIds.has(step.id)}
+        {@const isChecked = sel.selected.has(step.id)}
         {@const keystrokeCount = countKeystrokes(step.keystrokes)}
         {@const monCount = monitorExportCount(step)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -381,7 +364,7 @@
             <div data-checkbox class="shrink-0">
               <Checkbox
                 checked={isChecked}
-                onCheckedChange={() => toggleStepSelection(step.id)}
+                onCheckedChange={() => sel.toggleOne(step.id)}
                 class="cursor-pointer"
               />
             </div>

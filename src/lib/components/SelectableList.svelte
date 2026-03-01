@@ -1,4 +1,4 @@
-<script lang="ts" generics="T, K extends string | number">
+<script lang="ts" generics="T, K">
   import type { Snippet } from 'svelte';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { Button } from '$lib/components/ui/button';
@@ -16,7 +16,7 @@
   }: {
     title: string;
     items: T[];
-    selectedIds: Set<K>;
+    selectedIds: Set<unknown>;
     getKey: (item: T) => K;
     onToggleAll: () => void;
     onDeleteSelected: () => void;

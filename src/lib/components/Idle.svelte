@@ -3,13 +3,18 @@
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { store } from '$lib/stores/session.svelte';
+  import { createSelectableList } from '$lib/stores/selectable.svelte';
   import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
 
   let pendingDelete = $state<string | null>(null);
-  let selectedRecordings = $state<Set<string>>(new Set());
+
+  const sel = createSelectableList(
+    () => store.sessions,
+    (s) => s.session_dir,
+  );
 
   async function startRecording() {
     try {
@@ -37,47 +42,24 @@
       return;
     }
     pendingDelete = null;
-    const next = new Set(selectedRecordings);
+    // Remove the deleted item from the selection without clearing everything
+    const next = new Set(sel.selected);
     next.delete(sessionDir);
-    selectedRecordings = next;
+    // Reassign via toggleOne round-trip is not clean; directly patch via clear+re-add
+    sel.clear();
+    for (const id of next) sel.toggleOne(id);
     await store.refreshSessions();
   }
 
-  function toggleSelection(sessionDir: string) {
-    const next = new Set(selectedRecordings);
-    if (next.has(sessionDir)) {
-      next.delete(sessionDir);
-    } else {
-      next.add(sessionDir);
-    }
-    selectedRecordings = next;
-  }
-
-  function selectAll() {
-    selectedRecordings = new Set(store.sessions.map((s) => s.session_dir));
-  }
-
-  function deselectAll() {
-    selectedRecordings = new Set();
-  }
-
-  function toggleSelectAll() {
-    if (selectedRecordings.size === store.sessions.length) {
-      deselectAll();
-    } else {
-      selectAll();
-    }
-  }
-
   async function deleteSelected() {
-    for (const sessionDir of selectedRecordings) {
+    for (const sessionDir of sel.selected) {
       try {
-        await invoke('delete_session_cmd', { sessionDir });
+        await invoke('delete_session_cmd', { sessionDir: sessionDir as string });
       } catch (err) {
         console.error('Failed to delete session:', sessionDir, err);
       }
     }
-    selectedRecordings = new Set();
+    sel.clear();
     await store.refreshSessions();
   }
 
@@ -175,9 +157,9 @@
       <SelectableList
         title="Past Recordings"
         items={store.sessions}
-        selectedIds={selectedRecordings}
+        selectedIds={sel.selected}
         getKey={(meta) => meta.session_dir}
-        onToggleAll={toggleSelectAll}
+        onToggleAll={sel.toggleAll}
         onDeleteSelected={deleteSelected}
       >
         {#snippet actions()}
@@ -190,8 +172,8 @@
             <div class="flex items-center justify-between">
               <div class="flex min-w-0 flex-1 items-center gap-3">
                 <Checkbox
-                  checked={selectedRecordings.has(meta.session_dir)}
-                  onCheckedChange={() => toggleSelection(meta.session_dir)}
+                  checked={sel.selected.has(meta.session_dir)}
+                  onCheckedChange={() => sel.toggleOne(meta.session_dir)}
                   class="shrink-0 cursor-pointer"
                 />
                 <div class="min-w-0 flex-1">
