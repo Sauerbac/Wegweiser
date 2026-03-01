@@ -22,6 +22,46 @@ class AppStore {
   exportProgress = $state<number | null>(null);
   exportedPath = $state<string | null>(null);
   exportError = $state<string | null>(null);
+  /** Cache for primary step images. Key: step.id → asset URI. */
+  imageCache = $state<Record<number, string>>({});
+  /** Cache for extra monitor images. Key: `${step.id}_extra_${monitorIndex}` → asset URI. */
+  extraImageCache = $state<Record<string, string>>({});
+
+  /** Build the cache key for an extra monitor image. */
+  extraImageKey(stepId: number, monitorIndex: number): string {
+    return `${stepId}_extra_${monitorIndex}`;
+  }
+
+  /** Reset both image caches (call when starting a new recording). */
+  clearImageCache() {
+    this.imageCache = {};
+    this.extraImageCache = {};
+  }
+
+  /**
+   * Eagerly pre-load images for all steps not yet in either cache.
+   * Safe to call on every session-updated event — skips already-cached entries.
+   */
+  preloadStepImages(steps: Step[]) {
+    for (const step of steps) {
+      if (!this.imageCache[step.id]) {
+        invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
+          this.imageCache[step.id] = uri;
+        }).catch(err => console.error('Failed to load image:', err));
+      }
+      for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
+        const key = this.extraImageKey(step.id, i);
+        if (!this.extraImageCache[key]) {
+          const path = step.extra_image_paths[i] ?? null;
+          if (path !== null) {
+            invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
+              this.extraImageCache[key] = uri;
+            }).catch(err => console.error('Failed to load extra image:', err));
+          }
+        }
+      }
+    }
+  }
 
   async init() {
     this.monitors = await invoke<MonitorInfo[]>('list_monitors');
@@ -50,6 +90,7 @@ class AppStore {
 
       listen<Session>('session-updated', (event) => {
         this.session = event.payload;
+        this.preloadStepImages(event.payload.steps);
       }),
 
       listen<number>('export-progress', (event) => {

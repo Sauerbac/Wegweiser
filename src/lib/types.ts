@@ -66,3 +66,12 @@ export interface SessionMeta {
 }
 
 export type RecordingState = 'idle' | 'recording' | 'paused' | 'reviewing';
+
+/**
+ * A parsed segment from a keystroke string.
+ *   { kind: 'shortcut', key: 'Ctrl+Shift+Left' }  — rendered as <kbd>
+ *   { kind: 'text', value: 'hello world' }          — rendered as plain text
+ */
+export type KeystrokeSegment =
+  | { kind: 'shortcut'; key: string }
+  | { kind: 'text'; value: string };

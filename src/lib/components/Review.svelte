@@ -10,6 +10,7 @@
   import { Tabs, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
+  import { countKeystrokes, parseKeystrokes, tabFromExportChoice, choiceFromTab } from '$lib/utils';
   import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Sun, Trash2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
   import PageLayout from '$lib/components/PageLayout.svelte';
@@ -17,10 +18,6 @@
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
-  /** Cache for primary step images. Direct property assignment is reactive in Svelte 5. */
-  let imageCache = $state<Record<number, string>>({});
-  /** Cache for extra monitor images. Key: `${step.id}_extra_${i}` */
-  let extraImageCache = $state<Record<string, string>>({});
   /**
    * Which monitor tab is shown in the detail view.
    * 'primary' = the annotated click-monitor image
@@ -34,11 +31,6 @@
 
   /** IDs of steps selected via checkboxes for bulk operations. */
   let selectedStepIds = $state<Set<number>>(new Set());
-
-  /** Build the cache key for an extra monitor image. Single source of truth for the key format. */
-  function extraImageKey(stepId: number, monitorIndex: number): string {
-    return `${stepId}_extra_${monitorIndex}`;
-  }
 
   /** Return a human-readable label for a monitor by its index. */
   function monitorLabel(idx: number): string {
@@ -63,25 +55,6 @@
     return idx >= 0 ? idx + 1 : null;
   });
 
-  /** Derive activeMonitorTab from a step's persisted export_choice. */
-  function tabFromExportChoice(choice: StepExportChoice | undefined): string {
-    if (!choice || choice.type === 'Primary') return 'primary';
-    if (choice.type === 'All') return 'all';
-    if (choice.type === 'Extra') return `extra_${choice.value}`;
-    // exhaustiveness check
-    const _exhaustive: never = choice;
-    return 'primary';
-  }
-
-  /** Map a tab value back to a StepExportChoice. */
-  function choiceFromTab(tab: string): StepExportChoice {
-    if (tab === 'primary') return { type: 'Primary' };
-    if (tab === 'all') return { type: 'All' };
-    const idx = parseInt(tab.replace('extra_', ''), 10);
-    if (isNaN(idx)) return { type: 'Primary' };
-    return { type: 'Extra', value: idx };
-  }
-
   // Sync session name draft when session changes (e.g. on load)
   $effect(() => {
     const name = store.session?.name ?? '';
@@ -95,9 +68,9 @@
   // Load image when selection changes; restore description draft and monitor tab.
   $effect(() => {
     const step = selectedStep;
-    if (step && !imageCache[step.id]) {
+    if (step && !store.imageCache[step.id]) {
       invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-        imageCache[step.id] = uri;
+        store.imageCache[step.id] = uri;
       }).catch(err => console.error('Failed to load image:', err));
     }
     descriptionDraft = step?.description ?? '';
@@ -106,25 +79,7 @@
 
   // Eagerly pre-load images for all steps not yet in the cache.
   $effect(() => {
-    const steps = store.session?.steps ?? [];
-    for (const step of steps) {
-      if (!imageCache[step.id]) {
-        invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-          imageCache[step.id] = uri;
-        }).catch(err => console.error('Failed to load image:', err));
-      }
-      for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
-        const key = extraImageKey(step.id, i);
-        if (!extraImageCache[key]) {
-          const path = step.extra_image_paths[i] ?? null;
-          if (path !== null) {
-            invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
-              extraImageCache[key] = uri;
-            }).catch(err => console.error('Failed to load extra image:', err));
-          }
-        }
-      }
-    }
+    store.preloadStepImages(store.session?.steps ?? []);
   });
 
   // Pre-select first step only when a genuinely new session is loaded.
@@ -154,13 +109,7 @@
     } catch (err) {
       console.error('Failed to save description:', err);
     }
-    if (store.session) {
-      const id = selectedStep.id;
-      const steps = store.session.steps.map((s) =>
-        s.id === id ? { ...s, description: descriptionDraft } : s
-      );
-      store.session = { ...store.session, steps };
-    }
+    // No optimistic patch — the backend emits session-updated which the store handles.
   }
 
   async function saveSessionName() {
@@ -240,26 +189,6 @@
   }
 
   /**
-   * Count keystrokes in a keystroke string.
-   * Bracket tokens [Ctrl+C] count as 1 shortcut each;
-   * non-bracket plain character runs each count as their character length.
-   */
-  function countKeystrokes(raw: string | null): number {
-    if (!raw) return 0;
-    let count = 0;
-    const parts = raw.split(/(\[[^\]]+\])/);
-    for (const part of parts) {
-      if (!part) continue;
-      if (part.startsWith('[') && part.endsWith(']')) {
-        count += 1;
-      } else {
-        count += part.length;
-      }
-    }
-    return count;
-  }
-
-  /**
    * Compute how many monitor images will be exported for a step based on its export_choice.
    * Primary / Extra = 1 monitor; All = primary + all extra images.
    */
@@ -315,8 +244,7 @@
 
   async function newRecording() {
     selectedStepId = null;
-    imageCache = {};
-    extraImageCache = {};
+    store.clearImageCache();
     activeMonitorTab = 'primary';
     store.exportedPath = null;
     store.exportError = null;
@@ -340,48 +268,13 @@
     } catch (err) {
       console.error('Failed to set export choice:', err);
     }
-    if (store.session) {
-      const steps = store.session.steps.map((s) =>
-        s.id === id ? { ...s, export_choice: choice } : s
-      );
-      store.session = { ...store.session, steps };
-    }
+    // No optimistic patch — the backend emits session-updated which the store handles.
   }
 
   /** Select a monitor tab: updates the view AND persists the export choice for this step. */
   async function selectMonitorTab(tab: string) {
     activeMonitorTab = tab;
     await setExportChoice(choiceFromTab(tab));
-  }
-
-  /**
-   * Parse a keystroke string into an array of segments.
-   * Each segment is either:
-   *   { kind: 'shortcut', key: 'Ctrl+Shift+Left' }  — rendered as <kbd>
-   *   { kind: 'text', value: 'hello world' }          — rendered as plain text
-   */
-  type KeystrokeSegment =
-    | { kind: 'shortcut'; key: string }
-    | { kind: 'text'; value: string };
-
-  function parseKeystrokes(raw: string): KeystrokeSegment[] {
-    const segments: KeystrokeSegment[] = [];
-    const parts = raw.split(/(\[[^\]]+\])/);
-    for (const part of parts) {
-      if (!part) continue;
-      if (part.startsWith('[') && part.endsWith(']')) {
-        const inner = part.slice(1, -1);
-        const isSingleChar = inner.length === 1;
-        if (!isSingleChar || inner === '+') {
-          segments.push({ kind: 'shortcut', key: inner });
-        } else {
-          segments.push({ kind: 'text', value: inner });
-        }
-      } else {
-        segments.push({ kind: 'text', value: part });
-      }
-    }
-    return segments;
   }
 
   function handleMouseUp(event: MouseEvent) {
@@ -560,21 +453,21 @@
                 <MousePointer2 size={11} />
                 {monitorLabel(selectedStep.click_monitor_index)}
               </span>
-              {#if imageCache[selectedStep.id]}
-                <img src={imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
+              {#if store.imageCache[selectedStep.id]}
+                <img src={store.imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
               {:else}
                 <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
               {/if}
             </div>
             {#each selectedStep.extra_image_paths as _path, i (i)}
               {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              {@const key = extraImageKey(selectedStep.id, i)}
+              {@const key = store.extraImageKey(selectedStep.id, i)}
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-muted-foreground">
                   {monitorLabel(monIdx)}
                 </span>
-                {#if extraImageCache[key]}
-                  <img src={extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
+                {#if store.extraImageCache[key]}
+                  <img src={store.extraImageCache[key]} alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}" class="max-w-full rounded" />
                 {:else}
                   <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
                 {/if}
@@ -583,9 +476,9 @@
           </div>
         {:else if activeMonitorTab === 'primary'}
           <div class="flex h-full items-center justify-center p-2">
-            {#if imageCache[selectedStep.id]}
+            {#if store.imageCache[selectedStep.id]}
               <img
-                src={imageCache[selectedStep.id]}
+                src={store.imageCache[selectedStep.id]}
                 alt="Step {selectedStepDisplayNum}"
                 class="max-h-full max-w-full object-contain"
               />
@@ -596,11 +489,11 @@
         {:else}
           {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
           {#if !isNaN(extraIdx)}
-            {@const extraKey = extraImageKey(selectedStep.id, extraIdx)}
+            {@const extraKey = store.extraImageKey(selectedStep.id, extraIdx)}
             <div class="flex h-full items-center justify-center p-2">
-              {#if extraImageCache[extraKey]}
+              {#if store.extraImageCache[extraKey]}
                 <img
-                  src={extraImageCache[extraKey]}
+                  src={store.extraImageCache[extraKey]}
                   alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
                   class="max-h-full max-w-full object-contain"
                 />
