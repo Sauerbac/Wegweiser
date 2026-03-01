@@ -6,6 +6,146 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+// ---------------------------------------------------------------------------
+// Private helpers — extracted from the monolithic hook callback to reduce
+// the size of the inner closure (code-smells-006).
+// ---------------------------------------------------------------------------
+
+/// Handle a left-button-press event: check recording state, filter self-clicks,
+/// determine the target monitor, allocate step IDs, and dispatch a CaptureTask.
+fn handle_click(
+    state: &Arc<Mutex<AppState>>,
+    app_handle: &AppHandle,
+    click_x: i32,
+    click_y: i32,
+) {
+    let task_opt = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+
+        if st.recording_state != RecordingState::Recording {
+            return;
+        }
+
+        // Filter clicks on the mini-bar window itself using the
+        // cached position/size — avoids per-click get_webview_window
+        // + OS API calls.
+        if let Some((pos, size)) = st.rec_window_bounds {
+            if click_x >= pos.x
+                && click_x < pos.x + size.width as i32
+                && click_y >= pos.y
+                && click_y < pos.y + size.height as i32
+            {
+                return;
+            }
+        }
+
+        // Extract everything we need from the session before mutating.
+        // Use the pre-allocated next_order counter (not steps.len() + 1)
+        // to avoid a race where two rapid clicks both see steps.len() == 0
+        // before either capture thread has pushed its Step.
+        let session_dir = match st.session.as_ref() {
+            Some(s) => s.session_dir.clone(),
+            None => return,
+        };
+        let order = st.next_order;
+        st.next_order += 1;
+
+        // Determine which monitor to capture; remember whether we are in
+        // "All monitors" mode so the capture thread can grab the extras.
+        let (monitor_idx, all_monitors) = match st.selected_monitor {
+            Some(idx) => {
+                // Single monitor mode: only capture if the click is on the selected monitor
+                if let Some(selected_monitor_idx) =
+                    find_monitor_for_click(&st.monitor_infos, click_x, click_y)
+                {
+                    if selected_monitor_idx == idx {
+                        (idx, false)
+                    } else {
+                        // Click is on a different monitor, skip capture
+                        return;
+                    }
+                } else {
+                    // Click is not on any monitor, skip capture
+                    return;
+                }
+            }
+            None => {
+                // "All monitors": primary is the one containing the click
+                let idx =
+                    find_monitor_for_click(&st.monitor_infos, click_x, click_y).unwrap_or(0);
+                (idx, true)
+            }
+        };
+
+        let step_id = st.next_step_id;
+        st.next_step_id += 1;
+        let keystrokes = if st.pending_keystrokes.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut st.pending_keystrokes))
+        };
+
+        let task = CaptureTask {
+            monitor_idx,
+            click: Some(ClickPoint { x: click_x as u32, y: click_y as u32 }),
+            step_id,
+            order,
+            session_dir,
+            keystrokes,
+            all_monitors,
+            app_handle: app_handle.clone(),
+            state: Arc::clone(state),
+        };
+        Some((task, st.capture_tx.clone()))
+    };
+
+    if let Some((task, Some(tx))) = task_opt {
+        if let Err(e) = tx.try_send(task) {
+            eprintln!("[hook] capture queue full, dropping click: {e}");
+        }
+    }
+}
+
+/// Handle a key-press event: track modifiers and accumulate keystrokes.
+///
+/// Returns early for modifier keys (they update the caller's local booleans
+/// via the mutable references). For all other keys, appends the key token to
+/// `pending_keystrokes` when recording is active.
+fn handle_key_press(
+    state: &Arc<Mutex<AppState>>,
+    key: &Key,
+    ctrl_held: &mut bool,
+    shift_held: &mut bool,
+    alt_held: &mut bool,
+) {
+    match key {
+        Key::ControlLeft | Key::ControlRight => {
+            *ctrl_held = true;
+        }
+        Key::ShiftLeft | Key::ShiftRight => {
+            *shift_held = true;
+        }
+        Key::Alt | Key::AltGr => {
+            *alt_held = true;
+        }
+        _ => {
+            // SECURITY: This hook captures keystrokes from ALL applications system-wide
+            // while recording is active. Users should avoid typing passwords or other
+            // sensitive input in any application during a recording session.
+            // The hook thread runs for the entire process lifetime (rdev has no cancellation
+            // API); events are only accumulated during RecordingState::Recording.
+            // Accumulate keystrokes for the next step — single lock acquires both
+            // alt_held and pending_keystrokes to avoid a double-lock.
+            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+            if st.recording_state == RecordingState::Recording {
+                if let Some(token) = key_token(key, *ctrl_held, *shift_held, *alt_held) {
+                    st.pending_keystrokes.push_str(&token);
+                }
+            }
+        }
+    }
+}
+
 /// Spawns the global input hook on a dedicated thread and a single
 /// long-lived capture worker thread.
 ///
@@ -97,127 +237,11 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                         last_y = y;
                     }
                     EventType::ButtonPress(Button::Left) => {
-                        let click_x = last_x as i32;
-                        let click_y = last_y as i32;
-
-                        let task_opt = {
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-
-                            if st.recording_state != RecordingState::Recording {
-                                return;
-                            }
-
-                            // Filter clicks on the mini-bar window itself using the
-                            // cached position/size — avoids per-click get_webview_window
-                            // + OS API calls.
-                            if let Some((pos, size)) = st.rec_window_bounds {
-                                if click_x >= pos.x
-                                    && click_x < pos.x + size.width as i32
-                                    && click_y >= pos.y
-                                    && click_y < pos.y + size.height as i32
-                                {
-                                    return;
-                                }
-                            }
-
-                            // Extract everything we need from the session before mutating.
-                            // Use the pre-allocated next_order counter (not steps.len() + 1)
-                            // to avoid a race where two rapid clicks both see steps.len() == 0
-                            // before either capture thread has pushed its Step.
-                            let session_dir = match st.session.as_ref() {
-                                Some(s) => s.session_dir.clone(),
-                                None => return,
-                            };
-                            let order = st.next_order;
-                            st.next_order += 1;
-
-                            // Determine which monitor to capture; remember whether we are in
-                            // "All monitors" mode so the capture thread can grab the extras.
-                            let (monitor_idx, all_monitors) = match st.selected_monitor {
-                                Some(idx) => {
-                                    // Single monitor mode: only capture if the click is on the selected monitor
-                                    if let Some(selected_monitor_idx) = find_monitor_for_click(
-                                        &st.monitor_infos,
-                                        click_x,
-                                        click_y,
-                                    ) {
-                                        if selected_monitor_idx == idx {
-                                            (idx, false)
-                                        } else {
-                                            // Click is on a different monitor, skip capture
-                                            return;
-                                        }
-                                    } else {
-                                        // Click is not on any monitor, skip capture
-                                        return;
-                                    }
-                                }
-                                None => {
-                                    // "All monitors": primary is the one containing the click
-                                    let idx = find_monitor_for_click(
-                                        &st.monitor_infos,
-                                        click_x,
-                                        click_y,
-                                    )
-                                    .unwrap_or(0);
-                                    (idx, true)
-                                }
-                            };
-
-                            let step_id = st.next_step_id;
-                            st.next_step_id += 1;
-                            let keystrokes = if st.pending_keystrokes.is_empty() {
-                                None
-                            } else {
-                                Some(std::mem::take(&mut st.pending_keystrokes))
-                            };
-
-                            let task = CaptureTask {
-                                monitor_idx,
-                                click: Some(ClickPoint { x: click_x as u32, y: click_y as u32 }),
-                                step_id,
-                                order,
-                                session_dir,
-                                keystrokes,
-                                all_monitors,
-                                app_handle: app_handle.clone(),
-                                state: Arc::clone(&state),
-                            };
-                            Some((task, st.capture_tx.clone()))
-                        };
-
-                        if let Some((task, Some(tx))) = task_opt {
-                            if let Err(e) = tx.try_send(task) {
-                                eprintln!("[hook] capture queue full, dropping click: {e}");
-                            }
-                        }
+                        handle_click(&state, &app_handle, last_x as i32, last_y as i32);
                     }
-                    EventType::KeyPress(key) => match key {
-                        Key::ControlLeft | Key::ControlRight => {
-                            ctrl_held = true;
-                        }
-                        Key::ShiftLeft | Key::ShiftRight => {
-                            shift_held = true;
-                        }
-                        Key::Alt | Key::AltGr => {
-                            alt_held = true;
-                        }
-                        _ => {
-                            // SECURITY: This hook captures keystrokes from ALL applications system-wide
-                            // while recording is active. Users should avoid typing passwords or other
-                            // sensitive input in any application during a recording session.
-                            // The hook thread runs for the entire process lifetime (rdev has no cancellation
-                            // API); events are only accumulated during RecordingState::Recording.
-                            // Accumulate keystrokes for the next step — single lock acquires both
-                            // alt_held and pending_keystrokes to avoid a double-lock.
-                            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                            if st.recording_state == RecordingState::Recording {
-                                if let Some(token) = key_token(&key, ctrl_held, shift_held, alt_held) {
-                                    st.pending_keystrokes.push_str(&token);
-                                }
-                            }
-                        }
-                    },
+                    EventType::KeyPress(key) => {
+                        handle_key_press(&state, &key, &mut ctrl_held, &mut shift_held, &mut alt_held);
+                    }
                     EventType::KeyRelease(key) => match key {
                         Key::ControlLeft | Key::ControlRight => {
                             ctrl_held = false;
@@ -283,7 +307,7 @@ pub fn register_global_hotkeys(
         if event.state != ShortcutState::Pressed {
             return;
         }
-        let (current_session, pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized) = {
+        let (current_session, pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized, session_to_save) = {
             let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
             if st.recording_state != RecordingState::Recording
                 && st.recording_state != RecordingState::Paused
@@ -306,16 +330,24 @@ pub fn register_global_hotkeys(
                 st.next_order += 1;
             }
 
-            if let Some(ref session) = st.session {
-                if let Err(e) = save_session(session) {
-                    eprintln!("[save_session] failed: {e}");
-                }
-            }
+            // Clone the session for persistence — saving is done off the callback
+            // thread (architecture-004) so file I/O doesn't block the hotkey handler.
+            let session_to_save = st.session.clone();
 
             let restore_rect = st.window_geometry.restore_rect.take();
             let was_maximized = st.window_geometry.maximized;
-            (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized)
+            (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized, session_to_save)
         };
+
+        // Persist in-progress session state off the hotkey callback thread.
+        // architecture-004: file I/O must not block the rdev/global-shortcut callback.
+        if let Some(session) = session_to_save {
+            std::thread::spawn(move || {
+                if let Err(e) = save_session(&session) {
+                    eprintln!("[save_session] failed: {e}");
+                }
+            });
+        }
 
         // If there were buffered keystrokes with no trailing click, capture a final
         // step now (synchronous call is acceptable — we are stopping).

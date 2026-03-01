@@ -32,6 +32,58 @@ fn normalize_path_for_frontend(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+/// Construct a new Session value for the given monitor selection.
+///
+/// Does not touch any filesystem or AppState — callers are responsible for
+/// calling `session::create_session_dir()` beforehand and storing the result
+/// in AppState afterwards.
+fn build_session(
+    monitor_index: Option<usize>,
+    session_dir: PathBuf,
+) -> Session {
+    let now_local = Local::now();
+    let session_name = format!("Recording {}", now_local.format("%Y-%m-%d %H-%M"));
+    let now_utc = now_local.with_timezone(&chrono::Utc);
+    Session {
+        id: Uuid::new_v4().to_string(),
+        name: session_name,
+        created_at: now_utc,
+        monitor_index,
+        steps: Vec::new(),
+        session_dir,
+        exported: false,
+    }
+}
+
+/// Morph the main window into recording mini-bar mode.
+///
+/// Resizes to `MINIBAR_WIDTH × MINIBAR_HEIGHT`, removes decorations, sets
+/// always-on-top, centres at the top edge of `monitor`, and applies the
+/// Windows `WDA_EXCLUDEFROMCAPTURE` flag so the bar is invisible to xcap.
+fn morph_to_minibar(window: &WebviewWindow, monitor: &crate::model::MonitorInfo) {
+    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+        width: MINIBAR_WIDTH,
+        height: MINIBAR_HEIGHT,
+    })) {
+        eprintln!("morph_to_minibar: set_size failed: {e}");
+    }
+    if let Err(e) = window.set_decorations(false) {
+        eprintln!("morph_to_minibar: set_decorations failed: {e}");
+    }
+    if let Err(e) = window.set_always_on_top(true) {
+        eprintln!("morph_to_minibar: set_always_on_top failed: {e}");
+    }
+    let x = monitor.x + (monitor.width as i32 - MINIBAR_WIDTH as i32) / 2;
+    let y = monitor.y;
+    if let Err(e) = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 }) {
+        eprintln!("morph_to_minibar: set_position failed: {e}");
+    }
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, true);
+    }
+}
+
 /// Restore the main window from mini-bar mode using the saved pre-recording geometry.
 /// Clears the WDA_EXCLUDEFROMCAPTURE flag, disables always-on-top, re-enables decorations,
 /// then restores saved size + position (or falls back to DEFAULT_RESTORE_RECT).
@@ -81,21 +133,9 @@ pub fn start_recording(
     app_handle: AppHandle,
     window: WebviewWindow,
 ) -> Result<(), String> {
-    // Create session directory
+    // Create session directory and construct a new Session value.
     let session_dir = session::create_session_dir().map_err(|e| e.to_string())?;
-    let now_local = Local::now();
-    let session_name = format!("Recording {}", now_local.format("%Y-%m-%d %H-%M"));
-    let now_utc = now_local.with_timezone(&chrono::Utc);
-
-    let new_session = Session {
-        id: Uuid::new_v4().to_string(),
-        name: session_name,
-        created_at: now_utc,
-        monitor_index,
-        steps: Vec::new(),
-        session_dir,
-        exported: false,
-    };
+    let new_session = build_session(monitor_index, session_dir);
 
     {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -148,33 +188,21 @@ pub fn start_recording(
         }
     }
 
-    // Morph window to mini-bar: MINIBAR_WIDTH×MINIBAR_HEIGHT, borderless, always-on-top
-    // error-handling-010: log window API failures instead of silently dropping them
-    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT })) {
-        eprintln!("start_recording: set_size failed: {e}");
-    }
-    if let Err(e) = window.set_decorations(false) {
-        eprintln!("start_recording: set_decorations failed: {e}");
-    }
-    if let Err(e) = window.set_always_on_top(true) {
-        eprintln!("start_recording: set_always_on_top failed: {e}");
-    }
-
-    // Position at top-center of the active monitor (where mouse is currently)
+    // Morph window to mini-bar and position it at the top-center of the selected monitor.
+    // Use selected monitor or primary monitor (index 0) as fallback.
     let infos = {
         let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.monitor_infos.clone()
     };
-
-    // Use selected monitor or primary monitor (index 0) as fallback
     let monitor_idx = monitor_index.unwrap_or(0);
+    // morph_to_minibar handles resize, decorations, always-on-top, positioning, and
+    // WDA_EXCLUDEFROMCAPTURE in one place — avoiding the scattered inline sequence.
     if let Some(monitor) = infos.get(monitor_idx) {
-        let window_width = MINIBAR_WIDTH as i32;
-        let x = monitor.x + (monitor.width as i32 - window_width) / 2;
-        let y = monitor.y;
-        if let Err(e) = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 }) {
-            eprintln!("start_recording: set_position failed: {e}");
-        }
+        morph_to_minibar(&window, monitor);
+    } else {
+        // Fallback: no monitor info — apply morph without positioning.
+        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080 };
+        morph_to_minibar(&window, &dummy);
     }
 
     // Record mini-bar window position and size for self-click filtering.
@@ -195,13 +223,6 @@ pub fn start_recording(
                 }
             }
         });
-    }
-
-    // Make the mini-bar invisible to screen-capture APIs so it never appears
-    // in recorded screenshots (WDA_EXCLUDEFROMCAPTURE, Windows 10 2004+).
-    #[cfg(windows)]
-    if let Ok(hwnd) = window.hwnd() {
-        crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, true);
     }
 
     app_handle
