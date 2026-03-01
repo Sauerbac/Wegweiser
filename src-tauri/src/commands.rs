@@ -610,7 +610,13 @@ pub fn export_html(
     let path = PathBuf::from(&output_path);
 
     std::thread::spawn(move || {
-        match crate::export::html::export(&session, &path, Some(&app_handle)) {
+        let on_progress = {
+            let handle = app_handle.clone();
+            move |progress: f32| {
+                let _ = handle.emit("export-progress", progress);
+            }
+        };
+        match crate::export::html::export(&session, &path, Some(on_progress)) {
             Ok(()) => {
                 let normalized = normalize_path_for_frontend(&output_path);
                 let _ = app_handle.emit("export-done", &normalized);

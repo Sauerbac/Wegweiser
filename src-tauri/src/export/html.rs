@@ -4,19 +4,18 @@ use base64::Engine;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
 
 /// Export the session as a fully self-contained HTML file.
 ///
 /// All images are embedded as base64 data URIs so the file can be shared
 /// without the `images/` folder.
 ///
-/// If `app_handle` is provided, `"export-progress"` events (f32 in [0.0,1.0])
-/// are emitted after each step is encoded.
+/// If `on_progress` is provided, it is called after each step is encoded with
+/// a value in [0.0, 1.0] representing the fraction of steps completed.
 pub fn export(
     session: &Session,
     output_path: &Path,
-    app_handle: Option<&AppHandle>,
+    on_progress: Option<impl Fn(f32)>,
 ) -> Result<()> {
     let total = session.steps.len();
 
@@ -186,9 +185,9 @@ pub fn export(
         w.write_all(b"  </section>\n")?;
 
         // Report per-step progress
-        if let Some(handle) = app_handle {
+        if let Some(ref cb) = on_progress {
             let progress = (i + 1) as f32 / total.max(1) as f32;
-            let _ = handle.emit("export-progress", progress);
+            cb(progress);
         }
     }
 

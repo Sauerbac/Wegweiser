@@ -114,6 +114,21 @@ pub fn save_session(session: &Session) -> Result<()> {
     Ok(())
 }
 
+/// Detect and fix out-of-order step numbering left by an old race condition.
+///
+/// Returns `true` if the session was mutated (i.e. a migration was needed),
+/// `false` if the step orders were already correct.
+fn maybe_migrate_step_order(session: &mut Session) -> bool {
+    let needs_renumber = session.steps.windows(2).any(|w| w[0].order >= w[1].order)
+        || session.steps.iter().any(|s| s.order == 0);
+    if needs_renumber {
+        for (i, step) in session.steps.iter_mut().enumerate() {
+            step.order = i + 1;
+        }
+    }
+    needs_renumber
+}
+
 /// Load a session from a JSON file at `path`.
 pub fn load_session(path: &Path) -> Result<Session> {
     let json = fs::read_to_string(path)?;
@@ -155,15 +170,8 @@ pub fn load_session(path: &Path) -> Result<Session> {
     // Migrate: old sessions stored order=1 for every step due to a race
     // condition that has since been fixed. Re-number sequentially on load
     // so exports always produce correct Step 1, Step 2, … headers.
-    let needs_renumber = session.steps.windows(2).any(|w| w[0].order >= w[1].order)
-        || session.steps.iter().any(|s| s.order == 0);
-    if needs_renumber {
-        for (i, step) in session.steps.iter_mut().enumerate() {
-            step.order = i + 1;
-        }
-        if let Err(e) = save_session(&session) {
-            eprintln!("[session] migration save failed: {e}");
-        }
+    if maybe_migrate_step_order(&mut session) {
+        save_session(&session)?;
     }
 
     Ok(session)
