@@ -6,7 +6,7 @@ use base64::Engine;
 use chrono::Local;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 type AppStateHandle = Arc<Mutex<AppState>>;
@@ -676,31 +676,29 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
         let window_label = format!("identify_{}", index);
         let app_clone = app_handle.clone();
 
-        // Close any existing identify window for this monitor
-        if let Some(existing) = app_handle.get_webview_window(&window_label) {
-            let _ = existing.destroy();
-        }
-
         // Small badge at bottom-left of this monitor
         let badge_x = info.x as f64 + BADGE_MARGIN;
         let badge_y = info.y as f64 + info.height as f64 - BADGE_HEIGHT - BADGE_MARGIN;
 
         let label_clone = window_label.clone();
         std::thread::spawn(move || {
-            let url = WebviewUrl::App(format!("identify?monitor={}", index).into());
-            let result = tauri::WebviewWindowBuilder::new(&app_clone, &label_clone, url)
-                .title(format!("Monitor {}", index + 1))
-                .inner_size(BADGE_WIDTH, BADGE_HEIGHT)
-                .position(badge_x, badge_y)
-                .resizable(false)
-                .decorations(false)
-                .transparent(true)
-                .always_on_top(true)
-                .visible(false)          // hidden until page signals ready → no flash
-                .build();
+            // Close any existing badge window for this monitor and sleep briefly
+            // so Tauri's event loop can fully process the destruction before we
+            // create a new window with the same label.
+            if let Some(existing) = app_clone.get_webview_window(&label_clone) {
+                let _ = existing.destroy();
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
 
-            // error-handling-009: log badge window build failures
-            match result {
+            match crate::platform::create_monitor_badge_window(
+                &app_clone,
+                &label_clone,
+                index,
+                badge_x,
+                badge_y,
+                BADGE_WIDTH,
+                BADGE_HEIGHT,
+            ) {
                 Ok(_) => {
                     std::thread::sleep(std::time::Duration::from_secs(BADGE_DISPLAY_SECS));
                     if let Some(w) = app_clone.get_webview_window(&label_clone) {
@@ -708,7 +706,10 @@ pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("identify_monitors: failed to create badge window '{}': {}", label_clone, e);
+                    eprintln!(
+                        "identify_monitors: failed to create badge window '{}': {}",
+                        label_clone, e
+                    );
                 }
             }
         });
