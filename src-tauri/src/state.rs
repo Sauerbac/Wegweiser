@@ -24,6 +24,23 @@ pub enum RecordingState {
     Reviewing,
 }
 
+/// Window geometry saved just before morphing to mini-bar, used to restore after stop.
+/// `restore_rect` is the un-maximized (x, y, w, h) from GetWindowPlacement — valid
+/// whether the window was maximized or not.  `maximized` records whether it was
+/// maximized so we know whether to call maximize() on restore.
+pub struct WindowGeometry {
+    pub restore_rect: Option<(i32, i32, u32, u32)>,
+    pub maximized: bool,
+}
+
+/// Keyboard modifier key state, tracked locally in the hook thread.
+#[allow(dead_code)]
+pub struct ModifierKeys {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
 pub struct AppState {
     pub recording_state: RecordingState,
     pub session: Option<Session>,
@@ -44,11 +61,7 @@ pub struct AppState {
     /// without querying the OS on every mouse click.
     pub rec_window_bounds: Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>,
     /// Window geometry saved just before morphing to mini-bar, used to restore after stop.
-    /// `restore_rect` is the un-maximized (x, y, w, h) from GetWindowPlacement — valid
-    /// whether the window was maximized or not.  `maximized` records whether it was
-    /// maximized so we know whether to call maximize() on restore.
-    pub pre_recording_restore_rect: Option<(i32, i32, u32, u32)>,
-    pub pre_recording_maximized: bool,
+    pub window_geometry: WindowGeometry,
     /// Sender to the long-lived capture worker thread.
     /// Populated once by `spawn_hook_thread`; `None` only before that call.
     /// The worker processes captures sequentially, bounding concurrent disk I/O
@@ -67,8 +80,10 @@ impl AppState {
             next_order: 1,
             pending_keystrokes: String::new(),
             rec_window_bounds: None,
-            pre_recording_restore_rect: None,
-            pre_recording_maximized: false,
+            window_geometry: WindowGeometry {
+                restore_rect: None,
+                maximized: false,
+            },
             capture_tx: None,
         }
     }

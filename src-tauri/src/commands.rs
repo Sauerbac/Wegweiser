@@ -119,7 +119,7 @@ pub fn start_recording(
     {
         let is_maximized = window.is_maximized().unwrap_or(false);
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.pre_recording_maximized = is_maximized;
+        st.window_geometry.maximized = is_maximized;
 
         #[cfg(windows)]
         let restore_pos: Option<(i32, i32)> = window
@@ -142,9 +142,9 @@ pub fn start_recording(
 
         let (_, _, default_w, default_h) = DEFAULT_RESTORE_RECT;
         if let (Some((rx, ry)), Some((rw, rh))) = (restore_pos, restore_size) {
-            st.pre_recording_restore_rect = Some((rx, ry, rw, rh));
+            st.window_geometry.restore_rect = Some((rx, ry, rw, rh));
         } else if let Some((rx, ry)) = restore_pos {
-            st.pre_recording_restore_rect = Some((rx, ry, default_w, default_h));
+            st.window_geometry.restore_rect = Some((rx, ry, default_w, default_h));
         }
     }
 
@@ -291,7 +291,7 @@ pub fn stop_recording(
     // is visible in any subsequent captures the user might take.
     let (restore_rect, was_maximized) = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        (st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
+        (st.window_geometry.restore_rect.take(), st.window_geometry.maximized)
     };
     restore_window(&window, restore_rect, was_maximized);
 
@@ -483,7 +483,7 @@ pub fn load_session_cmd(
             || st.recording_state == RecordingState::Paused;
         st.session = Some(loaded.clone());
         st.recording_state = RecordingState::Reviewing;
-        (was_recording, st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
+        (was_recording, st.window_geometry.restore_rect.take(), st.window_geometry.maximized)
     };
 
     // Only restore window geometry if coming from mini-bar; otherwise preserve
@@ -520,7 +520,7 @@ pub fn new_recording(
         st.recording_state = RecordingState::Idle;
         st.session = None;
         st.rec_window_bounds = None;
-        (was_recording, st.pre_recording_restore_rect.take(), st.pre_recording_maximized)
+        (was_recording, st.window_geometry.restore_rect.take(), st.window_geometry.maximized)
     };
 
     // Only restore the window geometry if we were actually in mini-bar mode.

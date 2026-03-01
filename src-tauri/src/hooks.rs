@@ -312,8 +312,8 @@ pub fn register_global_hotkeys(
                 }
             }
 
-            let restore_rect = st.pre_recording_restore_rect.take();
-            let was_maximized = st.pre_recording_maximized;
+            let restore_rect = st.window_geometry.restore_rect.take();
+            let was_maximized = st.window_geometry.maximized;
             (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized)
         };
 
