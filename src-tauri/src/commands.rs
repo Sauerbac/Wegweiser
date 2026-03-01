@@ -87,7 +87,7 @@ fn morph_to_minibar(window: &WebviewWindow, monitor: &crate::model::MonitorInfo)
 /// Restore the main window from mini-bar mode using the saved pre-recording geometry.
 /// Clears the WDA_EXCLUDEFROMCAPTURE flag, disables always-on-top, re-enables decorations,
 /// then restores saved size + position (or falls back to DEFAULT_RESTORE_RECT).
-fn restore_window(
+pub(crate) fn restore_window(
     window: &WebviewWindow,
     restore_rect: Option<(i32, i32, u32, u32)>,
     was_maximized: bool,
@@ -236,6 +236,50 @@ pub fn start_recording(
     Ok(())
 }
 
+/// Capture a keystroke-only step when stopping a recording with pending keystrokes.
+///
+/// Called by both `stop_recording` (commands.rs) and the Ctrl+Shift+Q hotkey handler
+/// (hooks.rs) to avoid duplicating the capture + push + save + emit logic.
+///
+/// Returns the updated `Session` on success, or the original `current_session` on error.
+pub(crate) fn capture_pending_keystrokes_step(
+    state: &Arc<Mutex<AppState>>,
+    app_handle: &AppHandle,
+    pending_ks: String,
+    step_id: usize,
+    order: usize,
+    current_session: Option<crate::model::Session>,
+    monitor_index: Option<usize>,
+    all_monitors: bool,
+) -> Option<crate::model::Session> {
+    let sess = match current_session {
+        Some(ref s) => s,
+        None => return current_session,
+    };
+    let mon_idx = monitor_index.unwrap_or(0);
+    match capture_step(mon_idx, None, step_id, order, &sess.session_dir, Some(pending_ks), all_monitors) {
+        Ok(new_step) => {
+            {
+                let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(ref mut session) = st.session {
+                    session.steps.push(new_step.clone());
+                    if let Err(e) = session::save_session(session) {
+                        eprintln!("[save_session] failed: {e}");
+                    }
+                }
+            }
+            let _ = app_handle.emit("step-captured", &new_step);
+            // Return updated session from state.
+            let st = state.lock().unwrap_or_else(|e| e.into_inner());
+            st.session.clone()
+        }
+        Err(e) => {
+            eprintln!("[capture_pending_keystrokes_step] failed: {e}");
+            current_session
+        }
+    }
+}
+
 #[tauri::command]
 pub fn stop_recording(
     state: State<'_, AppStateHandle>,
@@ -280,30 +324,19 @@ pub fn stop_recording(
 
     // If there were buffered keystrokes with no trailing click, capture a final
     // step now (synchronous call is acceptable — we are stopping).
-    if !pending_ks.is_empty() {
-        if let Some(ref sess) = current_session {
-            let mon_idx = monitor_index.unwrap_or(0);
-            match capture_step(mon_idx, None, step_id, order, &sess.session_dir, Some(pending_ks), all_monitors) {
-                Ok(new_step) => {
-                    // Push the step into the session and persist.
-                    {
-                        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(ref mut session) = st.session {
-                            session.steps.push(new_step.clone());
-                            if let Err(e) = session::save_session(session) {
-                                eprintln!("[save_session] failed: {e}");
-                            }
-                        }
-                    }
-                    let _ = app_handle.emit("step-captured", &new_step);
-                }
-                Err(e) => eprintln!("[stop_recording] keystroke-only step capture failed: {e}"),
-            }
-        }
-    }
-
-    // Re-read session (may now include the keystroke-only step).
-    let current_session = {
+    let current_session = if !pending_ks.is_empty() {
+        capture_pending_keystrokes_step(
+            &*state,
+            &app_handle,
+            pending_ks,
+            step_id,
+            order,
+            current_session,
+            monitor_index,
+            all_monitors,
+        )
+    } else {
+        // Re-read session from state to get the most recent version.
         let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
@@ -442,19 +475,26 @@ pub fn update_step_description(
     step_id: usize,
     description: String,
     state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
     // security-009: reject excessively long descriptions
     if description.len() > 65536 {
         return Err("Description is too long (max 64 KB)".to_string());
     }
-    let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(ref mut session) = st.session {
-        if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
-            step.description = description;
+    let session = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref mut session) = st.session {
+            if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
+                step.description = description;
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
         }
-        if let Err(e) = session::save_session(session) {
-            eprintln!("[save_session] failed: {e}");
-        }
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -464,15 +504,22 @@ pub fn set_step_export_choice(
     step_id: usize,
     choice: StepExportChoice,
     state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
 ) -> Result<(), String> {
-    let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(ref mut session) = st.session {
-        if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
-            step.export_choice = choice;
+    let session = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref mut session) = st.session {
+            if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
+                step.export_choice = choice;
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
         }
-        if let Err(e) = session::save_session(session) {
-            eprintln!("[save_session] failed: {e}");
-        }
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

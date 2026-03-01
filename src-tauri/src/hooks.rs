@@ -352,56 +352,23 @@ pub fn register_global_hotkeys(
         // If there were buffered keystrokes with no trailing click, capture a final
         // step now (synchronous call is acceptable — we are stopping).
         let current_session = if !pending_ks.is_empty() {
-            if let Some(ref sess) = current_session {
-                let mon_idx = monitor_index.unwrap_or(0);
-                match crate::capture::capture_step(
-                    mon_idx, None, step_id, order, &sess.session_dir,
-                    Some(pending_ks), all_monitors,
-                ) {
-                    Ok(new_step) => {
-                        let updated_session = {
-                            let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
-                            if let Some(ref mut session) = st.session {
-                                session.steps.push(new_step.clone());
-                                if let Err(e) = save_session(session) {
-                                    eprintln!("[save_session] failed: {e}");
-                                }
-                            }
-                            st.session.clone()
-                        };
-                        let _ = app_stop.emit("step-captured", &new_step);
-                        updated_session
-                    }
-                    Err(e) => {
-                        eprintln!("[stop hotkey] keystroke-only step capture failed: {e}");
-                        current_session
-                    }
-                }
-            } else {
-                current_session
-            }
+            crate::commands::capture_pending_keystrokes_step(
+                &state_stop,
+                &app_stop,
+                pending_ks,
+                step_id,
+                order,
+                current_session,
+                monitor_index,
+                all_monitors,
+            )
         } else {
             current_session
         };
 
-        // Restore full window — reset capture-affinity first.
+        // Restore full window using the shared helper.
         if let Some(window) = app_stop.get_webview_window("main") {
-            #[cfg(windows)]
-            if let Ok(hwnd) = window.hwnd() {
-                crate::platform::set_window_exclude_from_capture(hwnd.0 as isize, false);
-            }
-            if let Err(e) = window.set_always_on_top(false) {
-                eprintln!("stop hotkey: set_always_on_top failed: {e}");
-            }
-            if let Err(e) = window.set_decorations(true) {
-                eprintln!("stop hotkey: set_decorations failed: {e}");
-            }
-            let (rx, ry, rw, rh) = restore_rect.unwrap_or(crate::commands::DEFAULT_RESTORE_RECT);
-            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: rw, height: rh }));
-            let _ = window.set_position(tauri::PhysicalPosition { x: rx, y: ry });
-            if was_maximized {
-                let _ = window.maximize();
-            }
+            crate::commands::restore_window(&window, restore_rect, was_maximized);
         }
 
         // Auto-delete empty recordings and reset to Idle
