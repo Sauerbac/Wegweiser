@@ -83,6 +83,13 @@ pub fn capture_step(
         (Vec::new(), Vec::new())
     };
 
+    // Enumerate visible windows on the clicked monitor for later use in the image editor.
+    let mon_x = monitor.x().unwrap_or(0);
+    let mon_y = monitor.y().unwrap_or(0);
+    let mon_w = monitor.width().unwrap_or(0);
+    let mon_h = monitor.height().unwrap_or(0);
+    let window_rects = crate::platform::enumerate_visible_windows(mon_x, mon_y, mon_w, mon_h);
+
     Ok(Step {
         id: step_id,
         order,
@@ -95,6 +102,8 @@ pub fn capture_step(
         timestamp: Utc::now(),
         keystrokes,
         export_choice: Default::default(),
+        window_rects,
+        image_version: 0,
     })
 }
 

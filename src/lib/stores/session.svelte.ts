@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
-import type { MonitorInfo, RecordingState, Session, SessionMeta, Step } from '$lib/types';
+import type { MonitorInfo, RecordingState, Session, SessionMeta, Step, UndoState } from '$lib/types';
 
 const VALID_STATES: RecordingState[] = ['idle', 'recording', 'paused', 'reviewing'];
 
@@ -22,14 +22,36 @@ class AppStore {
   exportProgress = $state<number | null>(null);
   exportedPath = $state<string | null>(null);
   exportError = $state<string | null>(null);
-  /** Cache for primary step images. Key: step.id → asset URI. */
-  imageCache = $state<Record<number, string>>({});
-  /** Cache for extra monitor images. Key: `${step.id}_extra_${monitorIndex}` → asset URI. */
+  canUndo = $state(false);
+  canRedo = $state(false);
+  /**
+   * Cache for primary step images.
+   * Key: `${step.id}_v${step.image_version}` → asset URI.
+   * The image_version suffix ensures the cache is busted after each image edit.
+   */
+  imageCache = $state<Record<string, string>>({});
+  /** Cache for extra monitor images. Key: `${step.id}_extra_${monitorIndex}_v${ver}` → asset URI. */
   extraImageCache = $state<Record<string, string>>({});
 
+  /** Build the versioned primary image cache key for a step. */
+  imageCacheKey(step: Step): string {
+    return `${step.id}_v${step.image_version ?? 0}`;
+  }
+
   /** Build the cache key for an extra monitor image. */
-  extraImageKey(stepId: number, monitorIndex: number): string {
-    return `${stepId}_extra_${monitorIndex}`;
+  extraImageKey(stepId: number, monitorIndex: number, version = 0): string {
+    return `${stepId}_extra_${monitorIndex}_v${version}`;
+  }
+
+  /** Remove all cache entries for a given step ID (all versions). */
+  clearStepImageCache(stepId: number) {
+    const prefix = `${stepId}_`;
+    for (const key of Object.keys(this.imageCache)) {
+      if (key.startsWith(prefix)) delete this.imageCache[key];
+    }
+    for (const key of Object.keys(this.extraImageCache)) {
+      if (key.startsWith(prefix)) delete this.extraImageCache[key];
+    }
   }
 
   /** Reset both image caches (call when starting a new recording). */
@@ -44,18 +66,19 @@ class AppStore {
    */
   preloadStepImages(steps: Step[]) {
     for (const step of steps) {
-      if (!this.imageCache[step.id]) {
+      const key = this.imageCacheKey(step);
+      if (!this.imageCache[key]) {
         invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-          this.imageCache[step.id] = uri;
+          this.imageCache[key] = uri;
         }).catch(err => console.error('Failed to load image:', err));
       }
       for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
-        const key = this.extraImageKey(step.id, i);
-        if (!this.extraImageCache[key]) {
+        const eKey = this.extraImageKey(step.id, i, step.image_version ?? 0);
+        if (!this.extraImageCache[eKey]) {
           const path = step.extra_image_paths[i] ?? null;
           if (path !== null) {
             invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
-              this.extraImageCache[key] = uri;
+              this.extraImageCache[eKey] = uri;
             }).catch(err => console.error('Failed to load extra image:', err));
           }
         }
@@ -71,9 +94,19 @@ class AppStore {
       listen<string>('recording-state-changed', (event) => {
         if (VALID_STATES.includes(event.payload as RecordingState)) {
           this.recordingState = event.payload as RecordingState;
+          // Clear undo/redo availability when leaving Reviewing state.
+          if (event.payload === 'idle') {
+            this.canUndo = false;
+            this.canRedo = false;
+          }
         } else {
           console.error('Unknown recording state:', event.payload);
         }
+      }),
+
+      listen<UndoState>('undo-state-changed', (event) => {
+        this.canUndo = event.payload.can_undo;
+        this.canRedo = event.payload.can_redo;
       }),
 
       listen<Step>('step-captured', (event) => {

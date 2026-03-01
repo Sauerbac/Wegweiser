@@ -37,4 +37,4 @@ uuid = { version = "1", features = ["v4"] }
 xcap = "0.8"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

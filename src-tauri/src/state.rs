@@ -67,6 +67,10 @@ pub struct AppState {
     /// The worker processes captures sequentially, bounding concurrent disk I/O
     /// to a single in-flight capture regardless of click rate.
     pub capture_tx: Option<std::sync::mpsc::SyncSender<CaptureTask>>,
+    /// In-memory undo stack.  Capped at 50 entries.
+    pub undo_history: Vec<Session>,
+    /// In-memory redo stack.  Cleared whenever a new mutation is pushed.
+    pub redo_history: Vec<Session>,
 }
 
 impl AppState {
@@ -85,6 +89,8 @@ impl AppState {
                 maximized: false,
             },
             capture_tx: None,
+            undo_history: Vec::new(),
+            redo_history: Vec::new(),
         }
     }
 }

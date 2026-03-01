@@ -12,13 +12,18 @@
   import { createSelectableList } from '$lib/stores/selectable.svelte';
   import type { Step, StepExportChoice } from '$lib/types';
   import { countKeystrokes, parseKeystrokes, tabFromExportChoice, choiceFromTab } from '$lib/utils';
-  import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Sun, Trash2 } from '@lucide/svelte';
+  import { AlignLeft, ArrowLeft, Check, ExternalLink, FileCode, FileDown, Keyboard, Monitor, Moon, MousePointer2, Pencil, Redo2, Sun, Trash2, Undo2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
+  import ImageEditor from '$lib/components/ImageEditor.svelte';
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
+  /** Whether the image editor modal is open. */
+  let editorOpen = $state(false);
+  /** True while the description Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
+  let isEditing = $state(false);
   /**
    * Which monitor tab is shown in the detail view.
    * 'primary' = the annotated click-monitor image
@@ -72,10 +77,13 @@
   // Load image when selection changes; restore description draft and monitor tab.
   $effect(() => {
     const step = selectedStep;
-    if (step && !store.imageCache[step.id]) {
-      invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-        store.imageCache[step.id] = uri;
-      }).catch(err => console.error('Failed to load image:', err));
+    if (step) {
+      const key = store.imageCacheKey(step);
+      if (!store.imageCache[key]) {
+        invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
+          store.imageCache[key] = uri;
+        }).catch(err => console.error('Failed to load image:', err));
+      }
     }
     descriptionDraft = step?.description ?? '';
     activeMonitorTab = step ? tabFromExportChoice(step.export_choice) : 'primary';
@@ -260,6 +268,25 @@
     await setExportChoice(choiceFromTab(tab));
   }
 
+  async function undo() {
+    try { await invoke('undo_session'); } catch { /* nothing to undo */ }
+  }
+
+  async function redo() {
+    try { await invoke('redo_session'); } catch { /* nothing to redo */ }
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (isEditing) return;
+    if (event.ctrlKey && !event.shiftKey && event.key === 'z') {
+      event.preventDefault();
+      undo();
+    } else if (event.ctrlKey && (event.key === 'y' || (event.shiftKey && event.key === 'Z'))) {
+      event.preventDefault();
+      redo();
+    }
+  }
+
   function handleMouseUp(event: MouseEvent) {
     if (event.button === 3) {
       event.preventDefault();
@@ -275,11 +302,13 @@
   onMount(() => {
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeydown);
   });
 
   onDestroy(() => {
     window.removeEventListener('mouseup', handleMouseUp);
     window.removeEventListener('popstate', handlePopState);
+    window.removeEventListener('keydown', handleKeydown);
   });
 </script>
 
@@ -307,8 +336,10 @@
         />
       </div>
 
-      <!-- Right: export buttons + theme toggle -->
+      <!-- Right: undo/redo + export buttons + theme toggle -->
       <div class="flex items-center justify-end gap-2">
+        <Button variant="outline" size="icon" aria-label="Undo" onclick={undo} disabled={!store.canUndo}><Undo2 /></Button>
+        <Button variant="outline" size="icon" aria-label="Redo" onclick={redo} disabled={!store.canRedo}><Redo2 /></Button>
         <Button variant="outline" size="sm" onclick={exportMarkdown}><FileDown />Export MD</Button>
         <Button variant="outline" size="sm" onclick={exportHtml}><FileCode />Export HTML</Button>
         <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
@@ -395,6 +426,9 @@
       <div class="mb-3 flex items-center gap-2">
         <span class="text-sm font-semibold">Step {selectedStepDisplayNum}</span>
         <div class="flex-1"></div>
+        <Button variant="outline" size="sm" onclick={() => { editorOpen = true; }}>
+          <Pencil />Edit Image
+        </Button>
         <Button
           variant="destructive"
           size="sm"
@@ -429,6 +463,7 @@
       <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
       <div class="mb-3 flex-1 overflow-y-auto rounded border bg-muted/20">
         {#if activeMonitorTab === 'all'}
+          {@const imgKey = store.imageCacheKey(selectedStep)}
           <!-- All monitors: stacked scrollable view -->
           <div class="flex flex-col gap-4 p-3">
             <div class="flex flex-col gap-1">
@@ -436,15 +471,15 @@
                 <MousePointer2 size={11} />
                 {monitorLabel(selectedStep.click_monitor_index)}
               </span>
-              {#if store.imageCache[selectedStep.id]}
-                <img src={store.imageCache[selectedStep.id]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
+              {#if store.imageCache[imgKey]}
+                <img src={store.imageCache[imgKey]} alt="Step {selectedStepDisplayNum}" class="max-w-full rounded" />
               {:else}
                 <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
               {/if}
             </div>
             {#each selectedStep.extra_image_paths as _path, i (i)}
               {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              {@const key = store.extraImageKey(selectedStep.id, i)}
+              {@const key = store.extraImageKey(selectedStep.id, i, selectedStep.image_version ?? 0)}
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-muted-foreground">
                   {monitorLabel(monIdx)}
@@ -458,10 +493,11 @@
             {/each}
           </div>
         {:else if activeMonitorTab === 'primary'}
+          {@const imgKey = store.imageCacheKey(selectedStep)}
           <div class="flex h-full items-center justify-center p-2">
-            {#if store.imageCache[selectedStep.id]}
+            {#if store.imageCache[imgKey]}
               <img
-                src={store.imageCache[selectedStep.id]}
+                src={store.imageCache[imgKey]}
                 alt="Step {selectedStepDisplayNum}"
                 class="max-h-full max-w-full object-contain"
               />
@@ -472,7 +508,7 @@
         {:else}
           {@const extraIdx = parseInt(activeMonitorTab.replace('extra_', ''), 10)}
           {#if !isNaN(extraIdx)}
-            {@const extraKey = store.extraImageKey(selectedStep.id, extraIdx)}
+            {@const extraKey = store.extraImageKey(selectedStep.id, extraIdx, selectedStep.image_version ?? 0)}
             <div class="flex h-full items-center justify-center p-2">
               {#if store.extraImageCache[extraKey]}
                 <img
@@ -495,7 +531,8 @@
           placeholder="Add a description…"
           class="resize-none text-sm"
           rows={3}
-          onblur={saveDescription}
+          onfocus={() => { isEditing = true; }}
+          onblur={() => { isEditing = false; saveDescription(); }}
         />
         {#if selectedStep.keystrokes}
           <div class="rounded bg-muted px-3 py-2 text-xs font-mono">
@@ -531,3 +568,11 @@
     </Button>
   {/snippet}
 </PageLayout>
+
+{#if selectedStep && editorOpen}
+  <ImageEditor
+    step={selectedStep}
+    open={editorOpen}
+    onclose={() => { editorOpen = false; }}
+  />
+{/if}

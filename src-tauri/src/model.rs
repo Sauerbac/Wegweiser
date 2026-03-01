@@ -55,6 +55,38 @@ pub struct Step {
     /// Absent in older session.json files — defaults to `Primary`.
     #[serde(default)]
     pub export_choice: StepExportChoice,
+    /// Visible window bounding boxes captured at screenshot time, in monitor-relative pixels.
+    #[serde(default)]
+    pub window_rects: Vec<WindowRect>,
+    /// Incremented on each image edit; used by the frontend as a cache-busting key.
+    #[serde(default)]
+    pub image_version: u32,
+}
+
+/// Bounding box of a visible top-level window, in monitor-relative physical pixels.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WindowRect {
+    pub title: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// Sent to the frontend after every undo-able mutation to indicate whether
+/// undo/redo are currently available.
+#[derive(Clone, Serialize)]
+pub struct UndoState {
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+
+/// Describes an image-manipulation operation for `apply_image_edit`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ImageEdit {
+    Blur { x: i32, y: i32, w: u32, h: u32, sigma: f32 },
+    Crop { x: i32, y: i32, w: u32, h: u32 },
 }
 
 /// Physical-pixel description of a connected monitor, cached at startup/refresh.

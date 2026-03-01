@@ -104,3 +104,114 @@ pub fn get_window_restore_rect(hwnd: isize) -> Option<(i32, i32, u32, u32)> {
 pub fn get_window_restore_rect(_hwnd: isize) -> Option<(i32, i32, u32, u32)> {
     None
 }
+
+/// Enumerate all visible, non-minimised, non-tool top-level windows and return
+/// their bounding boxes in monitor-relative coordinates.
+///
+/// Only windows that overlap the given monitor rectangle are included.
+/// The returned coordinates are clamped to the monitor's logical extent
+/// so x/y can be negative if the window starts off-screen.
+#[cfg(windows)]
+pub fn enumerate_visible_windows(
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_w: u32,
+    monitor_h: u32,
+) -> Vec<crate::model::WindowRect> {
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT, TRUE};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
+        IsIconic, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
+    };
+
+    struct Collector {
+        rects: Vec<crate::model::WindowRect>,
+        monitor_x: i32,
+        monitor_y: i32,
+        monitor_w: u32,
+        monitor_h: u32,
+    }
+
+    unsafe extern "system" fn enum_proc(
+        hwnd: HWND,
+        lparam: LPARAM,
+    ) -> windows::core::BOOL {
+        let col = &mut *(lparam.0 as *mut Collector);
+
+        if !IsWindowVisible(hwnd).as_bool() {
+            return TRUE;
+        }
+        if IsIconic(hwnd).as_bool() {
+            return TRUE;
+        }
+        // Skip tool windows (floating toolbars, etc.)
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
+            return TRUE;
+        }
+
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return TRUE;
+        }
+        let abs_w = (rect.right - rect.left) as u32;
+        let abs_h = (rect.bottom - rect.top) as u32;
+        if abs_w == 0 || abs_h == 0 {
+            return TRUE;
+        }
+
+        // Check if the window intersects this monitor at all.
+        let mon_right = col.monitor_x + col.monitor_w as i32;
+        let mon_bottom = col.monitor_y + col.monitor_h as i32;
+        if rect.right <= col.monitor_x
+            || rect.left >= mon_right
+            || rect.bottom <= col.monitor_y
+            || rect.top >= mon_bottom
+        {
+            return TRUE;
+        }
+
+        // Convert to monitor-relative coordinates.
+        let rel_x = rect.left - col.monitor_x;
+        let rel_y = rect.top - col.monitor_y;
+
+        // Get window title (up to 255 chars).
+        let mut title_buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut title_buf);
+        let title = String::from_utf16_lossy(&title_buf[..len.max(0) as usize]);
+
+        col.rects.push(crate::model::WindowRect {
+            title,
+            x: rel_x,
+            y: rel_y,
+            w: abs_w,
+            h: abs_h,
+        });
+
+        TRUE
+    }
+
+    let mut col = Collector {
+        rects: Vec::new(),
+        monitor_x,
+        monitor_y,
+        monitor_w,
+        monitor_h,
+    };
+    let lparam = LPARAM(&mut col as *mut Collector as isize);
+    // SAFETY: lparam points to `col` which lives for the duration of EnumWindows.
+    unsafe {
+        let _ = EnumWindows(Some(enum_proc), lparam);
+    }
+    col.rects
+}
+
+#[cfg(not(windows))]
+pub fn enumerate_visible_windows(
+    _monitor_x: i32,
+    _monitor_y: i32,
+    _monitor_w: u32,
+    _monitor_h: u32,
+) -> Vec<crate::model::WindowRect> {
+    Vec::new()
+}

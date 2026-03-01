@@ -60,6 +60,9 @@ pub fn run() {
             commands::open_path,
             commands::rename_session,
             commands::identify_monitors,
+            commands::undo_session,
+            commands::redo_session,
+            commands::apply_image_edit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -11,6 +11,16 @@ export type StepExportChoice =
   | { type: 'Extra'; value: number }
   | { type: 'All' };
 
+export interface WindowRect {
+  title: string;
+  /** X position in monitor-relative physical pixels. */
+  x: number;
+  /** Y position in monitor-relative physical pixels. */
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface Step {
   id: number;
   order: number;
@@ -31,6 +41,15 @@ export interface Step {
   keystrokes: string | null;
   /** Which monitor image(s) to include when exporting this step. */
   export_choice: StepExportChoice;
+  /** Visible window rects at capture time (monitor-relative pixels). */
+  window_rects: WindowRect[];
+  /** Incremented on each image edit; used as a cache-busting key. */
+  image_version: number;
+}
+
+export interface UndoState {
+  can_undo: boolean;
+  can_redo: boolean;
 }
 
 export interface Session {
