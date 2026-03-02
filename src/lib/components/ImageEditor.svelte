@@ -4,7 +4,7 @@
   import type { Step, WindowRect } from '$lib/types';
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
-  import { Blend, Crop, MousePointer2, RotateCcw, X } from '@lucide/svelte';
+  import { Blend, Crop, MousePointer2, Redo2, RotateCcw, Undo2, X } from '@lucide/svelte';
 
   /** Read a CSS custom property from the document root (resolves theme variables). */
   function cssVar(name: string): string {
@@ -32,6 +32,23 @@
   let selectedWindowRect = $state<WindowRect | null>(null);
   let applying = $state(false);
   let errorMsg = $state<string | null>(null);
+
+  /**
+   * Editor-local undo/redo depth counters.
+   *
+   * Each time an edit is applied inside this editor session, `editorDepth` is
+   * incremented.  Undoing an editor edit decrements `editorDepth` and
+   * increments `editorRedoDepth`.  Redoing reverses that.
+   *
+   * These counters are separate from the review-level undo/redo stack and are
+   * reset every time the dialog is opened so history never leaks between
+   * editing sessions.
+   *
+   * The actual image state revert is delegated to `undo_session` / `redo_session`
+   * because `apply_image_edit` already pushes a snapshot there.
+   */
+  let editorDepth = $state(0);
+  let editorRedoDepth = $state(0);
 
   /** Natural image dimensions (set when the image loads onto canvas). */
   let imgNaturalW = $state(0);
@@ -160,17 +177,23 @@
   }
 
   $effect(() => {
-    if (open && imageUri) {
-      redraw();
+    // Reset editor-local history whenever the dialog is opened.
+    // Does NOT read imageUri — keeps this effect scoped to open transitions only,
+    // so counter resets don't fire again when imageUri changes after an edit/undo.
+    if (open) {
+      editorDepth = 0;
+      editorRedoDepth = 0;
     }
   });
 
   $effect(() => {
-    // Redraw whenever tool changes to show/hide window overlays.
+    // Redraw whenever tool, selection, or the underlying image URI changes
+    // (e.g. after an undo/redo that swaps the image version in the cache).
     tool;
     selRect;
     selectedWindowRect;
-    redraw();
+    imageUri;
+    if (open) redraw();
   });
 
   function onMouseDown(e: MouseEvent) {
@@ -259,13 +282,15 @@
     applying = true;
     errorMsg = null;
     try {
+      store.clearStepImageCache(step.id);
       await invoke('apply_image_edit', {
         stepId: step.id,
         edit: { type: 'Blur', x: r.x, y: r.y, w: r.w, h: r.h, sigma: 12.0 },
         extraIndex: extraIndex ?? null,
       });
+      editorDepth += 1;
+      editorRedoDepth = 0;
       resetSelection();
-      onclose();
     } catch (err) {
       errorMsg = String(err);
     } finally {
@@ -279,13 +304,47 @@
     applying = true;
     errorMsg = null;
     try {
+      store.clearStepImageCache(step.id);
       await invoke('apply_image_edit', {
         stepId: step.id,
         edit: { type: 'Crop', x: r.x, y: r.y, w: r.w, h: r.h },
         extraIndex: extraIndex ?? null,
       });
+      editorDepth += 1;
+      editorRedoDepth = 0;
       resetSelection();
-      onclose();
+    } catch (err) {
+      errorMsg = String(err);
+    } finally {
+      applying = false;
+    }
+  }
+
+  async function editorUndo() {
+    if (editorDepth <= 0) return;
+    applying = true;
+    errorMsg = null;
+    try {
+      await invoke('undo_session');
+      editorDepth -= 1;
+      editorRedoDepth += 1;
+      resetSelection();
+    } catch (err) {
+      errorMsg = String(err);
+    } finally {
+      applying = false;
+    }
+  }
+
+  async function editorRedo() {
+    if (editorRedoDepth <= 0) return;
+    applying = true;
+    errorMsg = null;
+    try {
+      await invoke('redo_session');
+      editorDepth += 1;
+      editorRedoDepth -= 1;
+      resetSelection();
     } catch (err) {
       errorMsg = String(err);
     } finally {
@@ -294,6 +353,8 @@
   }
 
   const hasSelection = $derived(selRect !== null || selectedWindowRect !== null);
+  const canEditorUndo = $derived(editorDepth > 0);
+  const canEditorRedo = $derived(editorRedoDepth > 0);
 </script>
 
 <Dialog.Root bind:open>
@@ -329,6 +390,25 @@
       {/if}
 
       <div class="flex-1"></div>
+
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Undo"
+        onclick={editorUndo}
+        disabled={!canEditorUndo || applying}
+      >
+        <Undo2 />
+      </Button>
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Redo"
+        onclick={editorRedo}
+        disabled={!canEditorRedo || applying}
+      >
+        <Redo2 />
+      </Button>
 
       {#if hasSelection}
         <Button variant="ghost" size="sm" onclick={resetSelection}>
