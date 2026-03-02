@@ -103,6 +103,14 @@ pub fn export(
     }}
     code {{ font-family: ui-monospace, monospace; }}
     .monitor-label {{ margin-top: 1rem; margin-bottom: 0.25rem; }}
+    @media (prefers-color-scheme: dark) {{
+      body {{ color: #e1e1e6; background: #121214; }}
+      .meta {{ color: #999; }}
+      .step {{ background: #1e1e24; border-color: #2e2e38; }}
+      .step h2 {{ color: #a0a0b0; }}
+      .step img {{ border-color: #3a3a4a; }}
+      blockquote {{ background: #1a1a2e; border-left-color: #748ffc; }}
+    }}
   </style>
 </head>
 <body>
