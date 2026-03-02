@@ -37,8 +37,7 @@
   >
     <!-- Grip dots -->
     <GripVertical
-      size={16}
-      class="text-muted-foreground shrink-0 pointer-events-none"
+      class="size-4 text-muted-foreground shrink-0 pointer-events-none"
       aria-hidden="true"
     />
     <!-- Status info sits inside drag region; pointer-events:none so it doesn't block dragging -->
@@ -60,9 +59,9 @@
       class="h-7 gap-1 text-sm"
     >
       {#if isPaused}
-        <Play size={12} />{' '}Resume
+        <Play />{' '}Resume
       {:else}
-        <Pause size={12} />{' '}Pause
+        <Pause />{' '}Pause
       {/if}
     </Button>
     <Button
@@ -70,7 +69,7 @@
       onclick={stopRecording}
       class="h-7 gap-1 bg-red-600 text-sm hover:bg-red-700 text-white"
     >
-      <Square size={12} />Stop
+      <Square />Stop
     </Button>
   </div>
 </div>
