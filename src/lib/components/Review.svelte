@@ -14,6 +14,14 @@
     DropdownMenuItem,
     DropdownMenuTrigger,
   } from "$lib/components/ui/dropdown-menu";
+  import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+  } from "$lib/components/ui/alert-dialog";
   import { store } from "$lib/stores/session.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
   import type { Step, StepExportChoice } from "$lib/types";
@@ -37,6 +45,7 @@
     MousePointer2,
     Pencil,
     Redo2,
+    Save,
     Sun,
     Trash2,
     Undo2,
@@ -65,6 +74,8 @@
 
   /** Whether the export dropdown is open. */
   let exportOpen = $state(false);
+  /** Whether the "unsaved changes" back-navigation dialog is open. */
+  let showBackDialog = $state(false);
 
   /** Multi-selection state for bulk step operations. */
   const sel = createSelectableList(
@@ -274,7 +285,7 @@
     }
   }
 
-  async function newRecording() {
+  async function navigateBack() {
     selectedStepId = null;
     store.clearImageCache();
     activeMonitorTab = "primary";
@@ -286,6 +297,18 @@
       console.error("Failed to start new recording:", err);
     }
     await store.refreshSessions();
+  }
+
+  function requestBack() {
+    if (store.isDirty) {
+      showBackDialog = true;
+    } else {
+      navigateBack();
+    }
+  }
+
+  function saveSession() {
+    store.markSaved();
   }
 
   function selectStep(stepId: number) {
@@ -342,13 +365,13 @@
   function handleMouseUp(event: MouseEvent) {
     if (event.button === 3) {
       event.preventDefault();
-      newRecording();
+      requestBack();
     }
   }
 
   function handlePopState(event: PopStateEvent) {
     event.preventDefault();
-    newRecording();
+    requestBack();
   }
 
   onMount(() => {
@@ -374,7 +397,7 @@
     <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
       <!-- Left: back button -->
       <div class="flex items-center">
-        <Button variant="outline" size="sm" onclick={newRecording}
+        <Button variant="outline" size="sm" onclick={requestBack}
           ><ArrowLeft />Back</Button
         >
       </div>
@@ -408,6 +431,13 @@
           aria-label="Redo"
           onclick={redo}
           disabled={!store.canRedo}><Redo2 /></Button
+        >
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label="Save"
+          onclick={saveSession}
+          disabled={!store.isDirty}><Save /></Button
         >
         <DropdownMenu bind:open={exportOpen}>
           <DropdownMenuTrigger>
@@ -733,6 +763,39 @@
     {/if}
   {/snippet}
 </PageLayout>
+
+<AlertDialog bind:open={showBackDialog}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+      <AlertDialogDescription>
+        You have unsaved changes. Do you want to save before going back?
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <Button
+        variant="outline"
+        onclick={() => {
+          showBackDialog = false;
+        }}>Cancel</Button
+      >
+      <Button
+        variant="destructive"
+        onclick={() => {
+          showBackDialog = false;
+          navigateBack();
+        }}>Discard</Button
+      >
+      <Button
+        onclick={() => {
+          saveSession();
+          showBackDialog = false;
+          navigateBack();
+        }}>Save</Button
+      >
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
 
 {#if selectedStep && editorOpen}
   <ImageEditor

@@ -24,6 +24,8 @@ class AppStore {
   exportError = $state<string | null>(null);
   canUndo = $state(false);
   canRedo = $state(false);
+  isDirty = $state(false);
+  private _lastKnownSessionId = '';
   /**
    * Cache for primary step images.
    * Key: `${step.id}_v${step.image_version}` → asset URI.
@@ -94,10 +96,12 @@ class AppStore {
       listen<string>('recording-state-changed', (event) => {
         if (VALID_STATES.includes(event.payload as RecordingState)) {
           this.recordingState = event.payload as RecordingState;
-          // Clear undo/redo availability when leaving Reviewing state.
+          // Clear undo/redo availability and dirty state when leaving Reviewing state.
           if (event.payload === 'idle') {
             this.canUndo = false;
             this.canRedo = false;
+            this.isDirty = false;
+            this._lastKnownSessionId = '';
           }
         } else {
           console.error('Unknown recording state:', event.payload);
@@ -122,8 +126,13 @@ class AppStore {
       }),
 
       listen<Session>('session-updated', (event) => {
+        const isNewSession = event.payload.id !== this._lastKnownSessionId;
+        this._lastKnownSessionId = event.payload.id;
         this.session = event.payload;
         this.preloadStepImages(event.payload.steps);
+        if (!isNewSession) {
+          this.isDirty = true;
+        }
       }),
 
       listen<number>('export-progress', (event) => {
@@ -148,6 +157,10 @@ class AppStore {
       unlisten();
     }
     this._unlisteners = [];
+  }
+
+  markSaved() {
+    this.isDirty = false;
   }
 
   async refreshSessions() {
