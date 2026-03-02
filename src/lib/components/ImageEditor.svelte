@@ -297,7 +297,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="flex h-[90vh] max-w-[95vw] flex-col gap-3 p-4">
+  <Dialog.Content class="flex h-[90vh] w-[90vw] max-w-none sm:max-w-none flex-col gap-3 p-4">
     <Dialog.Header class="shrink-0">
       <Dialog.Title>Edit Image — Step {step.order}</Dialog.Title>
     </Dialog.Header>
