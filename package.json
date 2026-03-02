@@ -13,6 +13,7 @@
 		"tauri": "tauri"
 	},
 	"devDependencies": {
+		"@internationalized/date": "^3.11.0",
 		"@lucide/svelte": "^0.561.0",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.50.2",

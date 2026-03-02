@@ -8,6 +8,12 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { Progress } from "$lib/components/ui/progress";
   import { Tabs, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
+  import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+  } from "$lib/components/ui/dropdown-menu";
   import { store } from "$lib/stores/session.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
   import type { Step, StepExportChoice } from "$lib/types";
@@ -21,6 +27,7 @@
     AlignLeft,
     ArrowLeft,
     Check,
+    ChevronDown,
     ExternalLink,
     FileCode,
     FileDown,
@@ -55,6 +62,9 @@
   let descriptionDraft = $state("");
   /** Draft value for the session name input — synced from store on load, editable locally. */
   let sessionNameDraft = $state("");
+
+  /** Whether the export dropdown is open. */
+  let exportOpen = $state(false);
 
   /** Multi-selection state for bulk step operations. */
   const sel = createSelectableList(
@@ -399,12 +409,27 @@
           onclick={redo}
           disabled={!store.canRedo}><Redo2 /></Button
         >
-        <Button variant="outline" size="sm" onclick={exportMarkdown}
-          ><FileDown />Export MD</Button
-        >
-        <Button variant="outline" size="sm" onclick={exportHtml}
-          ><FileCode />Export HTML</Button
-        >
+        <DropdownMenu bind:open={exportOpen}>
+          <DropdownMenuTrigger>
+            {#snippet child({ props })}
+              <Button variant="outline" size="sm" {...props}>
+                Export<ChevronDown
+                  class="size-4 transition-transform duration-200 {exportOpen
+                    ? 'rotate-180'
+                    : ''}"
+                />
+              </Button>
+            {/snippet}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onclick={exportMarkdown}>
+              <FileDown class="text-foreground" />Markdown (.md)
+            </DropdownMenuItem>
+            <DropdownMenuItem onclick={exportHtml}>
+              <FileCode class="text-foreground" />HTML (.html)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           onclick={toggleMode}
           variant="outline"
@@ -416,14 +441,6 @@
         </Button>
       </div>
     </div>
-
-    <!-- Export progress -->
-    {#if store.exportProgress !== null}
-      <div class="border-b px-4 py-2">
-        <p class="mb-1 text-xs text-muted-foreground">Exporting…</p>
-        <Progress value={store.exportProgress * 100} class="h-1.5" />
-      </div>
-    {/if}
 
     {#if store.exportError}
       <div class="border-b bg-destructive/10 px-4 py-2">
@@ -686,26 +703,34 @@
   {/snippet}
 
   {#snippet footer()}
-    <Check
-      class="size-4 shrink-0 {store.exportedPath
-        ? 'text-primary'
-        : 'text-transparent'}"
-    />
-    <span
-      class="flex-1 truncate text-xs {store.exportedPath
-        ? 'text-card-foreground'
-        : 'text-muted-foreground'}"
-    >
-      {store.exportedPath ? `Exported to: ${store.exportedPath}` : "Ready"}
-    </span>
-    <Button
-      variant="outline"
-      size="sm"
-      onclick={openExported}
-      class="shrink-0 {store.exportedPath ? '' : 'invisible'}"
-    >
-      <ExternalLink />Open
-    </Button>
+    {#if store.exportProgress !== null}
+      <span class="text-xs text-muted-foreground shrink-0">Exporting…</span>
+      <Progress value={store.exportProgress * 100} class="h-1.5 flex-1" />
+      <span class="text-xs text-muted-foreground shrink-0"
+        >{Math.round(store.exportProgress * 100)}%</span
+      >
+    {:else}
+      <Check
+        class="size-4 shrink-0 {store.exportedPath
+          ? 'text-primary'
+          : 'text-transparent'}"
+      />
+      <span
+        class="flex-1 truncate text-xs {store.exportedPath
+          ? 'text-card-foreground'
+          : 'text-muted-foreground'}"
+      >
+        {store.exportedPath ? `Exported to: ${store.exportedPath}` : "Ready"}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={openExported}
+        class="shrink-0 {store.exportedPath ? '' : 'invisible'}"
+      >
+        <ExternalLink />Open
+      </Button>
+    {/if}
   {/snippet}
 </PageLayout>
 
