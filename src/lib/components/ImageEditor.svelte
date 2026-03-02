@@ -6,6 +6,11 @@
   import * as Dialog from '$lib/components/ui/dialog';
   import { Blend, Crop, MousePointer2, RotateCcw, X } from '@lucide/svelte';
 
+  /** Read a CSS custom property from the document root (resolves theme variables). */
+  function cssVar(name: string): string {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
   interface Props {
     step: Step;
     /** Set to undefined to edit the primary image; set to index for an extra image. */
@@ -41,6 +46,22 @@
     return store.imageCache[key] ?? null;
   });
 
+  /**
+   * Window rects filtered to those that have at least some overlap with the
+   * image canvas (i.e. visible on the monitor where the screenshot was taken).
+   * Uses imgNaturalW/H which are set once the image loads onto the canvas.
+   */
+  let visibleWindowRects = $derived.by<WindowRect[]>(() => {
+    if (imgNaturalW === 0 || imgNaturalH === 0) return step.window_rects ?? [];
+    return (step.window_rects ?? []).filter(
+      (wr) =>
+        wr.x < imgNaturalW &&
+        wr.y < imgNaturalH &&
+        wr.x + wr.w > 0 &&
+        wr.y + wr.h > 0,
+    );
+  });
+
   /** Convert canvas-local coordinates to image-pixel coordinates. */
   function toImageCoords(cx: number, cy: number): [number, number] {
     const rect = canvas!.getBoundingClientRect();
@@ -64,33 +85,66 @@
       ctx.drawImage(img, 0, 0);
 
       // Draw window rects when in window mode.
+      // Only show rects that have a visible portion within the image bounds.
       if (tool === 'window') {
         ctx.save();
-        const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-        step.window_rects.forEach((wr, i) => {
-          const color = colors[i % colors.length];
+        const chartColors = [
+          cssVar('--chart-1'),
+          cssVar('--chart-2'),
+          cssVar('--chart-3'),
+          cssVar('--chart-4'),
+          cssVar('--chart-5'),
+        ];
+        // Filter to windows that have at least some overlap with the image canvas.
+        const visibleRects = step.window_rects.filter(
+          (wr) =>
+            wr.x < img.naturalWidth &&
+            wr.y < img.naturalHeight &&
+            wr.x + wr.w > 0 &&
+            wr.y + wr.h > 0,
+        );
+        // Draw back-to-front so the topmost window (index 0) is painted last and
+        // appears visually on top of windows behind it.
+        // We iterate the indices in reverse so the last (backmost) window is
+        // drawn first and the first (topmost) window is drawn on top.
+        for (let i = visibleRects.length - 1; i >= 0; i--) {
+          const wr = visibleRects[i];
+          const color = chartColors[i % chartColors.length];
+          // Clip the drawn rect to the image bounds so strokes don't spill outside.
+          const cx = Math.max(wr.x, 0);
+          const cy = Math.max(wr.y, 0);
+          const cw = Math.min(wr.x + wr.w, img.naturalWidth) - cx;
+          const ch = Math.min(wr.y + wr.h, img.naturalHeight) - cy;
+          if (cw <= 0 || ch <= 0) continue;
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.setLineDash([6, 3]);
-          ctx.strokeRect(wr.x, wr.y, wr.w, wr.h);
+          ctx.strokeRect(cx, cy, cw, ch);
 
-          // Title label background
+          // Title label background — anchor to the clipped top-left.
           if (wr.title) {
             ctx.font = '12px sans-serif';
             const textW = ctx.measureText(wr.title).width + 8;
             ctx.fillStyle = color + 'cc';
-            ctx.fillRect(wr.x, wr.y - 18, textW, 18);
+            ctx.fillRect(cx, cy - 18, textW, 18);
             ctx.fillStyle = '#fff';
-            ctx.fillText(wr.title, wr.x + 4, wr.y - 4);
+            ctx.fillText(wr.title, cx + 4, cy - 4);
           }
-        });
+        }
         ctx.restore();
       }
 
-      // Draw selection rectangle.
-      const active = selRect ?? (selectedWindowRect
-        ? { x: selectedWindowRect.x, y: selectedWindowRect.y, w: selectedWindowRect.w, h: selectedWindowRect.h }
-        : null);
+      // Draw selection rectangle (clipped to image bounds for window selections).
+      let active: { x: number; y: number; w: number; h: number } | null = null;
+      if (selRect) {
+        active = selRect;
+      } else if (selectedWindowRect) {
+        const cx = Math.max(selectedWindowRect.x, 0);
+        const cy = Math.max(selectedWindowRect.y, 0);
+        const cw = Math.min(selectedWindowRect.x + selectedWindowRect.w, img.naturalWidth) - cx;
+        const ch = Math.min(selectedWindowRect.y + selectedWindowRect.h, img.naturalHeight) - cy;
+        if (cw > 0 && ch > 0) active = { x: cx, y: cy, w: cw, h: ch };
+      }
       if (active) {
         ctx.save();
         ctx.strokeStyle = '#f97316';
@@ -154,10 +208,16 @@
   function onCanvasClick(e: MouseEvent) {
     if (tool !== 'window') return;
     const [px, py] = toImageCoords(e.clientX, e.clientY);
-    // Find topmost window rect that contains the click.
-    const hit = [...step.window_rects].reverse().find(
-      (wr) => px >= wr.x && px <= wr.x + wr.w && py >= wr.y && py <= wr.y + wr.h
-    ) ?? null;
+    // Find topmost visible window rect that contains the click (use clipped bounds).
+    // visibleWindowRects is ordered front-to-back (index 0 = topmost), so iterate
+    // forward and take the first match — the frontmost window wins.
+    const hit = visibleWindowRects.find((wr) => {
+      const cx = Math.max(wr.x, 0);
+      const cy = Math.max(wr.y, 0);
+      const cw = Math.min(wr.x + wr.w, imgNaturalW) - cx;
+      const ch = Math.min(wr.y + wr.h, imgNaturalH) - cy;
+      return cw > 0 && ch > 0 && px >= cx && px <= cx + cw && py >= cy && py <= cy + ch;
+    }) ?? null;
     selectedWindowRect = hit;
     if (hit) selRect = null;
     redraw();
@@ -175,11 +235,20 @@
     selectedWindowRect = null;
   }
 
-  /** The active rect to send to the backend (image-pixel coordinates). */
+  /**
+   * The active rect to send to the backend (image-pixel coordinates).
+   * When a window is selected, the rect is clipped to the image bounds so that
+   * the crop operation never requests pixels outside the screenshot.
+   */
   function activeRect() {
     if (selRect) return selRect;
     if (selectedWindowRect) {
-      return { x: selectedWindowRect.x, y: selectedWindowRect.y, w: selectedWindowRect.w, h: selectedWindowRect.h };
+      const cx = Math.max(selectedWindowRect.x, 0);
+      const cy = Math.max(selectedWindowRect.y, 0);
+      const cw = Math.min(selectedWindowRect.x + selectedWindowRect.w, imgNaturalW) - cx;
+      const ch = Math.min(selectedWindowRect.y + selectedWindowRect.h, imgNaturalH) - cy;
+      if (cw <= 0 || ch <= 0) return null;
+      return { x: cx, y: cy, w: cw, h: ch };
     }
     return null;
   }
@@ -249,7 +318,7 @@
       >
         <Crop />Crop
       </Button>
-      {#if step.window_rects?.length > 0}
+      {#if visibleWindowRects.length > 0}
         <Button
           variant={tool === 'window' ? 'default' : 'outline'}
           size="sm"
@@ -265,12 +334,12 @@
         <Button variant="ghost" size="sm" onclick={resetSelection}>
           <RotateCcw />Reset
         </Button>
-        {#if tool === 'blur' || tool === 'window'}
+        {#if tool === 'blur'}
           <Button size="sm" onclick={applyBlur} disabled={applying}>
             {applying ? 'Applying…' : 'Apply Blur'}
           </Button>
         {/if}
-        {#if tool === 'crop'}
+        {#if tool === 'crop' || tool === 'window'}
           <Button size="sm" onclick={applyCrop} disabled={applying}>
             {applying ? 'Applying…' : 'Apply Crop'}
           </Button>
@@ -312,7 +381,7 @@
       {:else if tool === 'crop'}
         Draw a rectangle to keep, then click <strong>Apply Crop</strong>.
       {:else}
-        Click a highlighted window border to select it, then click <strong>Apply Blur</strong>.
+        Click a highlighted window border to select it, then click <strong>Apply Crop</strong>.
       {/if}
     </p>
   </Dialog.Content>

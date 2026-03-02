@@ -109,6 +109,7 @@ pub fn get_window_restore_rect(_hwnd: isize) -> Option<(i32, i32, u32, u32)> {
 /// their bounding boxes in monitor-relative coordinates.
 ///
 /// Only windows that overlap the given monitor rectangle are included.
+/// Windows that are completely occluded by higher z-order windows are excluded.
 /// The returned coordinates are clamped to the monitor's logical extent
 /// so x/y can be negative if the window starts off-screen.
 #[cfg(windows)]
@@ -124,8 +125,17 @@ pub fn enumerate_visible_windows(
         IsIconic, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
     };
 
+    /// An absolute-coordinate rectangle collected in z-order pass.
+    struct AbsWindow {
+        title: String,
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
     struct Collector {
-        rects: Vec<crate::model::WindowRect>,
+        windows: Vec<AbsWindow>,
         monitor_x: i32,
         monitor_y: i32,
         monitor_w: u32,
@@ -154,9 +164,9 @@ pub fn enumerate_visible_windows(
         if GetWindowRect(hwnd, &mut rect).is_err() {
             return TRUE;
         }
-        let abs_w = (rect.right - rect.left) as u32;
-        let abs_h = (rect.bottom - rect.top) as u32;
-        if abs_w == 0 || abs_h == 0 {
+        let abs_w = rect.right - rect.left;
+        let abs_h = rect.bottom - rect.top;
+        if abs_w <= 0 || abs_h <= 0 {
             return TRUE;
         }
 
@@ -171,28 +181,24 @@ pub fn enumerate_visible_windows(
             return TRUE;
         }
 
-        // Convert to monitor-relative coordinates.
-        let rel_x = rect.left - col.monitor_x;
-        let rel_y = rect.top - col.monitor_y;
-
         // Get window title (up to 255 chars).
         let mut title_buf = [0u16; 256];
         let len = GetWindowTextW(hwnd, &mut title_buf);
         let title = String::from_utf16_lossy(&title_buf[..len.max(0) as usize]);
 
-        col.rects.push(crate::model::WindowRect {
+        col.windows.push(AbsWindow {
             title,
-            x: rel_x,
-            y: rel_y,
-            w: abs_w,
-            h: abs_h,
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
         });
 
         TRUE
     }
 
     let mut col = Collector {
-        rects: Vec::new(),
+        windows: Vec::new(),
         monitor_x,
         monitor_y,
         monitor_w,
@@ -203,7 +209,44 @@ pub fn enumerate_visible_windows(
     unsafe {
         let _ = EnumWindows(Some(enum_proc), lparam);
     }
-    col.rects
+
+    // EnumWindows returns windows in z-order, topmost first.  Walk them front-to-back,
+    // keeping track of "opaque" rects already seen.  A window is considered fully
+    // occluded — and therefore excluded from the result — if its entire rect is
+    // contained within a single already-seen opaque rect.  This is a conservative
+    // approximation: it correctly handles the common case of a maximized/fullscreen
+    // window covering everything behind it, without requiring full polygon subtraction.
+    // Partially visible windows (only partly covered) are always kept.
+    let mut opaque_rects: Vec<(i32, i32, i32, i32)> = Vec::new(); // (left, top, right, bottom)
+    let mut result = Vec::new();
+
+    for win in col.windows {
+        // Check if this window is fully contained within any single opaque rect.
+        let fully_occluded = opaque_rects.iter().any(|&(ol, ot, or_, ob)| {
+            win.left >= ol && win.top >= ot && win.right <= or_ && win.bottom <= ob
+        });
+
+        if !fully_occluded {
+            // Window is at least partially visible — include it.
+            let rel_x = win.left - monitor_x;
+            let rel_y = win.top - monitor_y;
+            let abs_w = (win.right - win.left) as u32;
+            let abs_h = (win.bottom - win.top) as u32;
+            result.push(crate::model::WindowRect {
+                title: win.title,
+                x: rel_x,
+                y: rel_y,
+                w: abs_w,
+                h: abs_h,
+            });
+        }
+
+        // Always add to opaque_rects so it can occlude windows behind it,
+        // regardless of whether we included it in the result.
+        opaque_rects.push((win.left, win.top, win.right, win.bottom));
+    }
+
+    result
 }
 
 #[cfg(not(windows))]
