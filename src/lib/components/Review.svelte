@@ -432,7 +432,7 @@
         <Button
           variant="destructive"
           size="sm"
-          onclick={() => deleteStep(selectedStep!.id)}
+          onclick={(e: MouseEvent) => { e.stopPropagation(); deleteStep(selectedStep!.id); }}
           title="Delete step"
         >
           <Trash2 />Delete
@@ -572,7 +572,7 @@
 {#if selectedStep && editorOpen}
   <ImageEditor
     step={selectedStep}
-    open={editorOpen}
+    bind:open={editorOpen}
     onclose={() => { editorOpen = false; }}
   />
 {/if}

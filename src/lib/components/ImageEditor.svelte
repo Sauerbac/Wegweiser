@@ -14,7 +14,7 @@
     onclose: () => void;
   }
 
-  let { step, extraIndex = undefined, open, onclose }: Props = $props();
+  let { step, extraIndex = undefined, open = $bindable(false), onclose }: Props = $props();
 
   type Tool = 'blur' | 'crop' | 'window';
 
