@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { onMount, onDestroy } from 'svelte';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, WindowRect } from '$lib/types';
   import { Button } from '$lib/components/ui/button';
@@ -16,10 +17,21 @@
     /** Set to undefined to edit the primary image; set to index for an extra image. */
     extraIndex?: number;
     open: boolean;
-    onclose: () => void;
+    /**
+     * Number of image edits that can be undone in the current editor session.
+     * Bound by the parent (Review) so it can read the value on close and set
+     * the initial value on open (restoring state after Review-level undo/redo).
+     */
+    depth: number;
+    /**
+     * Number of image edits that can be redone in the current editor session.
+     * Bound by the parent (Review) so it can restore redo state after a
+     * Review-level undo.
+     */
+    redoDepth: number;
   }
 
-  let { step, extraIndex = undefined, open = $bindable(false), onclose }: Props = $props();
+  let { step, extraIndex = undefined, open = $bindable(false), depth = $bindable(0), redoDepth = $bindable(0) }: Props = $props();
 
   type Tool = 'blur' | 'crop' | 'window';
 
@@ -32,23 +44,6 @@
   let selectedWindowRect = $state<WindowRect | null>(null);
   let applying = $state(false);
   let errorMsg = $state<string | null>(null);
-
-  /**
-   * Editor-local undo/redo depth counters.
-   *
-   * Each time an edit is applied inside this editor session, `editorDepth` is
-   * incremented.  Undoing an editor edit decrements `editorDepth` and
-   * increments `editorRedoDepth`.  Redoing reverses that.
-   *
-   * These counters are separate from the review-level undo/redo stack and are
-   * reset every time the dialog is opened so history never leaks between
-   * editing sessions.
-   *
-   * The actual image state revert is delegated to `undo_session` / `redo_session`
-   * because `apply_image_edit` already pushes a snapshot there.
-   */
-  let editorDepth = $state(0);
-  let editorRedoDepth = $state(0);
 
   /** Natural image dimensions (set when the image loads onto canvas). */
   let imgNaturalW = $state(0);
@@ -172,16 +167,6 @@
   }
 
   $effect(() => {
-    // Reset editor-local history whenever the dialog is opened.
-    // Does NOT read imageUri — keeps this effect scoped to open transitions only,
-    // so counter resets don't fire again when imageUri changes after an edit/undo.
-    if (open) {
-      editorDepth = 0;
-      editorRedoDepth = 0;
-    }
-  });
-
-  $effect(() => {
     // Redraw whenever tool, selection, or the underlying image URI changes
     // (e.g. after an undo/redo that swaps the image version in the cache).
     tool;
@@ -283,8 +268,8 @@
         edit: { type: 'Blur', x: r.x, y: r.y, w: r.w, h: r.h, sigma: 12.0 },
         extraIndex: extraIndex ?? null,
       });
-      editorDepth += 1;
-      editorRedoDepth = 0;
+      depth += 1;
+      redoDepth = 0;
       resetSelection();
     } catch (err) {
       errorMsg = String(err);
@@ -305,8 +290,8 @@
         edit: { type: 'Crop', x: r.x, y: r.y, w: r.w, h: r.h },
         extraIndex: extraIndex ?? null,
       });
-      editorDepth += 1;
-      editorRedoDepth = 0;
+      depth += 1;
+      redoDepth = 0;
       resetSelection();
     } catch (err) {
       errorMsg = String(err);
@@ -316,13 +301,13 @@
   }
 
   async function editorUndo() {
-    if (editorDepth <= 0) return;
+    if (depth <= 0) return;
     applying = true;
     errorMsg = null;
     try {
       await invoke('undo_session');
-      editorDepth -= 1;
-      editorRedoDepth += 1;
+      depth -= 1;
+      redoDepth += 1;
       resetSelection();
     } catch (err) {
       errorMsg = String(err);
@@ -332,13 +317,13 @@
   }
 
   async function editorRedo() {
-    if (editorRedoDepth <= 0) return;
+    if (redoDepth <= 0) return;
     applying = true;
     errorMsg = null;
     try {
       await invoke('redo_session');
-      editorDepth += 1;
-      editorRedoDepth -= 1;
+      depth += 1;
+      redoDepth -= 1;
       resetSelection();
     } catch (err) {
       errorMsg = String(err);
@@ -348,8 +333,26 @@
   }
 
   const hasSelection = $derived(selRect !== null || selectedWindowRect !== null);
-  const canEditorUndo = $derived(editorDepth > 0);
-  const canEditorRedo = $derived(editorRedoDepth > 0);
+  const canEditorUndo = $derived(depth > 0);
+  const canEditorRedo = $derived(redoDepth > 0);
+
+  /** Handle editor-undo/editor-redo custom events dispatched by Review when editor is open. */
+  function handleEditorUndoEvent() {
+    if (open) editorUndo();
+  }
+  function handleEditorRedoEvent() {
+    if (open) editorRedo();
+  }
+
+  onMount(() => {
+    window.addEventListener('editor-undo', handleEditorUndoEvent);
+    window.addEventListener('editor-redo', handleEditorRedoEvent);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('editor-undo', handleEditorUndoEvent);
+    window.removeEventListener('editor-redo', handleEditorRedoEvent);
+  });
 </script>
 
 <Dialog.Root bind:open>
@@ -421,7 +424,7 @@
         {/if}
       {/if}
 
-      <Button variant="ghost" size="icon" aria-label="Close" onclick={onclose}>
+      <Button variant="ghost" size="icon" aria-label="Close" onclick={() => { open = false; }}>
         <X />
       </Button>
     </div>

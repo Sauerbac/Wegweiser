@@ -25,6 +25,7 @@
     AlertDialogTitle,
   } from "$lib/components/ui/alert-dialog";
   import { store } from "$lib/stores/session.svelte";
+  import { ReviewUndoStore } from "$lib/stores/undo.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
   import type { Step, StepExportChoice } from "$lib/types";
   import { countKeystrokes, parseKeystrokes } from "$lib/utils";
@@ -58,6 +59,43 @@
   let editorOpen = $state(false);
   /** True while the description Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
   let isEditing = $state(false);
+
+  /** Review-level undo/redo store (see src/lib/stores/undo.svelte.ts). */
+  const reviewUndo = new ReviewUndoStore();
+
+  /**
+   * Undo depth of the current/most-recent editor session — bound from ImageEditor.
+   * Read on close to push a collapsed editorSession entry onto the Review undo stack.
+   * Set on open to restore state after a Review-level undo/redo.
+   */
+  let currentEditorDepth = $state(0);
+  /**
+   * Redo depth of the current/most-recent editor session — bound from ImageEditor.
+   * Set on open to restore redo state after a Review-level undo.
+   */
+  let currentEditorRedoDepth = $state(0);
+  /** Plain variable (not $state) — tracks previous value of editorOpen. */
+  let editorWasOpen = false;
+
+  // Detect editor open/close transitions.
+  // On open: restore depth/redoDepth from any pending state (set by Review-level undo/redo).
+  // On close: push a collapsed editorSession entry onto the Review undo stack.
+  // Uses untrack for the editorWasOpen update to avoid a reactive loop.
+  $effect(() => {
+    const isOpen = editorOpen; // reactive dep
+    untrack(() => {
+      if (isOpen && !editorWasOpen) {
+        // Editor just opened — restore depth from pending state (defaults to 0/0).
+        const pending = reviewUndo.consumePendingEditorState(selectedStepId ?? -1);
+        currentEditorDepth = pending.depth;
+        currentEditorRedoDepth = pending.redoDepth;
+      } else if (!isOpen && editorWasOpen && selectedStepId !== null) {
+        // Editor just closed — collapse this session into a Review undo entry.
+        reviewUndo.pushEditorSession(selectedStepId, currentEditorDepth);
+      }
+      editorWasOpen = isOpen;
+    });
+  });
   /**
    * Which monitor tab is shown in the detail view.
    * 'primary' = the annotated click-monitor image
@@ -123,7 +161,10 @@
     });
   });
 
-  // Load image when selection changes; restore description draft and monitor tab.
+  // Load image when selection changes; restore description draft.
+  // NOTE: activeMonitorTab is intentionally NOT reset here — it is only reset
+  // when selectedStepId changes (see the effect below) so that applying a crop
+  // or blur while on an extra-monitor tab does not jump back to "primary".
   $effect(() => {
     const step = selectedStep;
     if (step) {
@@ -137,6 +178,13 @@
       }
     }
     descriptionDraft = step?.description ?? "";
+  });
+
+  // Reset the monitor tab only when the selected step ID changes, not on every
+  // content update (e.g. image_version bump after an edit).
+  $effect(() => {
+    // Establish a reactive dependency on selectedStepId only.
+    selectedStepId;
     activeMonitorTab = "primary";
     lastNonEmptyMonitorTab = "primary";
   });
@@ -157,6 +205,7 @@
     if (sessionId && sessionId !== lastInitializedSessionId) {
       lastInitializedSessionId = sessionId;
       untrack(() => {
+        reviewUndo.clear();
         const steps = store.session?.steps ?? [];
         selectedStepId = steps.length > 0 ? (steps[0]?.id ?? null) : null;
       });
@@ -170,6 +219,7 @@
         stepId: selectedStep.id,
         description: descriptionDraft,
       });
+      reviewUndo.pushBackend();
     } catch (err) {
       console.error("Failed to save description:", err);
     }
@@ -181,6 +231,7 @@
     if (!trimmed || trimmed === store.session?.name) return;
     try {
       await invoke("rename_session", { name: trimmed });
+      reviewUndo.pushBackend();
     } catch (err) {
       console.error("Failed to rename session:", err);
     }
@@ -199,6 +250,7 @@
       console.error("Failed to delete step:", err);
       return;
     }
+    reviewUndo.pushBackend();
     // If the deleted step was selected, move selection to an adjacent step
     if (selectedStepId === stepId) {
       const remaining = store.session?.steps ?? [];
@@ -225,6 +277,7 @@
       console.error("Failed to bulk delete steps:", err);
       return;
     }
+    reviewUndo.pushBackend();
     sel.clear();
     // If the selected step was among the deleted ones, update selection
     if (selectedStepId !== null && ids.includes(selectedStepId)) {
@@ -295,6 +348,7 @@
     store.clearImageCache();
     activeMonitorTab = "primary";
     lastNonEmptyMonitorTab = "primary";
+    reviewUndo.clear();
     store.exportedPath = null;
     store.exportError = null;
     try {
@@ -324,6 +378,7 @@
         break;
       }
     }
+    reviewUndo.clear();
     await navigateBack();
   }
 
@@ -416,33 +471,27 @@
     await setExportChoice({ type: "All" });
   }
 
-  async function undo() {
-    try {
-      await invoke("undo_session");
-    } catch {
-      /* nothing to undo */
-    }
-  }
-
-  async function redo() {
-    try {
-      await invoke("redo_session");
-    } catch {
-      /* nothing to redo */
-    }
-  }
 
   function handleKeydown(event: KeyboardEvent) {
     if (isEditing) return;
     if (event.ctrlKey && !event.shiftKey && event.key === "z") {
       event.preventDefault();
-      undo();
+      if (editorOpen) {
+        // Delegate to editor — dispatched via custom event so ImageEditor can handle it.
+        window.dispatchEvent(new CustomEvent('editor-undo'));
+      } else {
+        reviewUndo.undo();
+      }
     } else if (
       event.ctrlKey &&
       (event.key === "y" || (event.shiftKey && event.key === "Z"))
     ) {
       event.preventDefault();
-      redo();
+      if (editorOpen) {
+        window.dispatchEvent(new CustomEvent('editor-redo'));
+      } else {
+        reviewUndo.redo();
+      }
     }
   }
 
@@ -506,15 +555,15 @@
           variant="outline"
           size="icon"
           aria-label="Undo"
-          onclick={undo}
-          disabled={!store.canUndo}><Undo2 /></Button
+          onclick={() => reviewUndo.undo()}
+          disabled={editorOpen || !reviewUndo.canUndo}><Undo2 /></Button
         >
         <Button
           variant="outline"
           size="icon"
           aria-label="Redo"
-          onclick={redo}
-          disabled={!store.canRedo}><Redo2 /></Button
+          onclick={() => reviewUndo.redo()}
+          disabled={editorOpen || !reviewUndo.canRedo}><Redo2 /></Button
         >
         <Button
           variant="outline"
@@ -584,7 +633,7 @@
         <div
           role="button"
           tabindex="0"
-          class="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-accent/40"
+          class="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-accent/40 {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''}"
           onclick={(e) => {
             if ((e.target as HTMLElement).closest("[data-checkbox]")) return;
             selectStep(step.id);
@@ -965,8 +1014,7 @@
     step={selectedStep}
     extraIndex={editorExtraIndex}
     bind:open={editorOpen}
-    onclose={() => {
-      editorOpen = false;
-    }}
+    bind:depth={currentEditorDepth}
+    bind:redoDepth={currentEditorRedoDepth}
   />
 {/if}
