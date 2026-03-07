@@ -633,7 +633,7 @@
         <div
           role="button"
           tabindex="0"
-          class="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-accent/40 {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''}"
+          class="cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''}"
           onclick={(e) => {
             if ((e.target as HTMLElement).closest("[data-checkbox]")) return;
             selectStep(step.id);
@@ -783,11 +783,11 @@
       {/if}
 
       <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
-      <div class="mb-3 flex-1 overflow-y-auto rounded border bg-muted/20">
+      <div class="mb-3 min-h-0 flex-1 overflow-hidden rounded border bg-muted/20">
         {#if activeMonitorTab === "all"}
           {@const imgKey = store.imageCacheKey(selectedStep)}
           <!-- All monitors: stacked scrollable view -->
-          <div class="flex flex-col gap-4 p-3">
+          <div class="flex h-full flex-col gap-4 overflow-y-auto p-3">
             <div class="flex flex-col gap-1">
               <span
                 class="flex items-center gap-1 text-xs text-muted-foreground"
@@ -830,12 +830,12 @@
           </div>
         {:else if activeMonitorTab === "primary"}
           {@const imgKey = store.imageCacheKey(selectedStep)}
-          <div class="flex h-full items-center justify-center p-2">
+          <div class="h-full w-full p-2">
             {#if store.imageCache[imgKey]}
               <img
                 src={store.imageCache[imgKey]}
                 alt="Step {selectedStepDisplayNum}"
-                class="max-h-full max-w-full object-contain"
+                class="h-full w-full object-contain"
               />
             {:else}
               <span class="text-sm text-muted-foreground">Loading…</span>
@@ -852,12 +852,12 @@
               extraIdx,
               selectedStep.image_version ?? 0,
             )}
-            <div class="flex h-full items-center justify-center p-2">
+            <div class="h-full w-full p-2">
               {#if store.extraImageCache[extraKey]}
                 <img
                   src={store.extraImageCache[extraKey]}
                   alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
-                  class="max-h-full max-w-full object-contain"
+                  class="h-full w-full object-contain"
                 />
               {:else}
                 <span class="text-sm text-muted-foreground">Loading…</span>

@@ -332,6 +332,30 @@
     }
   }
 
+  /** Container element for the canvas — used to compute available display size. */
+  let canvasContainerEl = $state<HTMLElement | undefined>(undefined);
+  let containerW = $state(0);
+  let containerH = $state(0);
+
+  $effect(() => {
+    const el = canvasContainerEl;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      containerW = entry.contentRect.width;
+      containerH = entry.contentRect.height;
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  });
+
+  /** CSS style for the canvas — scales to fill the container while preserving aspect ratio. */
+  let canvasStyle = $derived.by(() => {
+    if (imgNaturalW === 0 || imgNaturalH === 0 || containerW === 0 || containerH === 0)
+      return 'display: block; max-width: 100%;';
+    const s = Math.min(containerW / imgNaturalW, containerH / imgNaturalH);
+    return `display: block; width: ${Math.round(imgNaturalW * s)}px; height: ${Math.round(imgNaturalH * s)}px;`;
+  });
+
   const hasSelection = $derived(selRect !== null || selectedWindowRect !== null);
   const canEditorUndo = $derived(depth > 0);
   const canEditorRedo = $derived(redoDepth > 0);
@@ -434,13 +458,13 @@
     {/if}
 
     <!-- Canvas area -->
-    <div class="min-h-0 flex-1 overflow-auto rounded border bg-muted/20">
+    <div bind:this={canvasContainerEl} class="min-h-0 flex-1 overflow-hidden flex items-center justify-center rounded border bg-muted/20">
       {#if imageUri}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <canvas
           bind:this={canvas}
-          class="max-w-full cursor-crosshair"
-          style="display: block;"
+          class="cursor-crosshair"
+          style={canvasStyle}
           onmousedown={onMouseDown}
           onmousemove={onMouseMove}
           onmouseup={onMouseUp}
