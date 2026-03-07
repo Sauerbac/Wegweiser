@@ -57,8 +57,12 @@
   /** Scale factor: canvas CSS pixels per image pixel. */
   let scale = $derived(imgNaturalW > 0 ? (canvas?.clientWidth ?? imgNaturalW) / imgNaturalW : 1);
 
-  /** The data URI for the image to display. */
+  /** The data URI for the image to display (primary or extra depending on extraIndex). */
   let imageUri = $derived.by(() => {
+    if (extraIndex !== undefined) {
+      const key = store.extraImageKey(step.id, extraIndex, step.image_version ?? 0);
+      return store.extraImageCache[key] ?? null;
+    }
     const key = store.imageCacheKey(step);
     return store.imageCache[key] ?? null;
   });

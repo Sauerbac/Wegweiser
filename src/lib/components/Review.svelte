@@ -63,6 +63,13 @@
    * 'all' = all images stacked (scrollable)
    */
   let activeMonitorTab = $state<string>("primary");
+  /**
+   * Tracks the last confirmed non-empty tab value so we can restore it when
+   * the ToggleGroup tries to deselect the active item (emits "").
+   */
+  let lastNonEmptyMonitorTab = $state<string>("primary");
+  /** Set to true while a monitor-export checkbox is being pressed; suppresses tab switching in onValueChange. */
+  let checkboxInteracting = false;
   let descriptionDraft = $state("");
   /** Draft value for the session name input — synced from store on load, editable locally. */
   let sessionNameDraft = $state("");
@@ -123,6 +130,7 @@
     }
     descriptionDraft = step?.description ?? "";
     activeMonitorTab = "primary";
+    lastNonEmptyMonitorTab = "primary";
   });
 
   // Eagerly pre-load images for all steps not yet in the cache.
@@ -278,6 +286,7 @@
     selectedStepId = null;
     store.clearImageCache();
     activeMonitorTab = "primary";
+    lastNonEmptyMonitorTab = "primary";
     store.exportedPath = null;
     store.exportError = null;
     try {
@@ -315,9 +324,20 @@
     // No optimistic patch — the backend emits session-updated which the store handles.
   }
 
+  /**
+   * Which extra-image index the editor should open, derived from activeMonitorTab.
+   * undefined = primary image; a number = extra_image_paths[N].
+   */
+  let editorExtraIndex = $derived<number | undefined>(
+    activeMonitorTab.startsWith("extra_")
+      ? parseInt(activeMonitorTab.replace("extra_", ""), 10)
+      : undefined,
+  );
+
   /** Select a monitor tab: view-only, no export side-effect. */
   function selectMonitorTab(tab: string) {
     activeMonitorTab = tab;
+    lastNonEmptyMonitorTab = tab;
   }
 
   /** Whether a given monitor tab is currently included in the export choice. */
@@ -629,8 +649,22 @@
         <div class="mb-3 flex flex-col items-center gap-1">
           <ToggleGroup.Root
             type="single"
-            value={activeMonitorTab}
-            onValueChange={(v) => { if (v) selectMonitorTab(v); }}
+            bind:value={activeMonitorTab}
+            onValueChange={(v) => {
+              if (checkboxInteracting) {
+                // The value change was triggered by a checkbox click — restore
+                // the current tab so the preview doesn't switch.
+                activeMonitorTab = lastNonEmptyMonitorTab;
+                return;
+              }
+              if (v) {
+                lastNonEmptyMonitorTab = v;
+              } else {
+                // ToggleGroup deselected the active item — restore the previous
+                // selection so the preview never goes blank.
+                activeMonitorTab = lastNonEmptyMonitorTab;
+              }
+            }}
             variant="outline"
             spacing={0}
             size="sm"
@@ -638,6 +672,8 @@
             <ToggleGroup.Item value="primary">
               <div
                 onclick={(e) => e.stopPropagation()}
+                onpointerdown={(e) => { checkboxInteracting = true; e.stopPropagation(); }}
+                onpointerup={() => { checkboxInteracting = false; }}
                 role="presentation"
                 class="shrink-0"
               >
@@ -654,6 +690,8 @@
               <ToggleGroup.Item value="extra_{i}">
                 <div
                   onclick={(e) => e.stopPropagation()}
+                  onpointerdown={(e) => { checkboxInteracting = true; e.stopPropagation(); }}
+                  onpointerup={() => { checkboxInteracting = false; }}
                   role="presentation"
                   class="shrink-0"
                 >
@@ -869,6 +907,7 @@
 {#if selectedStep && editorOpen}
   <ImageEditor
     step={selectedStep}
+    extraIndex={editorExtraIndex}
     bind:open={editorOpen}
     onclose={() => {
       editorOpen = false;
