@@ -2,6 +2,16 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
+  import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+  } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
   import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
@@ -9,7 +19,12 @@
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
 
-  let pendingDelete = $state<string | null>(null);
+  /** Whether the "delete session" confirmation dialog is open. */
+  let showDeleteSessionDialog = $state(false);
+  /** Session dir pending deletion (set when the delete session dialog is opened). */
+  let pendingDeleteSessionDir = $state<string | null>(null);
+  /** Whether the "bulk delete sessions" confirmation dialog is open. */
+  let showBulkDeleteDialog = $state(false);
 
   const sel = createSelectableList(
     () => store.sessions,
@@ -41,7 +56,6 @@
       console.error('Failed to delete session:', err);
       return;
     }
-    pendingDelete = null;
     // Remove the deleted item from the selection without clearing everything
     const next = new Set(sel.selected);
     next.delete(sessionDir);
@@ -160,7 +174,7 @@
         selectedIds={sel.selected}
         getKey={(meta) => meta.session_dir}
         onToggleAll={sel.toggleAll}
-        onDeleteSelected={deleteSelected}
+        onDeleteSelected={() => { showBulkDeleteDialog = true; }}
       >
         {#snippet actions()}
           <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
@@ -184,30 +198,20 @@
                 </div>
               </div>
               <div class="ml-3 flex shrink-0 items-center gap-2">
-                {#if pendingDelete === meta.session_dir}
-                  <span class="text-sm font-medium text-destructive">Delete?</span>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onclick={() => confirmDelete(meta.session_dir)}
-                  >
-                    Yes
-                  </Button>
-                  <Button variant="ghost" size="sm" onclick={() => (pendingDelete = null)}>
-                    No
-                  </Button>
-                {:else}
-                  <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)}>
-                    <FolderOpen />Load
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onclick={() => (pendingDelete = meta.session_dir)}
-                  >
-                    <Trash2 />Delete
-                  </Button>
-                {/if}
+                <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)}>
+                  <FolderOpen />Load
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  aria-label="Delete session"
+                  onclick={() => {
+                    pendingDeleteSessionDir = meta.session_dir;
+                    showDeleteSessionDialog = true;
+                  }}
+                >
+                  <Trash2 />
+                </Button>
               </div>
             </div>
           </div>
@@ -216,3 +220,39 @@
     {/if}
   {/snippet}
 </PageLayout>
+
+<AlertDialog bind:open={showDeleteSessionDialog}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete recording?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onclick={() => {
+          showDeleteSessionDialog = false;
+          if (pendingDeleteSessionDir !== null) confirmDelete(pendingDeleteSessionDir);
+          pendingDeleteSessionDir = null;
+        }}
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      >Delete</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+<AlertDialog bind:open={showBulkDeleteDialog}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete {sel.selected.size} recording{sel.selected.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onclick={() => { showBulkDeleteDialog = false; deleteSelected(); }}
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      >Delete</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>

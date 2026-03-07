@@ -16,6 +16,8 @@
   } from "$lib/components/ui/dropdown-menu";
   import {
     AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -78,6 +80,12 @@
   let exportOpen = $state(false);
   /** Whether the "unsaved changes" back-navigation dialog is open. */
   let showBackDialog = $state(false);
+  /** Whether the "delete step" confirmation dialog is open. */
+  let showDeleteStepDialog = $state(false);
+  /** Step ID pending deletion (set when the delete step dialog is opened). */
+  let pendingDeleteStepId = $state<number | null>(null);
+  /** Whether the "bulk delete steps" confirmation dialog is open. */
+  let showBulkDeleteDialog = $state(false);
 
   /** Multi-selection state for bulk step operations. */
   const sel = createSelectableList(
@@ -303,6 +311,20 @@
     } else {
       navigateBack();
     }
+  }
+
+  async function discardAndNavigateBack() {
+    showBackDialog = false;
+    // Undo all pending changes to restore the session to its last-saved state.
+    // invoke("undo_session") throws when the stack is empty — use that as the stop condition.
+    while (true) {
+      try {
+        await invoke("undo_session");
+      } catch {
+        break;
+      }
+    }
+    await navigateBack();
   }
 
   function saveSession() {
@@ -551,7 +573,7 @@
       selectedIds={sel.selected}
       getKey={(step) => step.id}
       onToggleAll={sel.toggleAll}
-      onDeleteSelected={deleteSelectedSteps}
+      onDeleteSelected={() => { showBulkDeleteDialog = true; }}
     >
       {#snippet row(step, idx)}
         {@const isActive = selectedStepId === step.id}
@@ -633,14 +655,15 @@
         </Button>
         <Button
           variant="destructive"
-          size="sm"
+          size="icon"
+          aria-label="Delete step"
           onclick={(e: MouseEvent) => {
             e.stopPropagation();
-            deleteStep(selectedStep!.id);
+            pendingDeleteStepId = selectedStep!.id;
+            showDeleteStepDialog = true;
           }}
-          title="Delete step"
         >
-          <Trash2 />Delete
+          <Trash2 />
         </Button>
       </div>
 
@@ -888,10 +911,7 @@
       >
       <Button
         variant="destructive"
-        onclick={() => {
-          showBackDialog = false;
-          navigateBack();
-        }}>Discard</Button
+        onclick={discardAndNavigateBack}>Discard</Button
       >
       <Button
         onclick={() => {
@@ -900,6 +920,42 @@
           navigateBack();
         }}>Save</Button
       >
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+<AlertDialog bind:open={showDeleteStepDialog}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete step?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onclick={() => {
+          showDeleteStepDialog = false;
+          if (pendingDeleteStepId !== null) deleteStep(pendingDeleteStepId);
+          pendingDeleteStepId = null;
+        }}
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      >Delete</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+<AlertDialog bind:open={showBulkDeleteDialog}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete {sel.selected.size} step{sel.selected.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onclick={() => { showBulkDeleteDialog = false; deleteSelectedSteps(); }}
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      >Delete</AlertDialogAction>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
