@@ -144,7 +144,7 @@ npm run build           # build SvelteKit to build/ (required before tauri build
 npm run check           # svelte-kit sync + TypeScript type-check
 
 # shadcn components
-npx shadcn-svelte@latest add <component>   # add a new shadcn-svelte component
+yes | npx shadcn-svelte@latest add <component>   # add a new shadcn-svelte component (yes | handles all prompts)
 
 # Rust backend only
 cd src-tauri && cargo check               # fast type-check without linking
@@ -158,7 +158,7 @@ No tests exist yet.
 - **Always use Tailwind utility classes** for all frontend styling. Do not write raw CSS in `<style>` blocks unless it is genuinely impossible with Tailwind (e.g. `:global()` overrides targeting child components, or per-route `html`/`body` resets).
 - Use **shadcn CSS variables** (`--primary`, `--muted`, `--border`, etc.) via their Tailwind token equivalents (`bg-primary`, `text-muted-foreground`, `border-border`, etc.) — never hardcode color hex/hsl values in components.
 - `src/routes/layout.css` is the theme foundation (shadcn variable definitions + `@import` directives) — do not add utility-style rules there.
-- **Icons**: always use `@lucide/svelte` — no hand-authored SVGs. Do not set explicit `size` props on icons inside `<Button>` — the button component sizes them automatically via `[&_svg:not([class*='size-'])]:size-4`. Destructive actions use `Trash2`; navigation uses `ArrowLeft`; exports use `FileDown`/`FileCode`.
+- **Icons**: always use `@lucide/svelte` — no hand-authored SVGs. **Never set `size` props or Tailwind size classes** (`size-*`, `h-*`, `w-*`) on any icon. Let context handle sizing: buttons auto-size via `[&_svg:not([class*='size-'])]:size-4`; standalone icons inherit from parent. Destructive actions use `Trash2`; navigation uses `ArrowLeft`; exports use `FileDown`/`FileCode`.
 - **Button conventions** — only set `variant`, `size`, event handlers, and pure layout classes (e.g. `mt-auto`, `w-full`, `shrink-0`). Never add custom styling classes (hover overrides, gap, color, etc.) to a `<Button>`:
   - Gap between icon and label is automatic — never add `gap-*` to a `<Button class>`.
   - Icon-only buttons use `size="icon"` / `size="icon-sm"` / `size="icon-lg"` with an `aria-label`.
@@ -170,7 +170,7 @@ No tests exist yet.
   |---|---|
   | Buttons | `Button` (with correct `variant`) |
   | Checkboxes | `Checkbox` (supports `indeterminate` prop) |
-  | Selects | `Select` |
+  | Selects | `Select` (always pass `type="single"` on `Select.Root` for single-value selects) |
   | Confirmation dialogs | `AlertDialog` |
   | Tabs | `Tabs` / `TabsList` / `TabsTrigger` / `TabsContent` |
   | Scrollable areas | `ScrollArea` |

@@ -4,10 +4,10 @@
   import { save } from "@tauri-apps/plugin-dialog";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
+  import * as ToggleGroup from "$lib/components/ui/toggle-group";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Progress } from "$lib/components/ui/progress";
-  import { Tabs, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
   import {
     DropdownMenu,
     DropdownMenuContent,
@@ -25,12 +25,7 @@
   import { store } from "$lib/stores/session.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
   import type { Step, StepExportChoice } from "$lib/types";
-  import {
-    countKeystrokes,
-    parseKeystrokes,
-    tabFromExportChoice,
-    choiceFromTab,
-  } from "$lib/utils";
+  import { countKeystrokes, parseKeystrokes } from "$lib/utils";
   import {
     AlignLeft,
     ArrowLeft,
@@ -88,10 +83,6 @@
     return store.monitors[idx]?.name ?? `Monitor ${idx + 1}`;
   }
 
-  /** Tailwind classes shared by every per-monitor TabsTrigger. */
-  const monitorTabClass =
-    "border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary";
-
   /** Derive the selected step by ID lookup — safe against array reordering and deletions. */
   let selectedStep = $derived<Step | null>(
     selectedStepId !== null
@@ -131,9 +122,7 @@
       }
     }
     descriptionDraft = step?.description ?? "";
-    activeMonitorTab = step
-      ? tabFromExportChoice(step.export_choice)
-      : "primary";
+    activeMonitorTab = "primary";
   });
 
   // Eagerly pre-load images for all steps not yet in the cache.
@@ -326,10 +315,63 @@
     // No optimistic patch — the backend emits session-updated which the store handles.
   }
 
-  /** Select a monitor tab: updates the view AND persists the export choice for this step. */
-  async function selectMonitorTab(tab: string) {
+  /** Select a monitor tab: view-only, no export side-effect. */
+  function selectMonitorTab(tab: string) {
     activeMonitorTab = tab;
-    await setExportChoice(choiceFromTab(tab));
+  }
+
+  /** Whether a given monitor tab is currently included in the export choice. */
+  function isExportIncluded(tab: string): boolean {
+    const choice = selectedStep?.export_choice;
+    if (!choice) return false;
+    if (choice.type === "All") return true;
+    if (tab === "primary") return choice.type === "Primary";
+    const idx = parseInt(tab.replace("extra_", ""), 10);
+    return choice.type === "Extra" && choice.value === idx;
+  }
+
+  /**
+   * Toggle a monitor's inclusion in the export choice.
+   *   only primary checked   → Primary
+   *   only extra N checked   → Extra(N)
+   *   all checked            → All
+   *   partial subset (3+)    → All (current model limitation)
+   * Unchecking the last included monitor is a no-op.
+   */
+  async function toggleExportMonitor(tab: string) {
+    if (!selectedStep) return;
+    const extraCount = selectedStep.extra_image_paths?.length ?? 0;
+    const primaryChecked = isExportIncluded("primary");
+    const extrasChecked = Array.from({ length: extraCount }, (_, i) =>
+      isExportIncluded(`extra_${i}`),
+    );
+
+    const newPrimary = tab === "primary" ? !primaryChecked : primaryChecked;
+    const newExtras =
+      tab === "primary"
+        ? [...extrasChecked]
+        : extrasChecked.map((v, i) =>
+            i === parseInt(tab.replace("extra_", ""), 10) ? !v : v,
+          );
+
+    if ((newPrimary ? 1 : 0) + newExtras.filter(Boolean).length === 0) return;
+
+    if (newPrimary && newExtras.every(Boolean)) {
+      await setExportChoice({ type: "All" });
+      return;
+    }
+    if (newPrimary && newExtras.every((v) => !v)) {
+      await setExportChoice({ type: "Primary" });
+      return;
+    }
+    const checkedExtras = newExtras
+      .map((v, i) => (v ? i : -1))
+      .filter((i) => i >= 0);
+    if (!newPrimary && checkedExtras.length === 1) {
+      await setExportChoice({ type: "Extra", value: checkedExtras[0] });
+      return;
+    }
+    await setExportChoice({ type: "All" });
   }
 
   async function undo() {
@@ -582,24 +624,51 @@
         </Button>
       </div>
 
-      <!-- Per-step monitor tabs (only when extra monitor images exist) -->
+      <!-- Monitor toggle group: item click = preview; checkbox inside = export inclusion -->
       {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
-        <div class="mb-2 flex justify-center">
-          <Tabs value={activeMonitorTab} onValueChange={selectMonitorTab}>
-            <TabsList class="h-auto gap-1 bg-transparent p-0">
-              <TabsTrigger value="primary" class="gap-1 {monitorTabClass}">
-                <MousePointer2 class="size-4" />
-                {monitorLabel(selectedStep.click_monitor_index)}
-              </TabsTrigger>
-              {#each selectedStep.extra_image_paths as _path, i (i)}
-                {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-                <TabsTrigger value="extra_{i}" class={monitorTabClass}>
-                  {monitorLabel(monIdx)}
-                </TabsTrigger>
-              {/each}
-              <TabsTrigger value="all" class={monitorTabClass}>All</TabsTrigger>
-            </TabsList>
-          </Tabs>
+        <div class="mb-3 flex flex-col items-center gap-1">
+          <ToggleGroup.Root
+            type="single"
+            value={activeMonitorTab}
+            onValueChange={(v) => { if (v) selectMonitorTab(v); }}
+            variant="outline"
+            spacing={0}
+            size="sm"
+          >
+            <ToggleGroup.Item value="primary">
+              <div
+                onclick={(e) => e.stopPropagation()}
+                role="presentation"
+                class="shrink-0"
+              >
+                <Checkbox
+                  checked={isExportIncluded("primary")}
+                  onCheckedChange={() => toggleExportMonitor("primary")}
+                />
+              </div>
+              <MousePointer2 />
+              {monitorLabel(selectedStep.click_monitor_index)}
+            </ToggleGroup.Item>
+            {#each selectedStep.extra_image_paths as _path, i (i)}
+              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
+              <ToggleGroup.Item value="extra_{i}">
+                <div
+                  onclick={(e) => e.stopPropagation()}
+                  role="presentation"
+                  class="shrink-0"
+                >
+                  <Checkbox
+                    checked={isExportIncluded(`extra_${i}`)}
+                    onCheckedChange={() => toggleExportMonitor(`extra_${i}`)}
+                  />
+                </div>
+                {monitorLabel(monIdx)}
+              </ToggleGroup.Item>
+            {/each}
+          </ToggleGroup.Root>
+          <p class="text-xs text-muted-foreground">
+            Click to preview · checkbox to include in export
+          </p>
         </div>
       {/if}
 
