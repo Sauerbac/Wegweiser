@@ -38,7 +38,6 @@
     FileCode,
     FileDown,
     Keyboard,
-    Monitor,
     Moon,
     MousePointer2,
     Pencil,
@@ -296,6 +295,38 @@
       return 1;
     // 'All': primary image + all extra images
     return 1 + (step.extra_image_paths?.length ?? 0);
+  }
+
+  /**
+   * Returns the list of { cacheKey, src } objects for images that are included
+   * in the export for a given step, in display order (primary first, then extras).
+   */
+  function getExportedImageKeys(step: Step): { cacheKey: string; isExtra: boolean; extraIdx: number }[] {
+    const choice = step.export_choice;
+    const ver = step.image_version ?? 0;
+    const result: { cacheKey: string; isExtra: boolean; extraIdx: number }[] = [];
+    if (!choice) return result;
+
+    const includePrimary = choice.type === "Primary" || choice.type === "All";
+    const extraCount = step.extra_image_paths?.length ?? 0;
+
+    if (includePrimary) {
+      result.push({ cacheKey: store.imageCacheKey(step), isExtra: false, extraIdx: -1 });
+    }
+
+    for (let i = 0; i < extraCount; i++) {
+      const includeExtra =
+        choice.type === "All" ||
+        (choice.type === "Extra" && choice.value === i);
+      if (includeExtra) {
+        result.push({
+          cacheKey: store.extraImageKey(step.id, i, ver),
+          isExtra: true,
+          extraIdx: i,
+        });
+      }
+    }
+    return result;
   }
 
   async function exportMarkdown() {
@@ -628,7 +659,7 @@
         {@const isActive = selectedStepId === step.id}
         {@const isChecked = sel.selected.has(step.id)}
         {@const keystrokeCount = countKeystrokes(step.keystrokes)}
-        {@const monCount = monitorExportCount(step)}
+        {@const exportedKeys = getExportedImageKeys(step)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           role="button"
@@ -642,6 +673,7 @@
             if (e.key === "Enter" || e.key === " ") selectStep(step.id);
           }}
         >
+          <!-- Inline row: checkbox + step number + thumbnails (centered) + indicators -->
           <div class="flex items-center gap-2">
             <!-- Checkbox -->
             <div data-checkbox class="shrink-0">
@@ -657,9 +689,49 @@
             >
               {idx + 1}
             </span>
-            <!-- Spacer -->
-            <div class="flex-1"></div>
-            <!-- Indicators: all three icons together, consistently sized and spaced -->
+            <!-- Thumbnails centered in the available space -->
+            <div class="flex flex-1 items-center justify-center overflow-hidden">
+              {#if exportedKeys.length === 1}
+                {@const imgKey = exportedKeys[0]}
+                {@const src = imgKey.isExtra
+                  ? store.extraImageCache[imgKey.cacheKey]
+                  : store.imageCache[imgKey.cacheKey]}
+                {#if src}
+                  <img
+                    src={src}
+                    alt="Step {idx + 1} thumbnail"
+                    class="h-10 w-auto rounded shadow-sm ring-1 ring-border"
+                    draggable={false}
+                  />
+                {:else}
+                  <div class="h-10 w-16 animate-pulse rounded bg-muted"></div>
+                {/if}
+              {:else if exportedKeys.length > 1}
+                <div class="flex items-center">
+                  {#each exportedKeys as imgKey, cardIdx (imgKey.cacheKey)}
+                    {@const src = imgKey.isExtra
+                      ? store.extraImageCache[imgKey.cacheKey]
+                      : store.imageCache[imgKey.cacheKey]}
+                    <div
+                      class="relative overflow-hidden rounded shadow-sm ring-1 ring-border {cardIdx > 0 ? '-ml-4' : ''}"
+                      style="z-index: {exportedKeys.length - cardIdx};"
+                    >
+                      {#if src}
+                        <img
+                          src={src}
+                          alt="Step {idx + 1} thumbnail {cardIdx + 1}"
+                          class="h-10 w-auto"
+                          draggable={false}
+                        />
+                      {:else}
+                        <div class="h-10 w-16 animate-pulse bg-muted"></div>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <!-- Indicators: description + keystroke icons -->
             <span
               class="shrink-0 {step.description
                 ? 'text-foreground'
@@ -674,13 +746,6 @@
                 : 'invisible'}"
             >
               <Keyboard class="size-4" />
-            </span>
-            <span
-              class="shrink-0 text-muted-foreground {monCount > 1
-                ? ''
-                : 'invisible'}"
-            >
-              <Monitor class="size-4" />
             </span>
           </div>
         </div>
