@@ -121,8 +121,8 @@ pub fn enumerate_visible_windows(
 ) -> Vec<crate::model::WindowRect> {
     use windows::Win32::Foundation::{HWND, LPARAM, RECT, TRUE};
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
-        IsIconic, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
+        EnumWindows, GetClassNameW, GetWindowDisplayAffinity, GetWindowLongPtrW, GetWindowRect,
+        GetWindowTextW, IsIconic, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
     };
 
     /// An absolute-coordinate rectangle collected in z-order pass.
@@ -132,6 +132,10 @@ pub fn enumerate_visible_windows(
         top: i32,
         right: i32,
         bottom: i32,
+        /// Whether this window should appear in the selectable result list.
+        /// False for untitled/system windows and capture-excluded windows —
+        /// they still contribute to occlusion but are not selectable.
+        include_in_result: bool,
     }
 
     struct Collector {
@@ -159,10 +163,35 @@ pub fn enumerate_visible_windows(
         if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
             return TRUE;
         }
+        // Windows excluded from screen capture (e.g. the recording mini-bar with
+        // WDA_EXCLUDEFROMCAPTURE) are invisible in xcap screenshots, so they must
+        // not appear in the selectable list.  However they DO occlude windows
+        // behind them on screen, so they still need to be collected.
+        let mut affinity: u32 = 0;
+        let excluded_from_capture =
+            GetWindowDisplayAffinity(hwnd, &mut affinity).is_ok() && affinity != 0;
 
+        // Prefer DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS) over
+        // GetWindowRect: modern DWM-composited windows have an invisible
+        // shadow/resize frame that inflates the GetWindowRect result by ~7-8 px
+        // on each side.  The DWM extended-frame bounds match the actual visual
+        // content and give correct occlusion checks.
         let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return TRUE;
+        {
+            use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+            let ok = unsafe {
+                DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    &mut rect as *mut RECT as *mut core::ffi::c_void,
+                    std::mem::size_of::<RECT>() as u32,
+                ).is_ok()
+            };
+            if !ok {
+                if GetWindowRect(hwnd, &mut rect).is_err() {
+                    return TRUE;
+                }
+            }
         }
         let abs_w = rect.right - rect.left;
         let abs_h = rect.bottom - rect.top;
@@ -181,10 +210,24 @@ pub fn enumerate_visible_windows(
             return TRUE;
         }
 
-        // Get window title (up to 255 chars).
+        // Get window title (up to 255 chars).  Untitled windows (e.g. the taskbar,
+        // system overlays) are NOT selectable, but they still contribute to occlusion
+        // so we keep them in the collected list with include_in_result = false.
         let mut title_buf = [0u16; 256];
         let len = GetWindowTextW(hwnd, &mut title_buf);
-        let title = String::from_utf16_lossy(&title_buf[..len.max(0) as usize]);
+        let title = if len > 0 {
+            String::from_utf16_lossy(&title_buf[..len as usize])
+        } else {
+            String::new()
+        };
+        // Windows.UI.Core.CoreWindow is used exclusively for system input overlays
+        // (touch keyboard, emoji picker, Input Experience, etc.) — never a user app.
+        let mut class_buf = [0u16; 256];
+        let class_len = GetClassNameW(hwnd, &mut class_buf);
+        let window_class = String::from_utf16_lossy(&class_buf[..class_len.max(0) as usize]);
+        let is_system_overlay = window_class == "Windows.UI.Core.CoreWindow";
+
+        let include_in_result = !excluded_from_capture && !title.is_empty() && !is_system_overlay;
 
         col.windows.push(AbsWindow {
             title,
@@ -192,6 +235,7 @@ pub fn enumerate_visible_windows(
             top: rect.top,
             right: rect.right,
             bottom: rect.bottom,
+            include_in_result,
         });
 
         TRUE
@@ -212,38 +256,51 @@ pub fn enumerate_visible_windows(
 
     // EnumWindows returns windows in z-order, topmost first.  Walk them front-to-back,
     // keeping track of "opaque" rects already seen.  A window is considered fully
-    // occluded — and therefore excluded from the result — if its entire rect is
-    // contained within a single already-seen opaque rect.  This is a conservative
-    // approximation: it correctly handles the common case of a maximized/fullscreen
-    // window covering everything behind it, without requiring full polygon subtraction.
-    // Partially visible windows (only partly covered) are always kept.
-    let mut opaque_rects: Vec<(i32, i32, i32, i32)> = Vec::new(); // (left, top, right, bottom)
+    // occluded — and therefore excluded from the result — if its entire VISIBLE SLICE
+    // on this monitor is contained within a single already-seen opaque rect.
+    //
+    // Critically: occlusion is checked against the MONITOR-CLAMPED rect, not the
+    // full absolute window rect.  Without this, a window that spans two monitors can
+    // never be fully contained in any opaque rect (its off-screen portion always
+    // sticks out), causing it to appear in the list even when its on-screen slice is
+    // completely covered by another window.
+    let mon_right = monitor_x + monitor_w as i32;
+    let mon_bottom = monitor_y + monitor_h as i32;
+    let mut opaque_rects: Vec<(i32, i32, i32, i32)> = Vec::new(); // clamped absolute coords
     let mut result = Vec::new();
 
     for win in col.windows {
-        // Check if this window is fully contained within any single opaque rect.
+        // Clamp to this monitor's bounds in absolute coordinates.
+        let cl = win.left.max(monitor_x);
+        let ct = win.top.max(monitor_y);
+        let cr = win.right.min(mon_right);
+        let cb = win.bottom.min(mon_bottom);
+
+        // Skip windows with no visible area on this monitor (defensive; the
+        // intersection filter in enum_proc should already handle this).
+        if cl >= cr || ct >= cb {
+            continue;
+        }
+
+        // Occlusion check uses the clamped rect so cross-monitor windows are
+        // correctly evaluated against what is actually visible on this monitor.
         let fully_occluded = opaque_rects.iter().any(|&(ol, ot, or_, ob)| {
-            win.left >= ol && win.top >= ot && win.right <= or_ && win.bottom <= ob
+            cl >= ol && ct >= ot && cr <= or_ && cb <= ob
         });
 
-        if !fully_occluded {
-            // Window is at least partially visible — include it.
-            let rel_x = win.left - monitor_x;
-            let rel_y = win.top - monitor_y;
-            let abs_w = (win.right - win.left) as u32;
-            let abs_h = (win.bottom - win.top) as u32;
+        if !fully_occluded && win.include_in_result {
             result.push(crate::model::WindowRect {
                 title: win.title,
-                x: rel_x,
-                y: rel_y,
-                w: abs_w,
-                h: abs_h,
+                x: cl - monitor_x,
+                y: ct - monitor_y,
+                w: (cr - cl) as u32,
+                h: (cb - ct) as u32,
             });
         }
 
-        // Always add to opaque_rects so it can occlude windows behind it,
-        // regardless of whether we included it in the result.
-        opaque_rects.push((win.left, win.top, win.right, win.bottom));
+        // Always add the clamped rect to opaque_rects so it can occlude windows
+        // behind it, regardless of whether we included it in the result.
+        opaque_rects.push((cl, ct, cr, cb));
     }
 
     result

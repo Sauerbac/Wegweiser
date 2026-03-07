@@ -860,6 +860,10 @@ pub fn apply_image_edit(
 
     let img = image::open(&image_path).map_err(|e| e.to_string())?.to_rgba8();
 
+    // Track the final crop rect (in image pixels) so we can transform window_rects
+    // in Phase 3 — only set for Crop edits, None for Blur.
+    let mut crop_rect: Option<(u32, u32, u32, u32)> = None;
+
     let result_img: image::RgbaImage = match edit {
         ImageEdit::Blur { x, y, w, h, sigma } => {
             let px = (x.max(0) as u32).min(img.width());
@@ -883,6 +887,7 @@ pub fn apply_image_edit(
             if pw == 0 || ph == 0 {
                 return Err("Crop region is empty".to_string());
             }
+            crop_rect = Some((px, py, pw, ph));
             image::imageops::crop_imm(&img, px, py, pw, ph).to_image()
         }
     };
@@ -896,7 +901,36 @@ pub fn apply_image_edit(
             if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
                 step.image_version = new_version;
                 match extra_index {
-                    None => step.image_path = new_image_path,
+                    None => {
+                        step.image_path = new_image_path;
+                        // Bug-004: after a crop the window_rects still reference the
+                        // original coordinate space.  Translate by the crop origin and
+                        // clamp to the new image dimensions so subsequent window-select
+                        // operations in the editor stay aligned.
+                        if let Some((crop_x, crop_y, crop_w, crop_h)) = crop_rect {
+                            step.window_rects = step.window_rects.iter()
+                                .filter_map(|wr| {
+                                    let nx = wr.x - crop_x as i32;
+                                    let ny = wr.y - crop_y as i32;
+                                    let cx = nx.max(0);
+                                    let cy = ny.max(0);
+                                    let cw = ((nx + wr.w as i32).min(crop_w as i32) - cx).max(0) as u32;
+                                    let ch = ((ny + wr.h as i32).min(crop_h as i32) - cy).max(0) as u32;
+                                    if cw == 0 || ch == 0 {
+                                        None // rect is fully outside the crop area
+                                    } else {
+                                        Some(crate::model::WindowRect {
+                                            title: wr.title.clone(),
+                                            x: cx,
+                                            y: cy,
+                                            w: cw,
+                                            h: ch,
+                                        })
+                                    }
+                                })
+                                .collect();
+                        }
+                    }
                     Some(ei) => {
                         if let Some(p) = step.extra_image_paths.get_mut(ei) {
                             *p = new_image_path;

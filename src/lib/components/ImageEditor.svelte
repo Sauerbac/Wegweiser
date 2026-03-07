@@ -138,15 +138,6 @@
           ctx.setLineDash([6, 3]);
           ctx.strokeRect(cx, cy, cw, ch);
 
-          // Title label background — anchor to the clipped top-left.
-          if (wr.title) {
-            ctx.font = '12px sans-serif';
-            const textW = ctx.measureText(wr.title).width + 8;
-            ctx.fillStyle = color + 'cc';
-            ctx.fillRect(cx, cy - 18, textW, 18);
-            ctx.fillStyle = '#fff';
-            ctx.fillText(wr.title, cx + 4, cy - 4);
-          }
         }
         ctx.restore();
       }
