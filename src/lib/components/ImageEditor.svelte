@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import { onMount, onDestroy } from 'svelte';
+  import { untrack } from 'svelte';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, WindowRect } from '$lib/types';
   import { Button } from '$lib/components/ui/button';
@@ -29,9 +29,19 @@
      * Review-level undo.
      */
     redoDepth: number;
+    /**
+     * Tick counter incremented by Review when Ctrl+Z is pressed while the editor
+     * is open. Each increment triggers an editor undo via a reactive $effect.
+     */
+    undoTick: number;
+    /**
+     * Tick counter incremented by Review when Ctrl+Y/Ctrl+Shift+Z is pressed while
+     * the editor is open. Each increment triggers an editor redo via a reactive $effect.
+     */
+    redoTick: number;
   }
 
-  let { step, extraIndex = undefined, open = $bindable(false), depth = $bindable(0), redoDepth = $bindable(0) }: Props = $props();
+  let { step, extraIndex = undefined, open = $bindable(false), depth = $bindable(0), redoDepth = $bindable(0), undoTick = 0, redoTick = 0 }: Props = $props();
 
   type Tool = 'blur' | 'crop' | 'window';
 
@@ -360,22 +370,26 @@
   const canEditorUndo = $derived(depth > 0);
   const canEditorRedo = $derived(redoDepth > 0);
 
-  /** Handle editor-undo/editor-redo custom events dispatched by Review when editor is open. */
-  function handleEditorUndoEvent() {
-    if (open) editorUndo();
-  }
-  function handleEditorRedoEvent() {
-    if (open) editorRedo();
-  }
+  // Trigger editorUndo/editorRedo when the parent increments the tick counters.
+  // We track the previous tick values in plain (non-reactive) variables so the
+  // effects only fire on *changes* to the props, not on initial mount.
+  // untrack() suppresses the "captures initial value" Svelte warning — the initial
+  // capture is intentional here (we want a snapshot, not a reactive binding).
+  let prevUndoTick = untrack(() => undoTick);
+  let prevRedoTick = untrack(() => redoTick);
 
-  onMount(() => {
-    window.addEventListener('editor-undo', handleEditorUndoEvent);
-    window.addEventListener('editor-redo', handleEditorRedoEvent);
+  $effect(() => {
+    if (undoTick !== prevUndoTick) {
+      prevUndoTick = undoTick;
+      editorUndo();
+    }
   });
 
-  onDestroy(() => {
-    window.removeEventListener('editor-undo', handleEditorUndoEvent);
-    window.removeEventListener('editor-redo', handleEditorRedoEvent);
+  $effect(() => {
+    if (redoTick !== prevRedoTick) {
+      prevRedoTick = redoTick;
+      editorRedo();
+    }
   });
 </script>
 

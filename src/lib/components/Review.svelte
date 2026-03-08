@@ -59,6 +59,10 @@
   let editorOpen = $state(false);
   /** True while the description Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
   let isEditing = $state(false);
+  /** Tick counter passed to ImageEditor to trigger an undo inside the editor. */
+  let editorUndoTick = $state(0);
+  /** Tick counter passed to ImageEditor to trigger a redo inside the editor. */
+  let editorRedoTick = $state(0);
 
   /** Review-level undo/redo store (see src/lib/stores/undo.svelte.ts). */
   const reviewUndo = new ReviewUndoStore();
@@ -289,8 +293,7 @@
     if (event.ctrlKey && !event.shiftKey && event.key === "z") {
       event.preventDefault();
       if (editorOpen) {
-        // Delegate to editor — dispatched via custom event so ImageEditor can handle it.
-        window.dispatchEvent(new CustomEvent("editor-undo"));
+        editorUndoTick++;
       } else {
         reviewUndo.undo();
       }
@@ -300,7 +303,7 @@
     ) {
       event.preventDefault();
       if (editorOpen) {
-        window.dispatchEvent(new CustomEvent("editor-redo"));
+        editorRedoTick++;
       } else {
         reviewUndo.redo();
       }
@@ -315,6 +318,22 @@
     window.removeEventListener("keydown", handleKeydown);
   });
 </script>
+
+{#snippet thumbImg(src: string | undefined, alt: string, extraClass = '')}
+  {#if src}
+    <img {src} {alt} class="h-10 w-auto rounded shadow-sm ring-1 ring-border {extraClass}" draggable={false} />
+  {:else}
+    <div class="h-10 w-16 animate-pulse rounded bg-muted"></div>
+  {/if}
+{/snippet}
+
+{#snippet detailImg(src: string | undefined, alt: string)}
+  {#if src}
+    <img {src} {alt} class="h-full w-full object-contain" draggable={false} />
+  {:else}
+    <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
+  {/if}
+{/snippet}
 
 <PageLayout
   leftClass="flex w-80 shrink-0 flex-col overflow-hidden border-r p-6"
@@ -422,8 +441,8 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="relative flex h-2 items-center"
-          ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); drag.dragInsertIndex = idx; } }}
-          ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; drag.dragInsertIndex = idx; } }}
+          ondragenter={(e) => drag.handleInsertBarDragEnter(e, idx)}
+          ondragover={(e) => drag.handleInsertBarDragOver(e, idx)}
           ondragleave={undefined}
           ondrop={(e) => drag.handleDrop(e)}
         >
@@ -481,16 +500,7 @@
                 {@const src = imgKey.isExtra
                   ? store.extraImageCache[imgKey.cacheKey]
                   : store.imageCache[imgKey.cacheKey]}
-                {#if src}
-                  <img
-                    src={src}
-                    alt="Step {idx + 1} thumbnail"
-                    class="h-10 w-auto rounded shadow-sm ring-1 ring-border"
-                    draggable={false}
-                  />
-                {:else}
-                  <div class="h-10 w-16 animate-pulse rounded bg-muted"></div>
-                {/if}
+                {@render thumbImg(src, `Step ${idx + 1} thumbnail`)}
               {:else if exportedKeys.length > 1}
                 <div class="flex items-center">
                   {#each exportedKeys as imgKey, cardIdx (imgKey.cacheKey)}
@@ -501,16 +511,7 @@
                       class="relative overflow-hidden rounded shadow-sm ring-1 ring-border {cardIdx > 0 ? '-ml-4' : ''}"
                       style="z-index: {exportedKeys.length - cardIdx};"
                     >
-                      {#if src}
-                        <img
-                          src={src}
-                          alt="Step {idx + 1} thumbnail {cardIdx + 1}"
-                          class="h-10 w-auto"
-                          draggable={false}
-                        />
-                      {:else}
-                        <div class="h-10 w-16 animate-pulse bg-muted"></div>
-                      {/if}
+                      {@render thumbImg(src, `Step ${idx + 1} thumbnail ${cardIdx + 1}`, '')}
                     </div>
                   {/each}
                 </div>
@@ -539,8 +540,8 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="relative flex h-2 items-center"
-            ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); drag.dragInsertIndex = steps.length; } }}
-            ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; drag.dragInsertIndex = steps.length; } }}
+            ondragenter={(e) => drag.handleInsertBarDragEnter(e, steps.length)}
+            ondragover={(e) => drag.handleInsertBarDragOver(e, steps.length)}
             ondragleave={undefined}
             ondrop={(e) => drag.handleDrop(e)}
           >
@@ -694,15 +695,7 @@
         {:else if ec.activeMonitorTab === "primary"}
           {@const imgKey = store.imageCacheKey(selectedStep)}
           <div class="h-full w-full p-2">
-            {#if store.imageCache[imgKey]}
-              <img
-                src={store.imageCache[imgKey]}
-                alt="Step {selectedStepDisplayNum}"
-                class="h-full w-full object-contain"
-              />
-            {:else}
-              <span class="text-sm text-muted-foreground">Loading…</span>
-            {/if}
+            {@render detailImg(store.imageCache[imgKey], `Step ${selectedStepDisplayNum}`)}
           </div>
         {:else}
           {@const extraIdx = extraTabIndex(ec.activeMonitorTab)}
@@ -713,15 +706,7 @@
               selectedStep.image_version ?? 0,
             )}
             <div class="h-full w-full p-2">
-              {#if store.extraImageCache[extraKey]}
-                <img
-                  src={store.extraImageCache[extraKey]}
-                  alt="Step {selectedStepDisplayNum} — Monitor {extraIdx + 2}"
-                  class="h-full w-full object-contain"
-                />
-              {:else}
-                <span class="text-sm text-muted-foreground">Loading…</span>
-              {/if}
+              {@render detailImg(store.extraImageCache[extraKey], `Step ${selectedStepDisplayNum} — Monitor ${extraIdx + 2}`)}
             </div>
           {/if}
         {/if}
@@ -876,5 +861,7 @@
     bind:open={editorOpen}
     bind:depth={currentEditorDepth}
     bind:redoDepth={currentEditorRedoDepth}
+    undoTick={editorUndoTick}
+    redoTick={editorRedoTick}
   />
 {/if}

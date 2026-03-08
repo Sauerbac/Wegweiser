@@ -114,6 +114,19 @@ export function createDragReorder(
     dragInsertIndex = null;
   }
 
+  function handleInsertBarDragEnter(event: DragEvent, insertIdx: number): void {
+    if (getIsBulkSelectActive()) return;
+    event.preventDefault();
+    dragInsertIndex = insertIdx;
+  }
+
+  function handleInsertBarDragOver(event: DragEvent, insertIdx: number): void {
+    if (getIsBulkSelectActive()) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dragInsertIndex = insertIdx;
+  }
+
   return {
     get draggedStepId() {
       return draggedStepId;
@@ -131,5 +144,7 @@ export function createDragReorder(
     handleDragLeave,
     handleDrop,
     handleDragEnd,
+    handleInsertBarDragEnter,
+    handleInsertBarDragOver,
   };
 }
