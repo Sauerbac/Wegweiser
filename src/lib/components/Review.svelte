@@ -30,7 +30,7 @@
   import { createExportChoice } from "$lib/stores/export-choice.svelte";
   import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import type { Step } from "$lib/types";
-  import { countKeystrokes, parseKeystrokes } from "$lib/utils";
+  import { countKeystrokes, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
   import {
     AlignLeft,
     ArrowLeft,
@@ -152,8 +152,7 @@
     store.clearImageCache();
     ec.resetTab();
     reviewUndo.clear();
-    store.exportedPath = null;
-    store.exportError = null;
+    store.clearExportState();
     try {
       await invoke("new_recording");
     } catch (err) {
@@ -283,11 +282,6 @@
 
   function selectStep(stepId: number) {
     selectedStepId = stepId;
-  }
-
-  /** Return a human-readable label for a monitor by its index. */
-  function monitorLabel(idx: number): string {
-    return store.monitors[idx]?.name ?? `Monitor ${idx + 1}`;
   }
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
@@ -634,7 +628,7 @@
                 />
               </div>
               <MousePointer2 />
-              {monitorLabel(selectedStep.click_monitor_index)}
+              {monitorLabel(store.monitors, selectedStep.click_monitor_index)}
             </ToggleGroup.Item>
             {#each selectedStep.extra_image_paths as _path, i (i)}
               {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
@@ -651,7 +645,7 @@
                     onCheckedChange={() => ec.toggleExportMonitor(`extra_${i}`)}
                   />
                 </div>
-                {monitorLabel(monIdx)}
+                {monitorLabel(store.monitors, monIdx)}
               </ToggleGroup.Item>
             {/each}
           </ToggleGroup.Root>
@@ -672,7 +666,7 @@
                 class="flex items-center gap-1 text-xs text-muted-foreground"
               >
                 <MousePointer2 class="size-4" />
-                {monitorLabel(selectedStep.click_monitor_index)}
+                {monitorLabel(store.monitors, selectedStep.click_monitor_index)}
               </span>
               {#if store.imageCache[imgKey]}
                 <img
@@ -693,7 +687,7 @@
               )}
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-muted-foreground">
-                  {monitorLabel(monIdx)}
+                  {monitorLabel(store.monitors, monIdx)}
                 </span>
                 {#if store.extraImageCache[key]}
                   <img
@@ -721,10 +715,7 @@
             {/if}
           </div>
         {:else}
-          {@const extraIdx = parseInt(
-            ec.activeMonitorTab.replace("extra_", ""),
-            10,
-          )}
+          {@const extraIdx = extraTabIndex(ec.activeMonitorTab)}
           {#if !isNaN(extraIdx)}
             {@const extraKey = store.extraImageKey(
               selectedStep.id,
@@ -875,7 +866,7 @@
 <AlertDialog bind:open={showBulkDeleteDialog}>
   <AlertDialogContent>
     <AlertDialogHeader>
-      <AlertDialogTitle>Delete {sel.selected.size} step{sel.selected.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+      <AlertDialogTitle>Delete {sel.selected.size} step{pluralS(sel.selected.size)}?</AlertDialogTitle>
       <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>

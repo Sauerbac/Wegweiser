@@ -168,6 +168,11 @@ class AppStore {
     this.isDirty = false;
   }
 
+  clearExportState() {
+    this.exportedPath = null;
+    this.exportError = null;
+  }
+
   async refreshSessions() {
     try {
       this.sessions = await invoke<SessionMeta[]>('list_sessions');

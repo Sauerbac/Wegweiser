@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { KeystrokeSegment, StepExportChoice } from '$lib/types';
+import type { KeystrokeSegment, MonitorInfo, StepExportChoice } from '$lib/types';
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -67,6 +67,21 @@ export function choiceFromTab(tab: string): StepExportChoice {
   const idx = parseInt(tab.replace('extra_', ''), 10);
   if (isNaN(idx)) return { type: 'Primary' };
   return { type: 'Extra', value: idx };
+}
+
+/** Return a human-readable label for a monitor by its index (short form: name or fallback). */
+export function monitorLabel(monitors: MonitorInfo[], idx: number): string {
+  return monitors[idx]?.name ?? `Monitor ${idx + 1}`;
+}
+
+/** Return 's' when count !== 1, '' otherwise — for simple English plural suffixes. */
+export function pluralS(count: number): string {
+  return count !== 1 ? 's' : '';
+}
+
+/** Extract the numeric index from an 'extra_N' tab string. */
+export function extraTabIndex(tab: string): number {
+  return parseInt(tab.replace('extra_', ''), 10);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

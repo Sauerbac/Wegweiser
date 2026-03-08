@@ -14,6 +14,7 @@
   } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
+  import { monitorLabel, pluralS } from '$lib/utils';
   import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
   import { toggleMode } from 'mode-watcher';
   import PageLayout from '$lib/components/PageLayout.svelte';
@@ -75,12 +76,6 @@
     }
     sel.clear();
     await store.refreshSessions();
-  }
-
-  function monitorLabel(idx: number): string {
-    const m = store.monitors[idx];
-    if (!m) return `Monitor ${idx + 1}`;
-    return `${idx + 1}: ${m.name} (${m.width}×${m.height})`;
   }
 
   async function identifyMonitors() {
@@ -148,7 +143,7 @@
               checked={store.selectedMonitor === idx}
               onchange={() => (store.selectedMonitor = idx)}
             />
-            <span class="text-sm">{monitorLabel(idx)}</span>
+            <span class="text-sm">{monitorLabel(store.monitors, idx)}</span>
           </label>
         {/each}
       </div>
@@ -193,7 +188,7 @@
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-sm font-medium">{meta.name}</p>
                   <p class="mt-0.5 text-xs text-muted-foreground">
-                    {meta.step_count} step{meta.step_count !== 1 ? 's' : ''}
+                    {meta.step_count} step{pluralS(meta.step_count)}
                   </p>
                 </div>
               </div>
@@ -244,7 +239,7 @@
 <AlertDialog bind:open={showBulkDeleteDialog}>
   <AlertDialogContent>
     <AlertDialogHeader>
-      <AlertDialogTitle>Delete {sel.selected.size} recording{sel.selected.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+      <AlertDialogTitle>Delete {sel.selected.size} recording{pluralS(sel.selected.size)}?</AlertDialogTitle>
       <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>

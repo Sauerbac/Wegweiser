@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { store } from '$lib/stores/session.svelte';
 import type { Step, StepExportChoice } from '$lib/types';
+import { extraTabIndex } from '$lib/utils';
 
 /**
  * createExportChoice — monitor-tab view + export inclusion logic for the detail panel.
@@ -47,7 +48,7 @@ export function createExportChoice(
    */
   const editorExtraIndex = $derived<number | undefined>(
     activeMonitorTab.startsWith('extra_')
-      ? parseInt(activeMonitorTab.replace('extra_', ''), 10)
+      ? extraTabIndex(activeMonitorTab)
       : undefined,
   );
 
@@ -69,7 +70,7 @@ export function createExportChoice(
     if (!choice) return false;
     if (choice.type === 'All') return true;
     if (tab === 'primary') return choice.type === 'Primary';
-    const idx = parseInt(tab.replace('extra_', ''), 10);
+    const idx = extraTabIndex(tab);
     return choice.type === 'Extra' && choice.value === idx;
   }
 
@@ -106,7 +107,7 @@ export function createExportChoice(
       tab === 'primary'
         ? [...extrasChecked]
         : extrasChecked.map((v, i) =>
-            i === parseInt(tab.replace('extra_', ''), 10) ? !v : v,
+            i === extraTabIndex(tab) ? !v : v,
           );
 
     if ((newPrimary ? 1 : 0) + newExtras.filter(Boolean).length === 0) return;
@@ -180,8 +181,7 @@ export function createExportChoice(
       defaultPath: `${store.session?.name ?? 'tutorial'}.md`,
     });
     if (!filePath) return;
-    store.exportedPath = null;
-    store.exportError = null;
+    store.clearExportState();
     try {
       const outPath = await invoke<string>('export_markdown', { outputPath: filePath });
       store.exportedPath = outPath;
@@ -197,8 +197,7 @@ export function createExportChoice(
       defaultPath: `${store.session?.name ?? 'tutorial'}.html`,
     });
     if (!path) return;
-    store.exportedPath = null;
-    store.exportError = null;
+    store.clearExportState();
     try {
       await invoke('export_html', { outputPath: path });
     } catch (err) {
