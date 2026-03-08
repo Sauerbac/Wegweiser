@@ -51,6 +51,12 @@ export function createSelectableList<T>(
     selected = new Set();
   }
 
+  function removeOne(id: unknown): void {
+    const next = new Set(selected);
+    next.delete(id);
+    selected = next;
+  }
+
   return {
     get selected() {
       return selected;
@@ -64,5 +70,6 @@ export function createSelectableList<T>(
     toggleOne,
     toggleAll,
     clear,
+    removeOne,
   };
 }

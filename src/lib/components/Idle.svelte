@@ -14,11 +14,11 @@
   } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
-  import { monitorLabel, pluralS } from '$lib/utils';
-  import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
-  import { toggleMode } from 'mode-watcher';
+  import { DESTRUCTIVE_DIALOG_ACTION_CLASS, monitorLabel, pluralS } from '$lib/utils';
+  import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
+  import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
 
   /** Whether the "delete session" confirmation dialog is open. */
   let showDeleteSessionDialog = $state(false);
@@ -57,12 +57,7 @@
       console.error('Failed to delete session:', err);
       return;
     }
-    // Remove the deleted item from the selection without clearing everything
-    const next = new Set(sel.selected);
-    next.delete(sessionDir);
-    // Reassign via toggleOne round-trip is not clean; directly patch via clear+re-add
-    sel.clear();
-    for (const id of next) sel.toggleOne(id);
+    sel.removeOne(sessionDir);
     await store.refreshSessions();
   }
 
@@ -99,10 +94,7 @@
       <h1 class="text-lg font-semibold">Wegweiser</h1>
       <p class="text-sm text-muted-foreground">Windows step recorder</p>
     </div>
-    <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
-      <Sun class="dark:hidden" />
-      <Moon class="hidden dark:block" />
-    </Button>
+    <ThemeToggleButton />
   {/snippet}
 
   {#snippet left()}
@@ -230,7 +222,7 @@
           if (pendingDeleteSessionDir !== null) confirmDelete(pendingDeleteSessionDir);
           pendingDeleteSessionDir = null;
         }}
-        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
       >Delete</AlertDialogAction>
     </AlertDialogFooter>
   </AlertDialogContent>
@@ -246,7 +238,7 @@
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction
         onclick={() => { showBulkDeleteDialog = false; deleteSelected(); }}
-        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
       >Delete</AlertDialogAction>
     </AlertDialogFooter>
   </AlertDialogContent>

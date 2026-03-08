@@ -30,7 +30,7 @@
   import { createExportChoice } from "$lib/stores/export-choice.svelte";
   import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import type { Step } from "$lib/types";
-  import { countKeystrokes, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
+  import { countKeystrokes, DESTRUCTIVE_DIALOG_ACTION_CLASS, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
   import {
     AlignLeft,
     ArrowLeft,
@@ -41,19 +41,17 @@
     FileDown,
     GripVertical,
     Keyboard,
-    Moon,
     MousePointer2,
     Pencil,
     Redo2,
     Save,
-    Sun,
     Trash2,
     Undo2,
   } from "@lucide/svelte";
-  import { toggleMode } from "mode-watcher";
   import PageLayout from "$lib/components/PageLayout.svelte";
   import SelectableList from "$lib/components/SelectableList.svelte";
   import ImageEditor from "$lib/components/ImageEditor.svelte";
+  import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
@@ -391,15 +389,7 @@
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
-          onclick={toggleMode}
-          variant="outline"
-          size="icon"
-          aria-label="Toggle theme"
-        >
-          <Sun class="dark:hidden" />
-          <Moon class="hidden dark:block" />
-        </Button>
+        <ThemeToggleButton />
       </div>
     </div>
 
@@ -857,7 +847,7 @@
           if (pendingDeleteStepId !== null) deleteStep(pendingDeleteStepId);
           pendingDeleteStepId = null;
         }}
-        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
       >Delete</AlertDialogAction>
     </AlertDialogFooter>
   </AlertDialogContent>
@@ -873,7 +863,7 @@
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction
         onclick={() => { showBulkDeleteDialog = false; deleteSelectedSteps(); }}
-        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
       >Delete</AlertDialogAction>
     </AlertDialogFooter>
   </AlertDialogContent>
