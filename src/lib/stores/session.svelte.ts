@@ -130,7 +130,12 @@ class AppStore {
         this._lastKnownSessionId = event.payload.id;
         this.session = event.payload;
         this.preloadStepImages(event.payload.steps);
-        if (!isNewSession) {
+        // Only mark dirty for real user mutations in the Review screen.
+        // - isNewSession: first delivery of a session (from start/stop/load) → not a mutation.
+        // - recordingState !== 'reviewing': session-updated fired during recording
+        //   (e.g. the final snapshot emitted by stop_recording before the state
+        //   transitions to 'reviewing') → not a user edit in the Review screen.
+        if (!isNewSession && this.recordingState === 'reviewing') {
           this.isDirty = true;
         }
       }),
