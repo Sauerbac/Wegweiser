@@ -953,6 +953,46 @@ pub fn apply_image_edit(
 }
 
 #[tauri::command]
+pub fn reorder_steps(
+    step_ids: Vec<usize>,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let session = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
+        if let Some(ref mut session) = st.session {
+            // Build a lookup: id → Step
+            let mut step_map: std::collections::HashMap<usize, crate::model::Step> =
+                session.steps.drain(..).map(|s| (s.id, s)).collect();
+            // Re-insert in the requested order; ignore unknown IDs
+            for (new_order, &id) in step_ids.iter().enumerate() {
+                if let Some(mut step) = step_map.remove(&id) {
+                    step.order = new_order + 1;
+                    session.steps.push(step);
+                }
+            }
+            // Append any steps not mentioned in step_ids (safety net)
+            let mut extra: Vec<_> = step_map.into_values().collect();
+            extra.sort_by_key(|s| s.order);
+            for (i, mut s) in extra.into_iter().enumerate() {
+                s.order = session.steps.len() + i + 1;
+                session.steps.push(s);
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
+        }
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
     let infos = crate::capture::list_monitor_infos();
 

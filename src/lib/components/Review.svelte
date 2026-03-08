@@ -37,6 +37,7 @@
     ExternalLink,
     FileCode,
     FileDown,
+    GripVertical,
     Keyboard,
     Moon,
     MousePointer2,
@@ -129,6 +130,105 @@
     () => store.session?.steps ?? [],
     (s) => s.id,
   );
+
+  // ── Drag-to-reorder state ──────────────────────────────────────────────────
+  /** ID of the step being dragged, or null when no drag is active. */
+  let draggedStepId = $state<number | null>(null);
+  /** Index of the dragged step in the steps array (-1 when none). */
+  let draggedStepIdx = $derived(
+    draggedStepId !== null
+      ? (store.session?.steps ?? []).findIndex((s) => s.id === draggedStepId)
+      : -1,
+  );
+  /** True when an insert at `insertIdx` would actually move the dragged step. */
+  function isUsefulInsert(insertIdx: number): boolean {
+    return draggedStepId !== null && insertIdx !== draggedStepIdx && insertIdx !== draggedStepIdx + 1;
+  }
+  /**
+   * Insertion index into the steps array (0 = before first, steps.length = after last).
+   * The bar is drawn before the card at this index.
+   */
+  let dragInsertIndex = $state<number | null>(null);
+
+  /**
+   * Whether bulk-select mode is active (any checkboxes checked).
+   * Drag is disabled in this mode.
+   */
+  let isBulkSelectActive = $derived(sel.selected.size > 0);
+
+  async function reorderSteps(orderedIds: number[]) {
+    try {
+      await invoke("reorder_steps", { stepIds: orderedIds });
+      reviewUndo.pushBackend();
+    } catch (err) {
+      console.error("Failed to reorder steps:", err);
+    }
+  }
+
+  function handleDragStart(event: DragEvent, stepId: number) {
+    if (isBulkSelectActive) { event.preventDefault(); return; }
+    draggedStepId = stepId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(stepId));
+    }
+  }
+
+  function handleDragEnter(event: DragEvent) {
+    if (isBulkSelectActive) return;
+    event.preventDefault();
+  }
+
+  function handleDragOver(event: DragEvent, stepId: number, idx: number) {
+    if (isBulkSelectActive) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    // Determine insert before or after this card based on cursor position.
+    const card = event.currentTarget as HTMLElement;
+    const { top, height } = card.getBoundingClientRect();
+    dragInsertIndex = event.clientY < top + height / 2 ? idx : idx + 1;
+  }
+
+  function handleDragLeave(_event: DragEvent) {
+    // Intentionally no-op: clearing dragInsertIndex here causes flicker when
+    // the cursor transitions from a card into the adjacent bar. dragEnd cleans up.
+  }
+
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    if (draggedStepId === null || dragInsertIndex === null) {
+      draggedStepId = null;
+      dragInsertIndex = null;
+      return;
+    }
+    const steps = store.session?.steps ?? [];
+    const ids = steps.map((s) => s.id);
+    const fromIdx = ids.indexOf(draggedStepId);
+    if (fromIdx === -1) {
+      draggedStepId = null;
+      dragInsertIndex = null;
+      return;
+    }
+    // Adjust insert index for the removed element.
+    let toIdx = dragInsertIndex > fromIdx ? dragInsertIndex - 1 : dragInsertIndex;
+    if (toIdx === fromIdx) {
+      draggedStepId = null;
+      dragInsertIndex = null;
+      return;
+    }
+    const newIds = [...ids];
+    newIds.splice(fromIdx, 1);
+    newIds.splice(toIdx, 0, draggedStepId);
+    draggedStepId = null;
+    dragInsertIndex = null;
+    reorderSteps(newIds);
+  }
+
+  function handleDragEnd() {
+    draggedStepId = null;
+    dragInsertIndex = null;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   /** Return a human-readable label for a monitor by its index. */
   function monitorLabel(idx: number): string {
@@ -660,21 +760,49 @@
         {@const isChecked = sel.selected.has(step.id)}
         {@const keystrokeCount = countKeystrokes(step.keystrokes)}
         {@const exportedKeys = getExportedImageKeys(step)}
+        {@const steps = store.session?.steps ?? []}
+        <!-- Insertion bar / spacer before this card — h-2 provides the gap and serves as drop target -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="relative flex h-2 items-center"
+          ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); dragInsertIndex = idx; } }}
+          ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragInsertIndex = idx; } }}
+          ondragleave={undefined}
+          ondrop={(e) => handleDrop(e)}
+        >
+          <div class="h-0.5 w-full rounded-full {dragInsertIndex === idx && isUsefulInsert(idx) ? 'bg-primary' : 'bg-transparent'}"></div>
+        </div>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           role="button"
           tabindex="0"
-          class="cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''}"
+          class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''} {draggedStepId === step.id ? 'opacity-50' : ''}"
+          ondragenter={(e) => handleDragEnter(e)}
+          ondragover={(e) => handleDragOver(e, step.id, idx)}
+          ondragleave={(e) => handleDragLeave(e)}
+          ondrop={(e) => handleDrop(e)}
+          ondragend={handleDragEnd}
           onclick={(e) => {
             if ((e.target as HTMLElement).closest("[data-checkbox]")) return;
+            if ((e.target as HTMLElement).closest("[data-drag-handle]")) return;
             selectStep(step.id);
           }}
           onkeydown={(e) => {
             if (e.key === "Enter" || e.key === " ") selectStep(step.id);
           }}
         >
-          <!-- Inline row: checkbox + step number + thumbnails (centered) + indicators -->
+          <!-- Inline row: drag handle + checkbox + step number + thumbnails (centered) + indicators -->
           <div class="flex items-center gap-2">
+            <!-- Drag handle (hidden in bulk-select mode) -->
+            <div
+              data-drag-handle
+              draggable={!isBulkSelectActive}
+              ondragstart={(e) => handleDragStart(e, step.id)}
+              class="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing {isBulkSelectActive ? 'invisible' : ''}"
+              aria-hidden="true"
+            >
+              <GripVertical class="size-4" />
+            </div>
             <!-- Checkbox -->
             <div data-checkbox class="shrink-0">
               <Checkbox
@@ -749,6 +877,19 @@
             </span>
           </div>
         </div>
+        <!-- Insertion bar / spacer after last card -->
+        {#if idx === steps.length - 1}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="relative flex h-2 items-center"
+            ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); dragInsertIndex = steps.length; } }}
+            ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragInsertIndex = steps.length; } }}
+            ondragleave={undefined}
+            ondrop={(e) => handleDrop(e)}
+          >
+            <div class="h-0.5 w-full rounded-full {dragInsertIndex === steps.length && isUsefulInsert(steps.length) ? 'bg-primary' : 'bg-transparent'}"></div>
+          </div>
+        {/if}
       {/snippet}
     </SelectableList>
   {/snippet}

@@ -63,6 +63,7 @@ pub fn run() {
             commands::undo_session,
             commands::redo_session,
             commands::apply_image_edit,
+            commands::reorder_steps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
