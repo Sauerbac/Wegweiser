@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { save } from "@tauri-apps/plugin-dialog";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import * as ToggleGroup from "$lib/components/ui/toggle-group";
@@ -27,7 +26,10 @@
   import { store } from "$lib/stores/session.svelte";
   import { ReviewUndoStore } from "$lib/stores/undo.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
-  import type { Step, StepExportChoice } from "$lib/types";
+  import { createDragReorder } from "$lib/stores/drag-reorder.svelte";
+  import { createExportChoice } from "$lib/stores/export-choice.svelte";
+  import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
+  import type { Step } from "$lib/types";
   import { countKeystrokes, parseKeystrokes } from "$lib/utils";
   import {
     AlignLeft,
@@ -96,28 +98,11 @@
       editorWasOpen = isOpen;
     });
   });
-  /**
-   * Which monitor tab is shown in the detail view.
-   * 'primary' = the annotated click-monitor image
-   * 'extra_N' = the N-th extra image
-   * 'all' = all images stacked (scrollable)
-   */
-  let activeMonitorTab = $state<string>("primary");
-  /**
-   * Tracks the last confirmed non-empty tab value so we can restore it when
-   * the ToggleGroup tries to deselect the active item (emits "").
-   */
-  let lastNonEmptyMonitorTab = $state<string>("primary");
-  /** Set to true while a monitor-export checkbox is being pressed; suppresses tab switching in onValueChange. */
-  let checkboxInteracting = false;
+
   let descriptionDraft = $state("");
   /** Draft value for the session name input — synced from store on load, editable locally. */
   let sessionNameDraft = $state("");
 
-  /** Whether the export dropdown is open. */
-  let exportOpen = $state(false);
-  /** Whether the "unsaved changes" back-navigation dialog is open. */
-  let showBackDialog = $state(false);
   /** Whether the "delete step" confirmation dialog is open. */
   let showDeleteStepDialog = $state(false);
   /** Step ID pending deletion (set when the delete step dialog is opened). */
@@ -131,109 +116,8 @@
     (s) => s.id,
   );
 
-  // ── Drag-to-reorder state ──────────────────────────────────────────────────
-  /** ID of the step being dragged, or null when no drag is active. */
-  let draggedStepId = $state<number | null>(null);
-  /** Index of the dragged step in the steps array (-1 when none). */
-  let draggedStepIdx = $derived(
-    draggedStepId !== null
-      ? (store.session?.steps ?? []).findIndex((s) => s.id === draggedStepId)
-      : -1,
-  );
-  /** True when an insert at `insertIdx` would actually move the dragged step. */
-  function isUsefulInsert(insertIdx: number): boolean {
-    return draggedStepId !== null && insertIdx !== draggedStepIdx && insertIdx !== draggedStepIdx + 1;
-  }
-  /**
-   * Insertion index into the steps array (0 = before first, steps.length = after last).
-   * The bar is drawn before the card at this index.
-   */
-  let dragInsertIndex = $state<number | null>(null);
-
-  /**
-   * Whether bulk-select mode is active (any checkboxes checked).
-   * Drag is disabled in this mode.
-   */
+  /** Whether bulk-select mode is active (any checkboxes checked). Drag is disabled in this mode. */
   let isBulkSelectActive = $derived(sel.selected.size > 0);
-
-  async function reorderSteps(orderedIds: number[]) {
-    try {
-      await invoke("reorder_steps", { stepIds: orderedIds });
-      reviewUndo.pushBackend();
-    } catch (err) {
-      console.error("Failed to reorder steps:", err);
-    }
-  }
-
-  function handleDragStart(event: DragEvent, stepId: number) {
-    if (isBulkSelectActive) { event.preventDefault(); return; }
-    draggedStepId = stepId;
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", String(stepId));
-    }
-  }
-
-  function handleDragEnter(event: DragEvent) {
-    if (isBulkSelectActive) return;
-    event.preventDefault();
-  }
-
-  function handleDragOver(event: DragEvent, stepId: number, idx: number) {
-    if (isBulkSelectActive) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    // Determine insert before or after this card based on cursor position.
-    const card = event.currentTarget as HTMLElement;
-    const { top, height } = card.getBoundingClientRect();
-    dragInsertIndex = event.clientY < top + height / 2 ? idx : idx + 1;
-  }
-
-  function handleDragLeave(_event: DragEvent) {
-    // Intentionally no-op: clearing dragInsertIndex here causes flicker when
-    // the cursor transitions from a card into the adjacent bar. dragEnd cleans up.
-  }
-
-  function handleDrop(event: DragEvent) {
-    event.preventDefault();
-    if (draggedStepId === null || dragInsertIndex === null) {
-      draggedStepId = null;
-      dragInsertIndex = null;
-      return;
-    }
-    const steps = store.session?.steps ?? [];
-    const ids = steps.map((s) => s.id);
-    const fromIdx = ids.indexOf(draggedStepId);
-    if (fromIdx === -1) {
-      draggedStepId = null;
-      dragInsertIndex = null;
-      return;
-    }
-    // Adjust insert index for the removed element.
-    let toIdx = dragInsertIndex > fromIdx ? dragInsertIndex - 1 : dragInsertIndex;
-    if (toIdx === fromIdx) {
-      draggedStepId = null;
-      dragInsertIndex = null;
-      return;
-    }
-    const newIds = [...ids];
-    newIds.splice(fromIdx, 1);
-    newIds.splice(toIdx, 0, draggedStepId);
-    draggedStepId = null;
-    dragInsertIndex = null;
-    reorderSteps(newIds);
-  }
-
-  function handleDragEnd() {
-    draggedStepId = null;
-    dragInsertIndex = null;
-  }
-  // ──────────────────────────────────────────────────────────────────────────
-
-  /** Return a human-readable label for a monitor by its index. */
-  function monitorLabel(idx: number): string {
-    return store.monitors[idx]?.name ?? `Monitor ${idx + 1}`;
-  }
 
   /** Derive the selected step by ID lookup — safe against array reordering and deletions. */
   let selectedStep = $derived<Step | null>(
@@ -250,6 +134,38 @@
     return idx >= 0 ? idx + 1 : null;
   });
 
+  // ── Factory stores ──────────────────────────────────────────────────────────
+
+  const drag = createDragReorder(
+    () => store.session?.steps ?? [],
+    () => isBulkSelectActive,
+    reviewUndo,
+  );
+
+  const ec = createExportChoice(
+    () => selectedStep,
+    () => selectedStepId,
+  );
+
+  async function navigateBack() {
+    selectedStepId = null;
+    store.clearImageCache();
+    ec.resetTab();
+    reviewUndo.clear();
+    store.exportedPath = null;
+    store.exportError = null;
+    try {
+      await invoke("new_recording");
+    } catch (err) {
+      console.error("Failed to start new recording:", err);
+    }
+    await store.refreshSessions();
+  }
+
+  const nav = createReviewNavigation(reviewUndo, () => store.isDirty, navigateBack);
+
+  // ── Effects ─────────────────────────────────────────────────────────────────
+
   // Sync session name draft when session changes (e.g. on load)
   $effect(() => {
     const name = store.session?.name ?? "";
@@ -260,32 +176,10 @@
     });
   });
 
-  // Load image when selection changes; restore description draft.
-  // NOTE: activeMonitorTab is intentionally NOT reset here — it is only reset
-  // when selectedStepId changes (see the effect below) so that applying a crop
-  // or blur while on an extra-monitor tab does not jump back to "primary".
+  // Restore description draft when the selected step changes.
+  // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
-    const step = selectedStep;
-    if (step) {
-      const key = store.imageCacheKey(step);
-      if (!store.imageCache[key]) {
-        invoke<string>("get_step_image", { imagePath: step.image_path })
-          .then((uri) => {
-            store.imageCache[key] = uri;
-          })
-          .catch((err) => console.error("Failed to load image:", err));
-      }
-    }
-    descriptionDraft = step?.description ?? "";
-  });
-
-  // Reset the monitor tab only when the selected step ID changes, not on every
-  // content update (e.g. image_version bump after an edit).
-  $effect(() => {
-    // Establish a reactive dependency on selectedStepId only.
-    selectedStepId;
-    activeMonitorTab = "primary";
-    lastNonEmptyMonitorTab = "primary";
+    descriptionDraft = selectedStep?.description ?? "";
   });
 
   // Eagerly pre-load images for all steps not yet in the cache.
@@ -310,6 +204,8 @@
       });
     }
   });
+
+  // ── Session / step mutations ─────────────────────────────────────────────────
 
   async function saveDescription() {
     if (!selectedStep) return;
@@ -385,223 +281,16 @@
     }
   }
 
-  /**
-   * Compute how many monitor images will be exported for a step based on its export_choice.
-   * Primary / Extra = 1 monitor; All = primary + all extra images.
-   */
-  function monitorExportCount(step: Step): number {
-    const choice = step.export_choice;
-    if (!choice || choice.type === "Primary" || choice.type === "Extra")
-      return 1;
-    // 'All': primary image + all extra images
-    return 1 + (step.extra_image_paths?.length ?? 0);
-  }
-
-  /**
-   * Returns the list of { cacheKey, src } objects for images that are included
-   * in the export for a given step, in display order (primary first, then extras).
-   */
-  function getExportedImageKeys(step: Step): { cacheKey: string; isExtra: boolean; extraIdx: number }[] {
-    const choice = step.export_choice;
-    const ver = step.image_version ?? 0;
-    const result: { cacheKey: string; isExtra: boolean; extraIdx: number }[] = [];
-    if (!choice) return result;
-
-    const includePrimary = choice.type === "Primary" || choice.type === "All";
-    const extraCount = step.extra_image_paths?.length ?? 0;
-
-    if (includePrimary) {
-      result.push({ cacheKey: store.imageCacheKey(step), isExtra: false, extraIdx: -1 });
-    }
-
-    for (let i = 0; i < extraCount; i++) {
-      const includeExtra =
-        choice.type === "All" ||
-        (choice.type === "Extra" && choice.value === i);
-      if (includeExtra) {
-        result.push({
-          cacheKey: store.extraImageKey(step.id, i, ver),
-          isExtra: true,
-          extraIdx: i,
-        });
-      }
-    }
-    return result;
-  }
-
-  async function exportMarkdown() {
-    const filePath = await save({
-      title: "Export Markdown",
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-      defaultPath: `${store.session?.name ?? "tutorial"}.md`,
-    });
-    if (!filePath) return;
-    store.exportedPath = null;
-    store.exportError = null;
-    try {
-      const outPath = await invoke<string>("export_markdown", {
-        outputPath: filePath,
-      });
-      store.exportedPath = outPath;
-    } catch (err) {
-      console.error("Failed to export Markdown:", err);
-    }
-  }
-
-  async function exportHtml() {
-    const path = await save({
-      title: "Export HTML",
-      filters: [{ name: "HTML", extensions: ["html"] }],
-      defaultPath: `${store.session?.name ?? "tutorial"}.html`,
-    });
-    if (!path) return;
-    store.exportedPath = null;
-    store.exportError = null;
-    try {
-      await invoke("export_html", { outputPath: path });
-    } catch (err) {
-      console.error("Failed to export HTML:", err);
-    }
-  }
-
-  async function openExported() {
-    if (store.exportedPath) {
-      try {
-        await invoke("open_path", { path: store.exportedPath });
-      } catch (err) {
-        console.error("Failed to open exported file:", err);
-      }
-    }
-  }
-
-  async function navigateBack() {
-    selectedStepId = null;
-    store.clearImageCache();
-    activeMonitorTab = "primary";
-    lastNonEmptyMonitorTab = "primary";
-    reviewUndo.clear();
-    store.exportedPath = null;
-    store.exportError = null;
-    try {
-      await invoke("new_recording");
-    } catch (err) {
-      console.error("Failed to start new recording:", err);
-    }
-    await store.refreshSessions();
-  }
-
-  function requestBack() {
-    if (store.isDirty) {
-      showBackDialog = true;
-    } else {
-      navigateBack();
-    }
-  }
-
-  async function discardAndNavigateBack() {
-    showBackDialog = false;
-    // Undo all pending changes to restore the session to its last-saved state.
-    // invoke("undo_session") throws when the stack is empty — use that as the stop condition.
-    while (true) {
-      try {
-        await invoke("undo_session");
-      } catch {
-        break;
-      }
-    }
-    reviewUndo.clear();
-    await navigateBack();
-  }
-
-  function saveSession() {
-    store.markSaved();
-  }
-
   function selectStep(stepId: number) {
     selectedStepId = stepId;
   }
 
-  async function setExportChoice(choice: StepExportChoice) {
-    if (!selectedStep) return;
-    const id = selectedStep.id;
-    try {
-      await invoke("set_step_export_choice", { stepId: id, choice });
-    } catch (err) {
-      console.error("Failed to set export choice:", err);
-    }
-    // No optimistic patch — the backend emits session-updated which the store handles.
+  /** Return a human-readable label for a monitor by its index. */
+  function monitorLabel(idx: number): string {
+    return store.monitors[idx]?.name ?? `Monitor ${idx + 1}`;
   }
 
-  /**
-   * Which extra-image index the editor should open, derived from activeMonitorTab.
-   * undefined = primary image; a number = extra_image_paths[N].
-   */
-  let editorExtraIndex = $derived<number | undefined>(
-    activeMonitorTab.startsWith("extra_")
-      ? parseInt(activeMonitorTab.replace("extra_", ""), 10)
-      : undefined,
-  );
-
-  /** Select a monitor tab: view-only, no export side-effect. */
-  function selectMonitorTab(tab: string) {
-    activeMonitorTab = tab;
-    lastNonEmptyMonitorTab = tab;
-  }
-
-  /** Whether a given monitor tab is currently included in the export choice. */
-  function isExportIncluded(tab: string): boolean {
-    const choice = selectedStep?.export_choice;
-    if (!choice) return false;
-    if (choice.type === "All") return true;
-    if (tab === "primary") return choice.type === "Primary";
-    const idx = parseInt(tab.replace("extra_", ""), 10);
-    return choice.type === "Extra" && choice.value === idx;
-  }
-
-  /**
-   * Toggle a monitor's inclusion in the export choice.
-   *   only primary checked   → Primary
-   *   only extra N checked   → Extra(N)
-   *   all checked            → All
-   *   partial subset (3+)    → All (current model limitation)
-   * Unchecking the last included monitor is a no-op.
-   */
-  async function toggleExportMonitor(tab: string) {
-    if (!selectedStep) return;
-    const extraCount = selectedStep.extra_image_paths?.length ?? 0;
-    const primaryChecked = isExportIncluded("primary");
-    const extrasChecked = Array.from({ length: extraCount }, (_, i) =>
-      isExportIncluded(`extra_${i}`),
-    );
-
-    const newPrimary = tab === "primary" ? !primaryChecked : primaryChecked;
-    const newExtras =
-      tab === "primary"
-        ? [...extrasChecked]
-        : extrasChecked.map((v, i) =>
-            i === parseInt(tab.replace("extra_", ""), 10) ? !v : v,
-          );
-
-    if ((newPrimary ? 1 : 0) + newExtras.filter(Boolean).length === 0) return;
-
-    if (newPrimary && newExtras.every(Boolean)) {
-      await setExportChoice({ type: "All" });
-      return;
-    }
-    if (newPrimary && newExtras.every((v) => !v)) {
-      await setExportChoice({ type: "Primary" });
-      return;
-    }
-    const checkedExtras = newExtras
-      .map((v, i) => (v ? i : -1))
-      .filter((i) => i >= 0);
-    if (!newPrimary && checkedExtras.length === 1) {
-      await setExportChoice({ type: "Extra", value: checkedExtras[0] });
-      return;
-    }
-    await setExportChoice({ type: "All" });
-  }
-
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
 
   function handleKeydown(event: KeyboardEvent) {
     if (isEditing) return;
@@ -609,7 +298,7 @@
       event.preventDefault();
       if (editorOpen) {
         // Delegate to editor — dispatched via custom event so ImageEditor can handle it.
-        window.dispatchEvent(new CustomEvent('editor-undo'));
+        window.dispatchEvent(new CustomEvent("editor-undo"));
       } else {
         reviewUndo.undo();
       }
@@ -619,34 +308,18 @@
     ) {
       event.preventDefault();
       if (editorOpen) {
-        window.dispatchEvent(new CustomEvent('editor-redo'));
+        window.dispatchEvent(new CustomEvent("editor-redo"));
       } else {
         reviewUndo.redo();
       }
     }
   }
 
-  function handleMouseUp(event: MouseEvent) {
-    if (event.button === 3) {
-      event.preventDefault();
-      requestBack();
-    }
-  }
-
-  function handlePopState(event: PopStateEvent) {
-    event.preventDefault();
-    requestBack();
-  }
-
   onMount(() => {
-    window.addEventListener("mouseup", handleMouseUp);
-    window.addEventListener("popstate", handlePopState);
     window.addEventListener("keydown", handleKeydown);
   });
 
   onDestroy(() => {
-    window.removeEventListener("mouseup", handleMouseUp);
-    window.removeEventListener("popstate", handlePopState);
     window.removeEventListener("keydown", handleKeydown);
   });
 </script>
@@ -661,7 +334,7 @@
     <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
       <!-- Left: back button -->
       <div class="flex items-center">
-        <Button variant="outline" size="sm" onclick={requestBack}
+        <Button variant="outline" size="sm" onclick={nav.requestBack}
           ><ArrowLeft />Back</Button
         >
       </div>
@@ -700,15 +373,15 @@
           variant="outline"
           size="icon"
           aria-label="Save"
-          onclick={saveSession}
+          onclick={nav.saveSession}
           disabled={!store.isDirty}><Save /></Button
         >
-        <DropdownMenu bind:open={exportOpen}>
+        <DropdownMenu bind:open={ec.exportOpen}>
           <DropdownMenuTrigger>
             {#snippet child({ props })}
               <Button variant="outline" size="sm" {...props}>
                 Export<ChevronDown
-                  class="size-4 transition-transform duration-200 {exportOpen
+                  class="size-4 transition-transform duration-200 {ec.exportOpen
                     ? 'rotate-180'
                     : ''}"
                 />
@@ -716,10 +389,10 @@
             {/snippet}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onclick={exportMarkdown}>
+            <DropdownMenuItem onclick={ec.exportMarkdown}>
               <FileDown class="text-foreground" />Markdown (.md)
             </DropdownMenuItem>
-            <DropdownMenuItem onclick={exportHtml}>
+            <DropdownMenuItem onclick={ec.exportHtml}>
               <FileCode class="text-foreground" />HTML (.html)
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -759,29 +432,29 @@
         {@const isActive = selectedStepId === step.id}
         {@const isChecked = sel.selected.has(step.id)}
         {@const keystrokeCount = countKeystrokes(step.keystrokes)}
-        {@const exportedKeys = getExportedImageKeys(step)}
+        {@const exportedKeys = ec.getExportedImageKeys(step)}
         {@const steps = store.session?.steps ?? []}
         <!-- Insertion bar / spacer before this card — h-2 provides the gap and serves as drop target -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="relative flex h-2 items-center"
-          ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); dragInsertIndex = idx; } }}
-          ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragInsertIndex = idx; } }}
+          ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); drag.dragInsertIndex = idx; } }}
+          ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; drag.dragInsertIndex = idx; } }}
           ondragleave={undefined}
-          ondrop={(e) => handleDrop(e)}
+          ondrop={(e) => drag.handleDrop(e)}
         >
-          <div class="h-0.5 w-full rounded-full {dragInsertIndex === idx && isUsefulInsert(idx) ? 'bg-primary' : 'bg-transparent'}"></div>
+          <div class="h-0.5 w-full rounded-full {drag.dragInsertIndex === idx && drag.isUsefulInsert(idx) ? 'bg-primary' : 'bg-transparent'}"></div>
         </div>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           role="button"
           tabindex="0"
-          class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''} {draggedStepId === step.id ? 'opacity-50' : ''}"
-          ondragenter={(e) => handleDragEnter(e)}
-          ondragover={(e) => handleDragOver(e, step.id, idx)}
-          ondragleave={(e) => handleDragLeave(e)}
-          ondrop={(e) => handleDrop(e)}
-          ondragend={handleDragEnd}
+          class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''} {drag.draggedStepId === step.id ? 'opacity-50' : ''}"
+          ondragenter={(e) => drag.handleDragEnter(e)}
+          ondragover={(e) => drag.handleDragOver(e, step.id, idx)}
+          ondragleave={(e) => drag.handleDragLeave(e)}
+          ondrop={(e) => drag.handleDrop(e)}
+          ondragend={drag.handleDragEnd}
           onclick={(e) => {
             if ((e.target as HTMLElement).closest("[data-checkbox]")) return;
             if ((e.target as HTMLElement).closest("[data-drag-handle]")) return;
@@ -797,7 +470,7 @@
             <div
               data-drag-handle
               draggable={!isBulkSelectActive}
-              ondragstart={(e) => handleDragStart(e, step.id)}
+              ondragstart={(e) => drag.handleDragStart(e, step.id)}
               class="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing {isBulkSelectActive ? 'invisible' : ''}"
               aria-hidden="true"
             >
@@ -882,12 +555,12 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="relative flex h-2 items-center"
-            ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); dragInsertIndex = steps.length; } }}
-            ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragInsertIndex = steps.length; } }}
+            ondragenter={(e) => { if (!isBulkSelectActive) { e.preventDefault(); drag.dragInsertIndex = steps.length; } }}
+            ondragover={(e) => { if (!isBulkSelectActive) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; drag.dragInsertIndex = steps.length; } }}
             ondragleave={undefined}
-            ondrop={(e) => handleDrop(e)}
+            ondrop={(e) => drag.handleDrop(e)}
           >
-            <div class="h-0.5 w-full rounded-full {dragInsertIndex === steps.length && isUsefulInsert(steps.length) ? 'bg-primary' : 'bg-transparent'}"></div>
+            <div class="h-0.5 w-full rounded-full {drag.dragInsertIndex === steps.length && drag.isUsefulInsert(steps.length) ? 'bg-primary' : 'bg-transparent'}"></div>
           </div>
         {/if}
       {/snippet}
@@ -927,20 +600,20 @@
         <div class="mb-3 flex flex-col items-center gap-1">
           <ToggleGroup.Root
             type="single"
-            bind:value={activeMonitorTab}
+            bind:value={ec.activeMonitorTab}
             onValueChange={(v) => {
-              if (checkboxInteracting) {
+              if (ec.checkboxInteracting) {
                 // The value change was triggered by a checkbox click — restore
                 // the current tab so the preview doesn't switch.
-                activeMonitorTab = lastNonEmptyMonitorTab;
+                ec.activeMonitorTab = ec.lastNonEmptyMonitorTab;
                 return;
               }
               if (v) {
-                lastNonEmptyMonitorTab = v;
+                ec.lastNonEmptyMonitorTab = v;
               } else {
                 // ToggleGroup deselected the active item — restore the previous
                 // selection so the preview never goes blank.
-                activeMonitorTab = lastNonEmptyMonitorTab;
+                ec.activeMonitorTab = ec.lastNonEmptyMonitorTab;
               }
             }}
             variant="outline"
@@ -950,14 +623,14 @@
             <ToggleGroup.Item value="primary">
               <div
                 onclick={(e) => e.stopPropagation()}
-                onpointerdown={(e) => { checkboxInteracting = true; e.stopPropagation(); }}
-                onpointerup={() => { checkboxInteracting = false; }}
+                onpointerdown={(e) => { ec.checkboxInteracting = true; e.stopPropagation(); }}
+                onpointerup={() => { ec.checkboxInteracting = false; }}
                 role="presentation"
                 class="shrink-0"
               >
                 <Checkbox
-                  checked={isExportIncluded("primary")}
-                  onCheckedChange={() => toggleExportMonitor("primary")}
+                  checked={ec.isExportIncluded("primary")}
+                  onCheckedChange={() => ec.toggleExportMonitor("primary")}
                 />
               </div>
               <MousePointer2 />
@@ -968,14 +641,14 @@
               <ToggleGroup.Item value="extra_{i}">
                 <div
                   onclick={(e) => e.stopPropagation()}
-                  onpointerdown={(e) => { checkboxInteracting = true; e.stopPropagation(); }}
-                  onpointerup={() => { checkboxInteracting = false; }}
+                  onpointerdown={(e) => { ec.checkboxInteracting = true; e.stopPropagation(); }}
+                  onpointerup={() => { ec.checkboxInteracting = false; }}
                   role="presentation"
                   class="shrink-0"
                 >
                   <Checkbox
-                    checked={isExportIncluded(`extra_${i}`)}
-                    onCheckedChange={() => toggleExportMonitor(`extra_${i}`)}
+                    checked={ec.isExportIncluded(`extra_${i}`)}
+                    onCheckedChange={() => ec.toggleExportMonitor(`extra_${i}`)}
                   />
                 </div>
                 {monitorLabel(monIdx)}
@@ -990,7 +663,7 @@
 
       <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
       <div class="mb-3 min-h-0 flex-1 overflow-hidden rounded border bg-muted/20">
-        {#if activeMonitorTab === "all"}
+        {#if ec.activeMonitorTab === "all"}
           {@const imgKey = store.imageCacheKey(selectedStep)}
           <!-- All monitors: stacked scrollable view -->
           <div class="flex h-full flex-col gap-4 overflow-y-auto p-3">
@@ -1034,7 +707,7 @@
               </div>
             {/each}
           </div>
-        {:else if activeMonitorTab === "primary"}
+        {:else if ec.activeMonitorTab === "primary"}
           {@const imgKey = store.imageCacheKey(selectedStep)}
           <div class="h-full w-full p-2">
             {#if store.imageCache[imgKey]}
@@ -1049,7 +722,7 @@
           </div>
         {:else}
           {@const extraIdx = parseInt(
-            activeMonitorTab.replace("extra_", ""),
+            ec.activeMonitorTab.replace("extra_", ""),
             10,
           )}
           {#if !isNaN(extraIdx)}
@@ -1140,7 +813,7 @@
       <Button
         variant="outline"
         size="sm"
-        onclick={openExported}
+        onclick={ec.openExported}
         class="shrink-0 {store.exportedPath ? '' : 'invisible'}"
       >
         <ExternalLink />Open
@@ -1149,7 +822,7 @@
   {/snippet}
 </PageLayout>
 
-<AlertDialog bind:open={showBackDialog}>
+<AlertDialog bind:open={nav.showBackDialog}>
   <AlertDialogContent>
     <AlertDialogHeader>
       <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
@@ -1161,17 +834,17 @@
       <Button
         variant="outline"
         onclick={() => {
-          showBackDialog = false;
+          nav.showBackDialog = false;
         }}>Cancel</Button
       >
       <Button
         variant="destructive"
-        onclick={discardAndNavigateBack}>Discard</Button
+        onclick={nav.discardAndNavigateBack}>Discard</Button
       >
       <Button
         onclick={() => {
-          saveSession();
-          showBackDialog = false;
+          nav.saveSession();
+          nav.showBackDialog = false;
           navigateBack();
         }}>Save</Button
       >
@@ -1218,7 +891,7 @@
 {#if selectedStep && editorOpen}
   <ImageEditor
     step={selectedStep}
-    extraIndex={editorExtraIndex}
+    extraIndex={ec.editorExtraIndex}
     bind:open={editorOpen}
     bind:depth={currentEditorDepth}
     bind:redoDepth={currentEditorRedoDepth}
