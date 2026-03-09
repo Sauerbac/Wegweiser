@@ -92,6 +92,28 @@ export function extraTabIndex(tab: string): number {
   return parseInt(tab.replace('extra_', ''), 10);
 }
 
+/** Read a CSS custom property from the document root (resolves theme variables). */
+export function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/**
+ * Clip a WindowRect to image bounds.
+ * Returns the clipped rectangle, or null if the rect has no visible area.
+ */
+export function clipRect(
+  wr: { x: number; y: number; w: number; h: number },
+  imageW: number,
+  imageH: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const cx = Math.max(wr.x, 0);
+  const cy = Math.max(wr.y, 0);
+  const cw = Math.min(wr.x + wr.w, imageW) - cx;
+  const ch = Math.min(wr.y + wr.h, imageH) - cy;
+  if (cw <= 0 || ch <= 0) return null;
+  return { x: cx, y: cy, w: cw, h: ch };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type WithoutChild<T> = T extends { child?: any } ? Omit<T, "child"> : T;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

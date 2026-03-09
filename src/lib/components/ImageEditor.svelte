@@ -6,11 +6,8 @@
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Blend, Crop, MousePointer2, Redo2, RotateCcw, Undo2, X } from '@lucide/svelte';
-
-  /** Read a CSS custom property from the document root (resolves theme variables). */
-  function cssVar(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
+  import { clipRect } from '$lib/utils';
+  import { drawBaseImage, drawWindowRects, drawSelectionRect } from '$lib/canvas-drawing';
 
   interface Props {
     step: Step;
@@ -59,9 +56,6 @@
   let imgNaturalW = $state(0);
   let imgNaturalH = $state(0);
 
-  /** Scale factor: canvas CSS pixels per image pixel. */
-  let scale = $derived(imgNaturalW > 0 ? (canvas?.clientWidth ?? imgNaturalW) / imgNaturalW : 1);
-
   /** The data URI for the image to display (primary or extra depending on extraIndex). */
   let imageUri = $derived.by(() => {
     if (extraIndex !== undefined) {
@@ -71,6 +65,29 @@
     const key = store.imageCacheKey(step);
     return store.imageCache[key] ?? null;
   });
+
+  /**
+   * Cached decoded image element. Decoded once whenever `imageUri` changes so
+   * that `redraw()` is synchronous and mouse-move events never start concurrent
+   * decode operations.
+   */
+  let cachedImg = $state<HTMLImageElement | null>(null);
+
+  $effect(() => {
+    const uri = imageUri;
+    if (!uri) {
+      cachedImg = null;
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      cachedImg = img;
+    };
+    img.src = uri;
+  });
+
+  /** Scale factor: canvas CSS pixels per image pixel. */
+  let scale = $derived(imgNaturalW > 0 ? (canvas?.clientWidth ?? imgNaturalW) / imgNaturalW : 1);
 
   /**
    * Window rects filtered to those that have at least some overlap with the
@@ -96,93 +113,46 @@
     return [Math.round(px), Math.round(py)];
   }
 
-  /** Render the base image + current selection overlay onto the canvas. */
+  /**
+   * Render the base image + overlays onto the canvas synchronously.
+   * Requires `cachedImg` to be decoded (set by the `imageUri` effect above).
+   * The three rendering passes are delegated to canvas-drawing.ts helpers.
+   */
   function redraw() {
-    if (!canvas || !imageUri) return;
+    if (!canvas || !cachedImg) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const img = new Image();
-    img.onload = () => {
-      canvas!.width = img.naturalWidth;
-      canvas!.height = img.naturalHeight;
-      imgNaturalW = img.naturalWidth;
-      imgNaturalH = img.naturalHeight;
-      ctx.drawImage(img, 0, 0);
+    // Pass 1: base image (also sets canvas dimensions and imgNaturalW/H).
+    drawBaseImage(ctx, canvas, cachedImg);
+    imgNaturalW = cachedImg.naturalWidth;
+    imgNaturalH = cachedImg.naturalHeight;
 
-      // Draw window rects when in window mode.
-      // Only show rects that have a visible portion within the image bounds.
-      if (tool === 'window') {
-        ctx.save();
-        const chartColors = [
-          cssVar('--chart-1'),
-          cssVar('--chart-2'),
-          cssVar('--chart-3'),
-          cssVar('--chart-4'),
-          cssVar('--chart-5'),
-        ];
-        // Filter to windows that have at least some overlap with the image canvas.
-        const visibleRects = step.window_rects.filter(
-          (wr) =>
-            wr.x < img.naturalWidth &&
-            wr.y < img.naturalHeight &&
-            wr.x + wr.w > 0 &&
-            wr.y + wr.h > 0,
-        );
-        // Draw back-to-front so the topmost window (index 0) is painted last and
-        // appears visually on top of windows behind it.
-        // We iterate the indices in reverse so the last (backmost) window is
-        // drawn first and the first (topmost) window is drawn on top.
-        for (let i = visibleRects.length - 1; i >= 0; i--) {
-          const wr = visibleRects[i];
-          const color = chartColors[i % chartColors.length];
-          // Clip the drawn rect to the image bounds so strokes don't spill outside.
-          const cx = Math.max(wr.x, 0);
-          const cy = Math.max(wr.y, 0);
-          const cw = Math.min(wr.x + wr.w, img.naturalWidth) - cx;
-          const ch = Math.min(wr.y + wr.h, img.naturalHeight) - cy;
-          if (cw <= 0 || ch <= 0) continue;
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.setLineDash([6, 3]);
-          ctx.strokeRect(cx, cy, cw, ch);
+    // Pass 2: window-rect outlines (only in window-select mode).
+    if (tool === 'window') {
+      drawWindowRects(ctx, step.window_rects, imgNaturalW, imgNaturalH);
+    }
 
-        }
-        ctx.restore();
-      }
-
-      // Draw selection rectangle (clipped to image bounds for window selections).
-      let active: { x: number; y: number; w: number; h: number } | null = null;
-      if (selRect) {
-        active = selRect;
-      } else if (selectedWindowRect) {
-        const cx = Math.max(selectedWindowRect.x, 0);
-        const cy = Math.max(selectedWindowRect.y, 0);
-        const cw = Math.min(selectedWindowRect.x + selectedWindowRect.w, img.naturalWidth) - cx;
-        const ch = Math.min(selectedWindowRect.y + selectedWindowRect.h, img.naturalHeight) - cy;
-        if (cw > 0 && ch > 0) active = { x: cx, y: cy, w: cw, h: ch };
-      }
-      if (active) {
-        ctx.save();
-        ctx.strokeStyle = '#f97316';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([]);
-        ctx.strokeRect(active.x, active.y, active.w, active.h);
-        ctx.fillStyle = 'rgba(249,115,22,0.15)';
-        ctx.fillRect(active.x, active.y, active.w, active.h);
-        ctx.restore();
-      }
-    };
-    img.src = imageUri;
+    // Pass 3: orange selection rectangle.
+    let active: { x: number; y: number; w: number; h: number } | null = null;
+    if (selRect) {
+      active = selRect;
+    } else if (selectedWindowRect) {
+      active = clipRect(selectedWindowRect, imgNaturalW, imgNaturalH);
+    }
+    if (active) {
+      drawSelectionRect(ctx, active);
+    }
   }
 
   $effect(() => {
-    // Redraw whenever tool, selection, or the underlying image URI changes
-    // (e.g. after an undo/redo that swaps the image version in the cache).
+    // Redraw whenever tool, selection, or the cached image changes
+    // (cachedImg is updated whenever imageUri changes and the new image decodes,
+    // e.g. after an undo/redo that swaps the image version in the cache).
     tool;
     selRect;
     selectedWindowRect;
-    imageUri;
+    cachedImg;
     if (open) redraw();
   });
 
@@ -225,11 +195,8 @@
     // visibleWindowRects is ordered front-to-back (index 0 = topmost), so iterate
     // forward and take the first match — the frontmost window wins.
     const hit = visibleWindowRects.find((wr) => {
-      const cx = Math.max(wr.x, 0);
-      const cy = Math.max(wr.y, 0);
-      const cw = Math.min(wr.x + wr.w, imgNaturalW) - cx;
-      const ch = Math.min(wr.y + wr.h, imgNaturalH) - cy;
-      return cw > 0 && ch > 0 && px >= cx && px <= cx + cw && py >= cy && py <= cy + ch;
+      const c = clipRect(wr, imgNaturalW, imgNaturalH);
+      return c !== null && px >= c.x && px <= c.x + c.w && py >= c.y && py <= c.y + c.h;
     }) ?? null;
     selectedWindowRect = hit;
     if (hit) selRect = null;
@@ -255,14 +222,7 @@
    */
   function activeRect() {
     if (selRect) return selRect;
-    if (selectedWindowRect) {
-      const cx = Math.max(selectedWindowRect.x, 0);
-      const cy = Math.max(selectedWindowRect.y, 0);
-      const cw = Math.min(selectedWindowRect.x + selectedWindowRect.w, imgNaturalW) - cx;
-      const ch = Math.min(selectedWindowRect.y + selectedWindowRect.h, imgNaturalH) - cy;
-      if (cw <= 0 || ch <= 0) return null;
-      return { x: cx, y: cy, w: cw, h: ch };
-    }
+    if (selectedWindowRect) return clipRect(selectedWindowRect, imgNaturalW, imgNaturalH);
     return null;
   }
 
