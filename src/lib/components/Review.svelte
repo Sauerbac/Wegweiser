@@ -2,10 +2,7 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { Button } from "$lib/components/ui/button";
-  import { Checkbox } from "$lib/components/ui/checkbox";
-  import * as ToggleGroup from "$lib/components/ui/toggle-group";
   import { Input } from "$lib/components/ui/input";
-  import { Textarea } from "$lib/components/ui/textarea";
   import { Progress } from "$lib/components/ui/progress";
   import {
     DropdownMenu,
@@ -31,7 +28,7 @@
   import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import { createEditorSession } from "$lib/stores/editor-session.svelte";
   import type { Step } from "$lib/types";
-  import { DESTRUCTIVE_DIALOG_ACTION_CLASS, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
+  import { DESTRUCTIVE_DIALOG_ACTION_CLASS, pluralS } from "$lib/utils";
   import {
     ArrowLeft,
     Check,
@@ -39,7 +36,6 @@
     ExternalLink,
     FileCode,
     FileDown,
-    MousePointer2,
     Pencil,
     Redo2,
     Save,
@@ -51,6 +47,9 @@
   import ImageEditor from "$lib/components/ImageEditor.svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
   import StepCard from "$lib/components/StepCard.svelte";
+  import MonitorTabGroup from "$lib/components/MonitorTabGroup.svelte";
+  import StepImageViewer from "$lib/components/StepImageViewer.svelte";
+  import StepDescriptionPanel from "$lib/components/StepDescriptionPanel.svelte";
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
@@ -250,14 +249,6 @@
 
 </script>
 
-{#snippet detailImg(src: string | undefined, alt: string)}
-  {#if src}
-    <img {src} {alt} class="h-full w-full object-contain" draggable={false} />
-  {:else}
-    <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
-  {/if}
-{/snippet}
-
 <PageLayout
   leftClass="flex w-80 shrink-0 flex-col overflow-hidden border-r p-6"
   rightClass="flex flex-1 flex-col overflow-hidden p-4"
@@ -403,167 +394,28 @@
 
       <!-- Monitor toggle group: item click = preview; checkbox inside = export inclusion -->
       {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
-        <div class="mb-3 flex flex-col items-center gap-1">
-          <ToggleGroup.Root
-            type="single"
-            bind:value={ec.activeMonitorTab}
-            onValueChange={(v) => {
-              if (ec.checkboxInteracting) {
-                // The value change was triggered by a checkbox click — restore
-                // the current tab so the preview doesn't switch.
-                ec.activeMonitorTab = ec.lastNonEmptyMonitorTab;
-                return;
-              }
-              if (v) {
-                ec.lastNonEmptyMonitorTab = v;
-              } else {
-                // ToggleGroup deselected the active item — restore the previous
-                // selection so the preview never goes blank.
-                ec.activeMonitorTab = ec.lastNonEmptyMonitorTab;
-              }
-            }}
-            variant="outline"
-            spacing={0}
-            size="sm"
-          >
-            <ToggleGroup.Item value="primary">
-              <div
-                onclick={(e) => e.stopPropagation()}
-                onpointerdown={(e) => { ec.checkboxInteracting = true; e.stopPropagation(); }}
-                onpointerup={() => { ec.checkboxInteracting = false; }}
-                role="presentation"
-                class="shrink-0"
-              >
-                <Checkbox
-                  checked={ec.isExportIncluded("primary")}
-                  onCheckedChange={() => ec.toggleExportMonitor("primary")}
-                />
-              </div>
-              <MousePointer2 />
-              {monitorLabel(store.monitors, selectedStep.click_monitor_index)}
-            </ToggleGroup.Item>
-            {#each selectedStep.extra_image_paths as _path, i (i)}
-              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              <ToggleGroup.Item value="extra_{i}">
-                <div
-                  onclick={(e) => e.stopPropagation()}
-                  onpointerdown={(e) => { ec.checkboxInteracting = true; e.stopPropagation(); }}
-                  onpointerup={() => { ec.checkboxInteracting = false; }}
-                  role="presentation"
-                  class="shrink-0"
-                >
-                  <Checkbox
-                    checked={ec.isExportIncluded(`extra_${i}`)}
-                    onCheckedChange={() => ec.toggleExportMonitor(`extra_${i}`)}
-                  />
-                </div>
-                {monitorLabel(store.monitors, monIdx)}
-              </ToggleGroup.Item>
-            {/each}
-          </ToggleGroup.Root>
-          <p class="text-xs text-muted-foreground">
-            Click to preview · checkbox to include in export
-          </p>
-        </div>
+        <MonitorTabGroup step={selectedStep} monitors={store.monitors} {ec} />
       {/if}
 
-      <!-- Image area: consistent container, inner wrapper handles centering vs stacking -->
-      <div class="mb-3 min-h-0 flex-1 overflow-hidden rounded border bg-muted/20">
-        {#if ec.activeMonitorTab === "all"}
-          {@const imgKey = store.imageCacheKey(selectedStep)}
-          <!-- All monitors: stacked scrollable view -->
-          <div class="flex h-full flex-col gap-4 overflow-y-auto p-3">
-            <div class="flex flex-col gap-1">
-              <span
-                class="flex items-center gap-1 text-xs text-muted-foreground"
-              >
-                <MousePointer2 class="size-4" />
-                {monitorLabel(store.monitors, selectedStep.click_monitor_index)}
-              </span>
-              {#if store.imageCache[imgKey]}
-                <img
-                  src={store.imageCache[imgKey]}
-                  alt="Step {selectedStepDisplayNum}"
-                  class="max-w-full rounded"
-                />
-              {:else}
-                <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
-              {/if}
-            </div>
-            {#each selectedStep.extra_image_paths as _path, i (i)}
-              {@const monIdx = selectedStep.extra_monitor_indices[i] ?? i}
-              {@const key = store.extraImageKey(
-                selectedStep.id,
-                i,
-                selectedStep.image_version ?? 0,
-              )}
-              <div class="flex flex-col gap-1">
-                <span class="text-xs text-muted-foreground">
-                  {monitorLabel(store.monitors, monIdx)}
-                </span>
-                {#if store.extraImageCache[key]}
-                  <img
-                    src={store.extraImageCache[key]}
-                    alt="Step {selectedStepDisplayNum} — Monitor {monIdx + 1}"
-                    class="max-w-full rounded"
-                  />
-                {:else}
-                  <div class="h-24 w-full animate-pulse rounded bg-muted"></div>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {:else if ec.activeMonitorTab === "primary"}
-          {@const imgKey = store.imageCacheKey(selectedStep)}
-          <div class="h-full w-full p-2">
-            {@render detailImg(store.imageCache[imgKey], `Step ${selectedStepDisplayNum}`)}
-          </div>
-        {:else}
-          {@const extraIdx = extraTabIndex(ec.activeMonitorTab)}
-          {#if !isNaN(extraIdx)}
-            {@const extraKey = store.extraImageKey(
-              selectedStep.id,
-              extraIdx,
-              selectedStep.image_version ?? 0,
-            )}
-            <div class="h-full w-full p-2">
-              {@render detailImg(store.extraImageCache[extraKey], `Step ${selectedStepDisplayNum} — Monitor ${extraIdx + 2}`)}
-            </div>
-          {/if}
-        {/if}
-      </div>
+      <!-- Image area -->
+      <StepImageViewer
+        step={selectedStep}
+        stepDisplayNum={selectedStepDisplayNum}
+        activeMonitorTab={ec.activeMonitorTab}
+        monitors={store.monitors}
+        imageCache={store.imageCache}
+        extraImageCache={store.extraImageCache}
+        imageCacheKey={store.imageCacheKey.bind(store)}
+        extraImageKey={store.extraImageKey.bind(store)}
+      />
 
       <!-- Description and keystrokes -->
-      <div class="flex flex-col gap-2">
-        <Textarea
-          bind:value={descriptionDraft}
-          placeholder="Add a description…"
-          class="resize-none text-sm"
-          rows={3}
-          onfocus={() => {
-            isEditing = true;
-          }}
-          onblur={() => {
-            isEditing = false;
-            saveDescription();
-          }}
-        />
-        {#if selectedStep.keystrokes}
-          <div class="rounded bg-muted px-3 py-2 text-xs font-mono">
-            <span class="text-muted-foreground">Typed: </span>
-            {#each parseKeystrokes(selectedStep.keystrokes) as segment}
-              {#if segment.kind === "shortcut"}
-                <kbd
-                  class="inline-flex items-center rounded border border-border px-1 py-0.5 font-mono text-xs"
-                  >{segment.key}</kbd
-                >
-              {:else}
-                {segment.value}
-              {/if}
-            {/each}
-          </div>
-        {/if}
-      </div>
+      <StepDescriptionPanel
+        step={selectedStep}
+        bind:descriptionDraft
+        onfocus={() => { isEditing = true; }}
+        onblur={() => { isEditing = false; saveDescription(); }}
+      />
     {:else}
       <div
         class="flex flex-1 items-center justify-center text-sm text-muted-foreground"
