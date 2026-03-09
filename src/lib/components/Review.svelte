@@ -30,17 +30,14 @@
   import { createExportChoice } from "$lib/stores/export-choice.svelte";
   import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import type { Step } from "$lib/types";
-  import { countKeystrokes, DESTRUCTIVE_DIALOG_ACTION_CLASS, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
+  import { DESTRUCTIVE_DIALOG_ACTION_CLASS, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
   import {
-    AlignLeft,
     ArrowLeft,
     Check,
     ChevronDown,
     ExternalLink,
     FileCode,
     FileDown,
-    GripVertical,
-    Keyboard,
     MousePointer2,
     Pencil,
     Redo2,
@@ -52,6 +49,7 @@
   import SelectableList from "$lib/components/SelectableList.svelte";
   import ImageEditor from "$lib/components/ImageEditor.svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
+  import StepCard from "$lib/components/StepCard.svelte";
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
@@ -319,14 +317,6 @@
   });
 </script>
 
-{#snippet thumbImg(src: string | undefined, alt: string, extraClass = '')}
-  {#if src}
-    <img {src} {alt} class="h-10 w-auto rounded shadow-sm ring-1 ring-border {extraClass}" draggable={false} />
-  {:else}
-    <div class="h-10 w-16 animate-pulse rounded bg-muted"></div>
-  {/if}
-{/snippet}
-
 {#snippet detailImg(src: string | undefined, alt: string)}
   {#if src}
     <img {src} {alt} class="h-full w-full object-contain" draggable={false} />
@@ -432,122 +422,20 @@
       onDeleteSelected={() => { showBulkDeleteDialog = true; }}
     >
       {#snippet row(step, idx)}
-        {@const isActive = selectedStepId === step.id}
-        {@const isChecked = sel.selected.has(step.id)}
-        {@const keystrokeCount = countKeystrokes(step.keystrokes)}
-        {@const exportedKeys = ec.getExportedImageKeys(step)}
-        {@const steps = store.session?.steps ?? []}
-        <!-- Insertion bar / spacer before this card — h-2 provides the gap and serves as drop target -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="relative flex h-2 items-center"
-          ondragenter={(e) => drag.handleInsertBarDragEnter(e, idx)}
-          ondragover={(e) => drag.handleInsertBarDragOver(e, idx)}
-          ondragleave={undefined}
-          ondrop={(e) => drag.handleDrop(e)}
-        >
-          <div class="h-0.5 w-full rounded-full {drag.dragInsertIndex === idx && drag.isUsefulInsert(idx) ? 'bg-primary' : 'bg-transparent'}"></div>
-        </div>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          role="button"
-          tabindex="0"
-          class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {reviewUndo.highlightedStepId === step.id ? 'ring-2 ring-orange-400 animate-pulse' : ''} {drag.draggedStepId === step.id ? 'opacity-50' : ''}"
-          ondragenter={(e) => drag.handleDragEnter(e)}
-          ondragover={(e) => drag.handleDragOver(e, step.id, idx)}
-          ondragleave={(e) => drag.handleDragLeave(e)}
-          ondrop={(e) => drag.handleDrop(e)}
-          ondragend={drag.handleDragEnd}
-          onclick={(e) => {
-            if ((e.target as HTMLElement).closest("[data-checkbox]")) return;
-            if ((e.target as HTMLElement).closest("[data-drag-handle]")) return;
-            selectStep(step.id);
-          }}
-          onkeydown={(e) => {
-            if (e.key === "Enter" || e.key === " ") selectStep(step.id);
-          }}
-        >
-          <!-- Inline row: drag handle + checkbox + step number + thumbnails (centered) + indicators -->
-          <div class="flex items-center gap-2">
-            <!-- Drag handle (hidden in bulk-select mode) -->
-            <div
-              data-drag-handle
-              draggable={!isBulkSelectActive}
-              ondragstart={(e) => drag.handleDragStart(e, step.id)}
-              class="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing {isBulkSelectActive ? 'invisible' : ''}"
-              aria-hidden="true"
-            >
-              <GripVertical class="size-4" />
-            </div>
-            <!-- Checkbox -->
-            <div data-checkbox class="shrink-0">
-              <Checkbox
-                checked={isChecked}
-                onCheckedChange={() => sel.toggleOne(step.id)}
-                class="cursor-pointer"
-              />
-            </div>
-            <!-- Step number -->
-            <span
-              class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground"
-            >
-              {idx + 1}
-            </span>
-            <!-- Thumbnails centered in the available space -->
-            <div class="flex flex-1 items-center justify-center overflow-hidden">
-              {#if exportedKeys.length === 1}
-                {@const imgKey = exportedKeys[0]}
-                {@const src = imgKey.isExtra
-                  ? store.extraImageCache[imgKey.cacheKey]
-                  : store.imageCache[imgKey.cacheKey]}
-                {@render thumbImg(src, `Step ${idx + 1} thumbnail`)}
-              {:else if exportedKeys.length > 1}
-                <div class="flex items-center">
-                  {#each exportedKeys as imgKey, cardIdx (imgKey.cacheKey)}
-                    {@const src = imgKey.isExtra
-                      ? store.extraImageCache[imgKey.cacheKey]
-                      : store.imageCache[imgKey.cacheKey]}
-                    <div
-                      class="relative overflow-hidden rounded shadow-sm ring-1 ring-border {cardIdx > 0 ? '-ml-4' : ''}"
-                      style="z-index: {exportedKeys.length - cardIdx};"
-                    >
-                      {@render thumbImg(src, `Step ${idx + 1} thumbnail ${cardIdx + 1}`, '')}
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-            <!-- Indicators: description + keystroke icons -->
-            <span
-              class="shrink-0 {step.description
-                ? 'text-foreground'
-                : 'text-muted-foreground/25'}"
-              title={step.description ?? "No description"}
-            >
-              <AlignLeft class="size-4" />
-            </span>
-            <span
-              class="shrink-0 text-muted-foreground {keystrokeCount > 0
-                ? ''
-                : 'invisible'}"
-            >
-              <Keyboard class="size-4" />
-            </span>
-          </div>
-        </div>
-        <!-- Insertion bar / spacer after last card -->
-        {#if idx === steps.length - 1}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="relative flex h-2 items-center"
-            ondragenter={(e) => drag.handleInsertBarDragEnter(e, steps.length)}
-            ondragover={(e) => drag.handleInsertBarDragOver(e, steps.length)}
-            ondragleave={undefined}
-            ondrop={(e) => drag.handleDrop(e)}
-          >
-            <div class="h-0.5 w-full rounded-full {drag.dragInsertIndex === steps.length && drag.isUsefulInsert(steps.length) ? 'bg-primary' : 'bg-transparent'}"></div>
-          </div>
-        {/if}
+        <StepCard
+          {step}
+          {idx}
+          isActive={selectedStepId === step.id}
+          isChecked={sel.selected.has(step.id)}
+          {isBulkSelectActive}
+          stepsLength={store.session?.steps.length ?? 0}
+          exportedKeys={ec.getExportedImageKeys(step)}
+          imageCache={store.imageCache}
+          extraImageCache={store.extraImageCache}
+          {drag}
+          onSelect={selectStep}
+          onCheck={(id) => sel.toggleOne(id)}
+        />
       {/snippet}
     </SelectableList>
   {/snippet}
