@@ -156,17 +156,25 @@
     if (open) redraw();
   });
 
-  function onMouseDown(e: MouseEvent) {
-    if (tool === 'window') return;
+  /**
+   * True when the current tool uses point-click selection (window mode).
+   * False when it uses drag-rectangle selection (blur / crop).
+   * All four canvas event handlers branch on this single derived value so
+   * the mode-dispatch logic lives in exactly one place.
+   */
+  const isClickMode = $derived(tool === 'window');
+
+  // --- Drag-rectangle handlers (blur / crop) ---
+
+  function onDragStart(e: MouseEvent) {
     isDragging = true;
-    const rect = canvas!.getBoundingClientRect();
     [startX, startY] = toImageCoords(e.clientX, e.clientY);
     selRect = null;
     selectedWindowRect = null;
   }
 
-  function onMouseMove(e: MouseEvent) {
-    if (!isDragging || tool === 'window') return;
+  function onDragMove(e: MouseEvent) {
+    if (!isDragging) return;
     const [ex, ey] = toImageCoords(e.clientX, e.clientY);
     const x = Math.min(startX, ex);
     const y = Math.min(startY, ey);
@@ -176,8 +184,7 @@
     redraw();
   }
 
-  function onMouseUp(e: MouseEvent) {
-    if (tool === 'window') return;
+  function onDragEnd(e: MouseEvent) {
     isDragging = false;
     const [ex, ey] = toImageCoords(e.clientX, e.clientY);
     const x = Math.min(startX, ex);
@@ -188,8 +195,9 @@
     redraw();
   }
 
-  function onCanvasClick(e: MouseEvent) {
-    if (tool !== 'window') return;
+  // --- Point-click handler (window mode) ---
+
+  function onWindowClick(e: MouseEvent) {
     const [px, py] = toImageCoords(e.clientX, e.clientY);
     // Find topmost visible window rect that contains the click (use clipped bounds).
     // visibleWindowRects is ordered front-to-back (index 0 = topmost), so iterate
@@ -201,6 +209,24 @@
     selectedWindowRect = hit;
     if (hit) selRect = null;
     redraw();
+  }
+
+  // --- Unified canvas event dispatchers ---
+
+  function onMouseDown(e: MouseEvent) {
+    if (!isClickMode) onDragStart(e);
+  }
+
+  function onMouseMove(e: MouseEvent) {
+    if (!isClickMode) onDragMove(e);
+  }
+
+  function onMouseUp(e: MouseEvent) {
+    if (!isClickMode) onDragEnd(e);
+  }
+
+  function onCanvasClick(e: MouseEvent) {
+    if (isClickMode) onWindowClick(e);
   }
 
   function resetSelection() {
@@ -226,7 +252,13 @@
     return null;
   }
 
-  async function applyBlur() {
+  /**
+   * Shared implementation for all apply-edit operations.
+   * Callers supply the `edit` payload; this function handles the common
+   * boilerplate: guard, applying flag, cache invalidation, invoke, depth
+   * bookkeeping, selection reset, and error handling.
+   */
+  async function applyEdit(edit: Record<string, unknown>) {
     const r = activeRect();
     if (!r) return;
     applying = true;
@@ -235,7 +267,7 @@
       store.clearStepImageCache(step.id);
       await invoke('apply_image_edit', {
         stepId: step.id,
-        edit: { type: 'Blur', x: r.x, y: r.y, w: r.w, h: r.h, sigma: 12.0 },
+        edit: { ...edit, x: r.x, y: r.y, w: r.w, h: r.h },
         extraIndex: extraIndex ?? null,
       });
       depth += 1;
@@ -248,26 +280,12 @@
     }
   }
 
-  async function applyCrop() {
-    const r = activeRect();
-    if (!r) return;
-    applying = true;
-    errorMsg = null;
-    try {
-      store.clearStepImageCache(step.id);
-      await invoke('apply_image_edit', {
-        stepId: step.id,
-        edit: { type: 'Crop', x: r.x, y: r.y, w: r.w, h: r.h },
-        extraIndex: extraIndex ?? null,
-      });
-      depth += 1;
-      redoDepth = 0;
-      resetSelection();
-    } catch (err) {
-      errorMsg = String(err);
-    } finally {
-      applying = false;
-    }
+  function applyBlur() {
+    return applyEdit({ type: 'Blur', sigma: 12.0 });
+  }
+
+  function applyCrop() {
+    return applyEdit({ type: 'Crop' });
   }
 
   async function editorUndo() {
