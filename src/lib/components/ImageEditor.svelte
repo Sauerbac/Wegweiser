@@ -3,10 +3,10 @@
   import { untrack } from 'svelte';
   import { store } from '$lib/stores/session.svelte';
   import type { Step, WindowRect } from '$lib/types';
-  import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
-  import { Blend, Crop, MousePointer2, Redo2, RotateCcw, Undo2, X } from '@lucide/svelte';
+  import ImageEditorToolbar from '$lib/components/ImageEditorToolbar.svelte';
   import { clipRect } from '$lib/utils';
+  import { useContainerFit } from '$lib/resize.svelte';
   import { drawBaseImage, drawWindowRects, drawSelectionRect } from '$lib/canvas-drawing';
 
   interface Props {
@@ -320,29 +320,12 @@
     }
   }
 
-  /** Container element for the canvas — used to compute available display size. */
-  let canvasContainerEl = $state<HTMLElement | undefined>(undefined);
-  let containerW = $state(0);
-  let containerH = $state(0);
-
-  $effect(() => {
-    const el = canvasContainerEl;
-    if (!el) return;
-    const obs = new ResizeObserver(([entry]) => {
-      containerW = entry.contentRect.width;
-      containerH = entry.contentRect.height;
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  });
-
-  /** CSS style for the canvas — scales to fill the container while preserving aspect ratio. */
-  let canvasStyle = $derived.by(() => {
-    if (imgNaturalW === 0 || imgNaturalH === 0 || containerW === 0 || containerH === 0)
-      return 'display: block; max-width: 100%;';
-    const s = Math.min(containerW / imgNaturalW, containerH / imgNaturalH);
-    return `display: block; width: ${Math.round(imgNaturalW * s)}px; height: ${Math.round(imgNaturalH * s)}px;`;
-  });
+  /** Container fit helper — observes the canvas container and derives a CSS style string
+   *  that scales the canvas to fill available space while preserving the image aspect ratio. */
+  const containerFit = useContainerFit(
+    () => imgNaturalW,
+    () => imgNaturalH,
+  );
 
   const hasSelection = $derived(selRect !== null || selectedWindowRect !== null);
   const canEditorUndo = $derived(depth > 0);
@@ -378,85 +361,34 @@
     </Dialog.Header>
 
     <!-- Tool buttons -->
-    <div class="flex shrink-0 items-center gap-2">
-      <Button
-        variant={tool === 'blur' ? 'default' : 'outline'}
-        size="sm"
-        onclick={() => setTool('blur')}
-      >
-        <Blend />Blur
-      </Button>
-      <Button
-        variant={tool === 'crop' ? 'default' : 'outline'}
-        size="sm"
-        onclick={() => setTool('crop')}
-      >
-        <Crop />Crop
-      </Button>
-      {#if visibleWindowRects.length > 0}
-        <Button
-          variant={tool === 'window' ? 'default' : 'outline'}
-          size="sm"
-          onclick={() => setTool('window')}
-        >
-          <MousePointer2 />Select Window
-        </Button>
-      {/if}
-
-      <div class="flex-1"></div>
-
-      <Button
-        variant="outline"
-        size="icon"
-        aria-label="Undo"
-        onclick={editorUndo}
-        disabled={!canEditorUndo || applying}
-      >
-        <Undo2 />
-      </Button>
-      <Button
-        variant="outline"
-        size="icon"
-        aria-label="Redo"
-        onclick={editorRedo}
-        disabled={!canEditorRedo || applying}
-      >
-        <Redo2 />
-      </Button>
-
-      {#if hasSelection}
-        <Button variant="ghost" size="sm" onclick={resetSelection}>
-          <RotateCcw />Reset
-        </Button>
-        {#if tool === 'blur'}
-          <Button size="sm" onclick={applyBlur} disabled={applying}>
-            {applying ? 'Applying…' : 'Apply Blur'}
-          </Button>
-        {/if}
-        {#if tool === 'crop' || tool === 'window'}
-          <Button size="sm" onclick={applyCrop} disabled={applying}>
-            {applying ? 'Applying…' : 'Apply Crop'}
-          </Button>
-        {/if}
-      {/if}
-
-      <Button variant="ghost" size="icon" aria-label="Close" onclick={() => { open = false; }}>
-        <X />
-      </Button>
-    </div>
+    <ImageEditorToolbar
+      {tool}
+      {hasSelection}
+      canUndo={canEditorUndo}
+      canRedo={canEditorRedo}
+      {applying}
+      hasWindowRects={visibleWindowRects.length > 0}
+      onsetTool={setTool}
+      onundo={editorUndo}
+      onredo={editorRedo}
+      onresetSelection={resetSelection}
+      onapplyBlur={applyBlur}
+      onapplyCrop={applyCrop}
+      onclose={() => { open = false; }}
+    />
 
     {#if errorMsg}
       <p class="shrink-0 text-sm text-destructive">{errorMsg}</p>
     {/if}
 
     <!-- Canvas area -->
-    <div bind:this={canvasContainerEl} class="min-h-0 flex-1 overflow-hidden flex items-center justify-center rounded border bg-muted/20">
+    <div bind:this={containerFit.el} class="min-h-0 flex-1 overflow-hidden flex items-center justify-center rounded border bg-muted/20">
       {#if imageUri}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <canvas
           bind:this={canvas}
           class="cursor-crosshair"
-          style={canvasStyle}
+          style={containerFit.style}
           onmousedown={onMouseDown}
           onmousemove={onMouseMove}
           onmouseup={onMouseUp}
