@@ -52,25 +52,21 @@
 
   async function confirmDelete(sessionDir: string) {
     try {
-      await invoke('delete_session_cmd', { sessionDir });
+      await store.deleteSession(sessionDir);
     } catch (err) {
       console.error('Failed to delete session:', err);
       return;
     }
     sel.removeOne(sessionDir);
-    await store.refreshSessions();
   }
 
   async function deleteSelected() {
-    for (const sessionDir of sel.selected) {
-      try {
-        await invoke('delete_session_cmd', { sessionDir: sessionDir as string });
-      } catch (err) {
-        console.error('Failed to delete session:', sessionDir, err);
-      }
+    try {
+      await store.deleteSessions(sel.selected as Set<string>);
+    } catch (err) {
+      console.error('Failed to delete sessions:', err);
     }
     sel.clear();
-    await store.refreshSessions();
   }
 
   async function identifyMonitors() {

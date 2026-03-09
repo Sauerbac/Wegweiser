@@ -180,6 +180,20 @@ class AppStore {
       console.error('Failed to refresh sessions:', err);
     }
   }
+
+  /** Delete a single session and refresh the session list. */
+  async deleteSession(sessionDir: string): Promise<void> {
+    await invoke('delete_session_cmd', { sessionDir });
+    await this.refreshSessions();
+  }
+
+  /** Delete multiple sessions and refresh the session list. */
+  async deleteSessions(sessionDirs: Iterable<string>): Promise<void> {
+    for (const sessionDir of sessionDirs) {
+      await invoke('delete_session_cmd', { sessionDir });
+    }
+    await this.refreshSessions();
+  }
 }
 
 export const store = new AppStore();
