@@ -118,6 +118,23 @@ export class ReviewUndoStore {
     return { depth: 0, redoDepth: 0 };
   }
 
+  /**
+   * If the top of the undo stack is an editorSession for the given step, removes it and
+   * returns its depth so the editor can resume where it left off on reopen.
+   * Returns null if the top entry does not match.
+   *
+   * Called when the editor opens after a normal close (no Review-level undo/redo in
+   * between). This lets the editor continue the same session rather than starting at 0.
+   */
+  popTopEditorSession(stepId: number): number | null {
+    const top = this.undoStack.at(-1);
+    if (top?.type === 'editorSession' && top.stepId === stepId) {
+      this.undoStack = this.undoStack.slice(0, -1);
+      return top.depth;
+    }
+    return null;
+  }
+
   clear() {
     this.undoStack = [];
     this.redoStack = [];

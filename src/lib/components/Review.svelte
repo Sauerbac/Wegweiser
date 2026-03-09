@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from "svelte";
+  import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
@@ -29,6 +29,7 @@
   import { createDragReorder } from "$lib/stores/drag-reorder.svelte";
   import { createExportChoice } from "$lib/stores/export-choice.svelte";
   import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
+  import { createEditorSession } from "$lib/stores/editor-session.svelte";
   import type { Step } from "$lib/types";
   import { DESTRUCTIVE_DIALOG_ACTION_CLASS, extraTabIndex, monitorLabel, parseKeystrokes, pluralS } from "$lib/utils";
   import {
@@ -53,51 +54,11 @@
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
-  /** Whether the image editor modal is open. */
-  let editorOpen = $state(false);
   /** True while the description Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
   let isEditing = $state(false);
-  /** Tick counter passed to ImageEditor to trigger an undo inside the editor. */
-  let editorUndoTick = $state(0);
-  /** Tick counter passed to ImageEditor to trigger a redo inside the editor. */
-  let editorRedoTick = $state(0);
 
   /** Review-level undo/redo store (see src/lib/stores/undo.svelte.ts). */
   const reviewUndo = new ReviewUndoStore();
-
-  /**
-   * Undo depth of the current/most-recent editor session — bound from ImageEditor.
-   * Read on close to push a collapsed editorSession entry onto the Review undo stack.
-   * Set on open to restore state after a Review-level undo/redo.
-   */
-  let currentEditorDepth = $state(0);
-  /**
-   * Redo depth of the current/most-recent editor session — bound from ImageEditor.
-   * Set on open to restore redo state after a Review-level undo.
-   */
-  let currentEditorRedoDepth = $state(0);
-  /** Plain variable (not $state) — tracks previous value of editorOpen. */
-  let editorWasOpen = false;
-
-  // Detect editor open/close transitions.
-  // On open: restore depth/redoDepth from any pending state (set by Review-level undo/redo).
-  // On close: push a collapsed editorSession entry onto the Review undo stack.
-  // Uses untrack for the editorWasOpen update to avoid a reactive loop.
-  $effect(() => {
-    const isOpen = editorOpen; // reactive dep
-    untrack(() => {
-      if (isOpen && !editorWasOpen) {
-        // Editor just opened — restore depth from pending state (defaults to 0/0).
-        const pending = reviewUndo.consumePendingEditorState(selectedStepId ?? -1);
-        currentEditorDepth = pending.depth;
-        currentEditorRedoDepth = pending.redoDepth;
-      } else if (!isOpen && editorWasOpen && selectedStepId !== null) {
-        // Editor just closed — collapse this session into a Review undo entry.
-        reviewUndo.pushEditorSession(selectedStepId, currentEditorDepth);
-      }
-      editorWasOpen = isOpen;
-    });
-  });
 
   let descriptionDraft = $state("");
   /** Draft value for the session name input — synced from store on load, editable locally. */
@@ -162,6 +123,9 @@
   }
 
   const nav = createReviewNavigation(reviewUndo, () => store.isDirty, navigateBack);
+
+  /** Image editor session — owns open flag, tick counters, depth bindings, and keyboard shortcuts. */
+  const editorSession = createEditorSession(reviewUndo, () => selectedStepId, () => isEditing);
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
@@ -284,37 +248,6 @@
     selectedStepId = stepId;
   }
 
-  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
-
-  function handleKeydown(event: KeyboardEvent) {
-    if (isEditing) return;
-    if (event.ctrlKey && !event.shiftKey && event.key === "z") {
-      event.preventDefault();
-      if (editorOpen) {
-        editorUndoTick++;
-      } else {
-        reviewUndo.undo();
-      }
-    } else if (
-      event.ctrlKey &&
-      (event.key === "y" || (event.shiftKey && event.key === "Z"))
-    ) {
-      event.preventDefault();
-      if (editorOpen) {
-        editorRedoTick++;
-      } else {
-        reviewUndo.redo();
-      }
-    }
-  }
-
-  onMount(() => {
-    window.addEventListener("keydown", handleKeydown);
-  });
-
-  onDestroy(() => {
-    window.removeEventListener("keydown", handleKeydown);
-  });
 </script>
 
 {#snippet detailImg(src: string | undefined, alt: string)}
@@ -361,14 +294,14 @@
           size="icon"
           aria-label="Undo"
           onclick={() => reviewUndo.undo()}
-          disabled={editorOpen || !reviewUndo.canUndo}><Undo2 /></Button
+          disabled={editorSession.open || !reviewUndo.canUndo}><Undo2 /></Button
         >
         <Button
           variant="outline"
           size="icon"
           aria-label="Redo"
           onclick={() => reviewUndo.redo()}
-          disabled={editorOpen || !reviewUndo.canRedo}><Redo2 /></Button
+          disabled={editorSession.open || !reviewUndo.canRedo}><Redo2 /></Button
         >
         <Button
           variant="outline"
@@ -449,7 +382,7 @@
           variant="outline"
           size="sm"
           onclick={() => {
-            editorOpen = true;
+            editorSession.open = true;
           }}
         >
           <Pencil />Edit Image
@@ -742,14 +675,14 @@
   </AlertDialogContent>
 </AlertDialog>
 
-{#if selectedStep && editorOpen}
+{#if selectedStep && editorSession.open}
   <ImageEditor
     step={selectedStep}
     extraIndex={ec.editorExtraIndex}
-    bind:open={editorOpen}
-    bind:depth={currentEditorDepth}
-    bind:redoDepth={currentEditorRedoDepth}
-    undoTick={editorUndoTick}
-    redoTick={editorRedoTick}
+    bind:open={editorSession.open}
+    bind:depth={editorSession.depth}
+    bind:redoDepth={editorSession.redoDepth}
+    undoTick={editorSession.undoTick}
+    redoTick={editorSession.redoTick}
   />
 {/if}
