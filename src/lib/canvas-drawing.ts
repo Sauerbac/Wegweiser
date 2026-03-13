@@ -73,7 +73,8 @@ export function drawSelectionRect(
   ctx: CanvasRenderingContext2D,
   active: { x: number; y: number; w: number; h: number },
 ): void {
-  const color = cssVar('--chart-3');
+  // Static --chart-5 light-theme value so it never changes with dark/light mode.
+  const color = 'oklch(0.769 0.188 70.08)';
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
