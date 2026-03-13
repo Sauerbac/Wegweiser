@@ -4,8 +4,6 @@
   import { Checkbox } from '$lib/components/ui/checkbox';
   import {
     AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -15,7 +13,7 @@
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
   import { createConfirmAction } from '$lib/stores/confirm-action.svelte';
-  import { DESTRUCTIVE_DIALOG_ACTION_CLASS, monitorLabel, pluralS } from '$lib/utils';
+  import { monitorLabel, pluralS } from '$lib/utils';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
@@ -183,7 +181,7 @@
                 </Button>
                 <Button
                   variant="destructive"
-                  size="icon"
+                  size="icon-sm"
                   aria-label="Delete session"
                   onclick={() => {
                     deleteSessionAction.request(meta.session_dir);
@@ -207,14 +205,14 @@
       <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>
-      <AlertDialogCancel>Cancel</AlertDialogCancel>
-      <AlertDialogAction
+      <Button variant="outline" onclick={() => { deleteSessionAction.open = false; }}>Cancel</Button>
+      <Button
+        variant="destructive"
         onclick={() => {
           if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
           deleteSessionAction.reset();
         }}
-        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
-      >Delete</AlertDialogAction>
+      >Delete</Button>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
@@ -226,11 +224,11 @@
       <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>
-      <AlertDialogCancel>Cancel</AlertDialogCancel>
-      <AlertDialogAction
+      <Button variant="outline" onclick={() => { bulkDeleteAction.open = false; }}>Cancel</Button>
+      <Button
+        variant="destructive"
         onclick={() => { bulkDeleteAction.reset(); deleteSelected(); }}
-        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
-      >Delete</AlertDialogAction>
+      >Delete</Button>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>

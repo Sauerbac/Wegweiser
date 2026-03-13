@@ -1,15 +1,13 @@
 <script lang="ts">
   import {
     AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
   } from "$lib/components/ui/alert-dialog";
-  import { DESTRUCTIVE_DIALOG_ACTION_CLASS } from "$lib/utils";
+  import { Button } from "$lib/components/ui/button";
 
   interface Props {
     /** Number of steps to delete. 1 = single-step mode, >1 = bulk mode. */
@@ -29,14 +27,20 @@
       <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>
-      <AlertDialogCancel onclick={oncancel}>Cancel</AlertDialogCancel>
-      <AlertDialogAction
+      <Button
+        variant="outline"
+        onclick={() => {
+          open = false;
+          oncancel?.();
+        }}>Cancel</Button
+      >
+      <Button
+        variant="destructive"
         onclick={() => {
           open = false;
           onconfirm();
-        }}
-        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
-      >Delete</AlertDialogAction>
+        }}>Delete</Button
+      >
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>

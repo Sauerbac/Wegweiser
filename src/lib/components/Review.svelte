@@ -336,7 +336,7 @@
         </Button>
         <Button
           variant="destructive"
-          size="icon"
+          size="icon-sm"
           aria-label="Delete step"
           onclick={(e: MouseEvent) => {
             e.stopPropagation();

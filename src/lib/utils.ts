@@ -7,14 +7,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Shared class string for destructive AlertDialogAction buttons.
- * AlertDialogAction defaults to the primary variant; these classes override it
- * to use the destructive color tokens without modifying the generated shadcn component.
- */
-export const DESTRUCTIVE_DIALOG_ACTION_CLASS =
-	"bg-destructive text-destructive-foreground hover:bg-destructive/90";
-
-/**
  * Count keystrokes in a keystroke string.
  * Bracket tokens [Ctrl+C] count as 1 shortcut each;
  * non-bracket plain character runs each count as their character length.

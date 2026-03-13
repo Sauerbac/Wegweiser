@@ -48,7 +48,7 @@
   <div class="flex items-center gap-2">
     <Button
       variant="destructive"
-      size="icon"
+      size="icon-sm"
       aria-label="Delete selected"
       onclick={onDeleteSelected}
       class={selectedIds.size > 0 && items.length > 0 ? '' : 'invisible'}
