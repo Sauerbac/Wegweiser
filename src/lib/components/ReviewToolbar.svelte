@@ -72,7 +72,7 @@
 <!-- Toolbar: three-zone grid (left | center | right) -->
 <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
   <!-- Left: back button -->
-  <div class="flex items-center">
+  <div class="flex items-center gap-2">
     <Button variant="outline" size="sm" onclick={onRequestBack}
       ><ArrowLeft />Back</Button
     >

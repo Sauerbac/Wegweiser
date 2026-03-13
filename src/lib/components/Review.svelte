@@ -13,6 +13,7 @@
   import { setReviewContext } from "$lib/stores/review-context.svelte";
   import type { Step } from "$lib/types";
   import {
+    Circle,
     Pencil,
     Trash2,
   } from "@lucide/svelte";
@@ -94,6 +95,16 @@
     editorSession,
     get isBulkSelectActive() { return isBulkSelectActive; },
   });
+
+  // ── Record more ──────────────────────────────────────────────────────────
+
+  async function recordMore() {
+    try {
+      await invoke("record_more");
+    } catch (err) {
+      console.error("Failed to resume recording:", err);
+    }
+  }
 
   // ── Back navigation (inlined from createReviewNavigation) ─────────────────
 
@@ -318,6 +329,15 @@
         />
       {/snippet}
     </SelectableList>
+    <!-- Record more: pinned at bottom; SelectableList's built-in bottom fade handles the transition -->
+    <div class="mt-auto flex flex-col gap-2 pt-3">
+      <Button onclick={recordMore} class="w-full">
+        <Circle class="fill-current" />Record more
+      </Button>
+      <p class="min-h-8 text-center text-xs text-muted-foreground">
+        New steps will be captured and appended to the end of this session.
+      </p>
+    </div>
   {/snippet}
 
   {#snippet right()}

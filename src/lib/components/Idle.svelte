@@ -18,6 +18,7 @@
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
   import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
+  import ExportStatusBar from '$lib/components/ExportStatusBar.svelte';
 
   const deleteSessionAction = $state(createConfirmAction<string>());
   const bulkDeleteAction = $state(createConfirmAction());
@@ -79,6 +80,7 @@
   headerClass="flex items-center justify-between border-b px-4 py-2"
   leftClass="flex w-80 flex-col gap-4 border-r p-6"
   rightClass="flex flex-1 flex-col overflow-hidden p-6"
+  footerClass="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2"
 >
   {#snippet header()}
     <div class="flex items-center gap-3">
@@ -132,12 +134,14 @@
       </div>
     </div>
 
-    <Button onclick={startRecording} class="mt-auto w-full">
-      <Circle class="fill-current" />Start Recording
-    </Button>
-    <p class="text-center text-xs text-muted-foreground">
-      Keystrokes from all applications are captured while recording.
-    </p>
+    <div class="mt-auto flex flex-col gap-2">
+      <Button onclick={startRecording} class="w-full">
+        <Circle class="fill-current" />Start Recording
+      </Button>
+      <p class="min-h-8 text-center text-xs text-muted-foreground">
+        Keystrokes from all applications are captured while recording.
+      </p>
+    </div>
   {/snippet}
 
   {#snippet right()}
@@ -195,6 +199,10 @@
         {/snippet}
       </SelectableList>
     {/if}
+  {/snippet}
+
+  {#snippet footer()}
+    <ExportStatusBar exportProgress={null} exportedPath={null} onOpen={() => {}} />
   {/snippet}
 </PageLayout>
 

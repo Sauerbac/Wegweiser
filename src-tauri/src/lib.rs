@@ -53,6 +53,7 @@ pub fn run() {
             commands::load_session_cmd,
             commands::delete_session_cmd,
             commands::new_recording,
+            commands::record_more,
             commands::get_step_image,
             commands::get_session,
             commands::export_markdown,

@@ -40,6 +40,25 @@
         ? `All ${items.length}`
         : 'Select all'
   );
+
+  // ── Scroll-reactive fades ────────────────────────────────────────────────────
+
+  let scrollEl = $state<HTMLDivElement | undefined>(undefined);
+  let atTop = $state(true);
+  let atBottom = $state(false);
+
+  function checkScroll() {
+    if (!scrollEl) return;
+    atTop = scrollEl.scrollTop <= 0;
+    atBottom = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 1;
+  }
+
+  // Re-check whenever the element mounts or the item list changes size.
+  $effect(() => {
+    scrollEl;
+    items;
+    checkScroll();
+  });
 </script>
 
 <!-- Heading row: title left, delete button + optional extra actions right -->
@@ -72,9 +91,50 @@
   </div>
 {/if}
 
-<!-- Scrollable row container -->
-<div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
-  {#each items as item, idx (getKey(item))}
-    {@render row(item, idx)}
-  {/each}
+<!-- Scrollable row container with top/bottom fades -->
+<div class="relative flex-1 min-h-0">
+  <div
+    bind:this={scrollEl}
+    class="list-scroll h-full overflow-y-auto pr-2"
+    style="scrollbar-gutter: stable"
+    onscroll={checkScroll}
+  >
+    {#each items as item, idx (getKey(item))}
+      {@render row(item, idx)}
+    {/each}
+  </div>
+
+  <!-- Top fade: hidden when scrolled to the very top -->
+  <div
+    class="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background to-transparent transition-opacity duration-150"
+    class:opacity-0={atTop}
+  ></div>
+
+  <!-- Bottom fade: hidden when scrolled to the very bottom -->
+  <div
+    class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-background transition-opacity duration-150"
+    class:opacity-0={atBottom}
+  ></div>
 </div>
+
+<style>
+  /* Native scrollbar — matches shadcn ScrollArea (bg-border, rounded-full, w-2.5).
+     Hover and active states are intentionally unchanged to suppress highlight behaviour. */
+  :global(.list-scroll)::-webkit-scrollbar {
+    width: 10px;
+  }
+  :global(.list-scroll)::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  :global(.list-scroll)::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 9999px;
+  }
+  :global(.list-scroll)::-webkit-scrollbar-thumb:hover,
+  :global(.list-scroll)::-webkit-scrollbar-thumb:active {
+    background: var(--border);
+  }
+  :global(.list-scroll)::-webkit-scrollbar-button {
+    display: none;
+  }
+</style>

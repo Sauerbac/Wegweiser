@@ -614,6 +614,111 @@ pub fn delete_session_cmd(session_dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn record_more(
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+    window: WebviewWindow,
+) -> Result<(), String> {
+    // Transition from Reviewing back to Recording, keeping the existing session.
+    // next_step_id and next_order are set to continue past the existing steps so
+    // that newly captured steps never collide with existing IDs.
+    let (session_clone, monitor_index) = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        if st.recording_state != RecordingState::Reviewing {
+            return Err("record_more requires Reviewing state".to_string());
+        }
+        let session = st.session.as_ref().ok_or("No session to extend")?;
+        // Find the highest step id and order currently in the session.
+        let max_id = session.steps.iter().map(|s| s.id).max().unwrap_or(0);
+        let max_order = session.steps.iter().map(|s| s.order).max().unwrap_or(0);
+        let monitor_index = session.monitor_index;
+        st.next_step_id = max_id + 1;
+        st.next_order = max_order + 1;
+        st.pending_keystrokes.clear();
+        st.recording_state = RecordingState::Recording;
+        st.selected_monitor = monitor_index;
+        // Refresh monitor infos
+        st.monitor_infos = list_monitor_infos();
+        (st.session.clone(), monitor_index)
+    };
+
+    // Save current geometry before morphing to mini-bar.
+    {
+        let is_maximized = window.is_maximized().unwrap_or(false);
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.window_geometry.maximized = is_maximized;
+
+        #[cfg(windows)]
+        let restore_pos: Option<(i32, i32)> = window
+            .hwnd()
+            .ok()
+            .and_then(|hwnd| crate::platform::get_window_restore_rect(hwnd.0 as isize))
+            .map(|(rx, ry, _, _)| (rx, ry));
+        #[cfg(not(windows))]
+        let restore_pos: Option<(i32, i32)> = window
+            .outer_position()
+            .ok()
+            .map(|p| (p.x, p.y));
+
+        let restore_size: Option<(u32, u32)> = if !is_maximized {
+            window.inner_size().ok().map(|s| (s.width, s.height))
+        } else {
+            None
+        };
+
+        let (_, _, default_w, default_h) = DEFAULT_RESTORE_RECT;
+        if let (Some((rx, ry)), Some((rw, rh))) = (restore_pos, restore_size) {
+            st.window_geometry.restore_rect = Some((rx, ry, rw, rh));
+        } else if let Some((rx, ry)) = restore_pos {
+            st.window_geometry.restore_rect = Some((rx, ry, default_w, default_h));
+        }
+    }
+
+    // Morph to mini-bar on the selected monitor (or primary as fallback).
+    let infos = {
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.monitor_infos.clone()
+    };
+    let monitor_idx = monitor_index.unwrap_or(0);
+    if let Some(monitor) = infos.get(monitor_idx) {
+        morph_to_minibar(&window, monitor);
+    } else {
+        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080 };
+        morph_to_minibar(&window, &dummy);
+    }
+
+    // Record mini-bar window position and size for self-click filtering.
+    if let Ok(pos) = window.outer_position() {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT }));
+    }
+    {
+        let state_arc = Arc::clone(&*state);
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::Moved(new_pos) = event {
+                if let Ok(mut st) = state_arc.lock() {
+                    if let Some((_, size)) = st.rec_window_bounds {
+                        st.rec_window_bounds = Some((*new_pos, size));
+                    }
+                }
+            }
+        });
+    }
+
+    app_handle
+        .emit("recording-state-changed", RecordingState::Recording)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(ref sess) = session_clone {
+        app_handle
+            .emit("session-updated", sess)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub fn new_recording(
     state: State<'_, AppStateHandle>,
     app_handle: AppHandle,
