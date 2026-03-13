@@ -181,6 +181,30 @@ No tests exist yet.
   `<input type="radio">` is acceptable when no `RadioGroup` component is installed. Add missing components with `npx shadcn-svelte@latest add <name>` before using them.
 - **Intentional semantic colors** (do not replace with theme tokens): Stop button `bg-red-600 hover:bg-red-700`; recording status dot `bg-red-500 animate-pulse`; paused status dot `bg-yellow-400`.
 
+## Frontend design principles
+
+These principles guide all frontend store and component work:
+
+### Single-responsibility stores
+Each store file owns one domain. `AppStore` owns recording/session/export state. `ImageCacheStore` owns image loading and caching. `ReviewUndoStore` owns undo/redo stacks. Do not mix unrelated concerns in one store — if a store grows beyond ~3 logical domains, extract a new one.
+
+### Inline rather than extract when single-use
+Factory stores are only justified when the logic is genuinely reusable (multiple call sites) or large enough to justify a file boundary. Logic that is single-use and small (e.g. a 1 boolean + 3 trivial functions) belongs inline in the component that owns it. The navigation back-dialog logic in `Review.svelte` is the canonical example.
+
+### Eliminate repeated patterns with small helpers
+When the same 2–3 `$state` variables appear in multiple components (e.g. `open` + `pending` for every confirmation dialog), extract a tiny factory helper (`createConfirmAction`). The helper should be ≤20 lines and solve exactly one pattern — no over-generalisation.
+
+### Use Svelte context to cut prop drilling
+Stable object references (stores, factory store instances) that are needed across a whole component subtree belong in Svelte context, not in props. Use `setContext`/`getContext` via typed helpers (`setReviewContext`/`getReviewContext`). Props are for per-render values that genuinely differ between instances: `step`, `idx`, `isActive`, callbacks.
+
+**Do not destructure reactive primitives from context** — reading `ctx.someBoolean` tracks the getter reactively; `const { someBoolean } = ctx` captures the value once and loses reactivity. Destructure only stable object references.
+
+### Keep components presentational where possible
+Components that only render UI (dialogs, bars) should receive plain props and callbacks — no store imports, no side effects. This makes them testable and reusable. Orchestration logic (what happens on confirm, when to open the dialog) belongs in the parent.
+
+### Avoid redundant reactive work
+If a `session-updated` event listener already calls `imageStore.preloadStepImages(...)`, do not add a `$effect` in a component that watches `store.session?.steps` to call the same function again. Trace the data flow and trust the authoritative source.
+
 ## Workflow
 
 - Only commit once the user has confirmed that the changes work as expected.

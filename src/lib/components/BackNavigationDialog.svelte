@@ -8,17 +8,17 @@
     AlertDialogTitle,
   } from "$lib/components/ui/alert-dialog";
   import { Button } from "$lib/components/ui/button";
-  import type { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
 
   interface Props {
-    nav: ReturnType<typeof createReviewNavigation>;
-    onSaveAndBack: () => void;
+    open: boolean;
+    onDiscard: () => void;
+    onSave: () => void;
   }
 
-  let { nav, onSaveAndBack }: Props = $props();
+  let { open = $bindable(false), onDiscard, onSave }: Props = $props();
 </script>
 
-<AlertDialog bind:open={nav.showBackDialog}>
+<AlertDialog bind:open>
   <AlertDialogContent>
     <AlertDialogHeader>
       <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
@@ -30,17 +30,11 @@
       <Button
         variant="outline"
         onclick={() => {
-          nav.showBackDialog = false;
+          open = false;
         }}>Cancel</Button
       >
-      <Button variant="destructive" onclick={nav.discardAndNavigateBack}>Discard</Button>
-      <Button
-        onclick={() => {
-          nav.saveSession();
-          nav.showBackDialog = false;
-          onSaveAndBack();
-        }}>Save</Button
-      >
+      <Button variant="destructive" onclick={onDiscard}>Discard</Button>
+      <Button onclick={onSave}>Save</Button>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>

@@ -3,12 +3,14 @@
   import { invoke } from "@tauri-apps/api/core";
   import { Button } from "$lib/components/ui/button";
   import { store } from "$lib/stores/session.svelte";
+  import { imageStore } from "$lib/stores/image-cache.svelte";
   import { ReviewUndoStore } from "$lib/stores/undo.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
   import { createDragReorder } from "$lib/stores/drag-reorder.svelte";
   import { createExportChoice } from "$lib/stores/export-choice.svelte";
-  import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import { createEditorSession } from "$lib/stores/editor-session.svelte";
+  import { createConfirmAction } from "$lib/stores/confirm-action.svelte";
+  import { setReviewContext } from "$lib/stores/review-context.svelte";
   import type { Step } from "$lib/types";
   import {
     Pencil,
@@ -30,18 +32,16 @@
   let selectedStepId = $state<number | null>(null);
   /** True while the description Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
   let isEditing = $state(false);
+  let descriptionDraft = $state("");
+  /** Whether the "unsaved changes" back-navigation dialog is open. */
+  let showBackDialog = $state(false);
 
   /** Review-level undo/redo store (see src/lib/stores/undo.svelte.ts). */
   const reviewUndo = new ReviewUndoStore();
 
-  let descriptionDraft = $state("");
-
-  /** Whether the "delete step" confirmation dialog is open. */
-  let showDeleteStepDialog = $state(false);
-  /** Step ID pending deletion (set when the delete step dialog is opened). */
-  let pendingDeleteStepId = $state<number | null>(null);
-  /** Whether the "bulk delete steps" confirmation dialog is open. */
-  let showBulkDeleteDialog = $state(false);
+  /** Confirm-action helpers for delete dialogs. */
+  const deleteStepAction = createConfirmAction<number>();
+  const bulkDeleteAction = createConfirmAction();
 
   /** Multi-selection state for bulk step operations. */
   const sel = createSelectableList(
@@ -80,9 +80,26 @@
     () => selectedStepId,
   );
 
+  /** Image editor session — owns open flag, tick counters, depth bindings, and keyboard shortcuts. */
+  const editorSession = createEditorSession(reviewUndo, () => selectedStepId, () => isEditing);
+
+  // ── Context ─────────────────────────────────────────────────────────────────
+
+  setReviewContext({
+    store,
+    imageStore,
+    drag,
+    ec,
+    reviewUndo,
+    editorSession,
+    get isBulkSelectActive() { return isBulkSelectActive; },
+  });
+
+  // ── Back navigation (inlined from createReviewNavigation) ─────────────────
+
   async function navigateBack() {
     selectedStepId = null;
-    store.clearImageCache();
+    imageStore.clearAll();
     ec.resetTab();
     reviewUndo.clear();
     store.clearExportState();
@@ -94,10 +111,49 @@
     await store.refreshSessions();
   }
 
-  const nav = createReviewNavigation(reviewUndo, () => store.isDirty, navigateBack);
+  function requestBack() {
+    if (store.isDirty) {
+      showBackDialog = true;
+    } else {
+      navigateBack();
+    }
+  }
 
-  /** Image editor session — owns open flag, tick counters, depth bindings, and keyboard shortcuts. */
-  const editorSession = createEditorSession(reviewUndo, () => selectedStepId, () => isEditing);
+  async function discardAndNavigateBack() {
+    showBackDialog = false;
+    // Undo all pending changes to restore the session to its last-saved state.
+    // invoke("undo_session") throws when the stack is empty — use that as the stop condition.
+    while (true) {
+      try {
+        await invoke('undo_session');
+      } catch {
+        break;
+      }
+    }
+    reviewUndo.clear();
+    await navigateBack();
+  }
+
+  // Register mouse button-3 and browser back handlers.
+  // Using $effect so listeners are cleaned up automatically on component destroy.
+  $effect(() => {
+    function handleMouseUp(event: MouseEvent) {
+      if (event.button === 3) {
+        event.preventDefault();
+        requestBack();
+      }
+    }
+    function handlePopState(event: PopStateEvent) {
+      event.preventDefault();
+      requestBack();
+    }
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  });
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
@@ -105,11 +161,6 @@
   // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
     descriptionDraft = selectedStep?.description ?? "";
-  });
-
-  // Eagerly pre-load images for all steps not yet in the cache.
-  $effect(() => {
-    store.preloadStepImages(store.session?.steps ?? []);
   });
 
   // Pre-select first step only when a genuinely new session is loaded.
@@ -239,9 +290,7 @@
 >
   {#snippet header()}
     <ReviewToolbar
-      {nav}
-      {reviewUndo}
-      {ec}
+      onRequestBack={requestBack}
       isDirty={store.isDirty}
       editorSessionOpen={editorSession.open}
       exportError={store.exportError}
@@ -256,7 +305,7 @@
       selectedIds={sel.selected}
       getKey={(step) => step.id}
       onToggleAll={sel.toggleAll}
-      onDeleteSelected={() => { showBulkDeleteDialog = true; }}
+      onDeleteSelected={() => { bulkDeleteAction.request(); }}
     >
       {#snippet row(step, idx)}
         <StepCard
@@ -264,12 +313,6 @@
           {idx}
           isActive={selectedStepId === step.id}
           isChecked={sel.selected.has(step.id)}
-          {isBulkSelectActive}
-          stepsLength={store.session?.steps.length ?? 0}
-          exportedKeys={ec.getExportedImageKeys(step)}
-          imageCache={store.imageCache}
-          extraImageCache={store.extraImageCache}
-          {drag}
           onSelect={selectStep}
           onCheck={(id) => sel.toggleOne(id)}
         />
@@ -297,8 +340,7 @@
           aria-label="Delete step"
           onclick={(e: MouseEvent) => {
             e.stopPropagation();
-            pendingDeleteStepId = selectedStep!.id;
-            showDeleteStepDialog = true;
+            deleteStepAction.request(selectedStep!.id);
           }}
         >
           <Trash2 />
@@ -307,19 +349,13 @@
 
       <!-- Monitor toggle group: item click = preview; checkbox inside = export inclusion -->
       {#if (selectedStep.extra_image_paths?.length ?? 0) > 0}
-        <MonitorTabGroup step={selectedStep} monitors={store.monitors} {ec} />
+        <MonitorTabGroup step={selectedStep} />
       {/if}
 
       <!-- Image area -->
       <StepImageViewer
         step={selectedStep}
         stepDisplayNum={selectedStepDisplayNum}
-        activeMonitorTab={ec.activeMonitorTab}
-        monitors={store.monitors}
-        imageCache={store.imageCache}
-        extraImageCache={store.extraImageCache}
-        imageCacheKey={store.imageCacheKey.bind(store)}
-        extraImageKey={store.extraImageKey.bind(store)}
       />
 
       <!-- Description and keystrokes -->
@@ -351,20 +387,24 @@
   {/snippet}
 </PageLayout>
 
-<BackNavigationDialog {nav} onSaveAndBack={navigateBack} />
+<BackNavigationDialog
+  bind:open={showBackDialog}
+  onDiscard={discardAndNavigateBack}
+  onSave={() => { store.markSaved(); showBackDialog = false; navigateBack(); }}
+/>
 
 <DeleteStepsDialog
   count={1}
-  bind:open={showDeleteStepDialog}
+  bind:open={deleteStepAction.open}
   onconfirm={() => {
-    if (pendingDeleteStepId !== null) deleteStep(pendingDeleteStepId);
-    pendingDeleteStepId = null;
+    if (deleteStepAction.pending !== undefined) deleteStep(deleteStepAction.pending);
+    deleteStepAction.reset();
   }}
 />
 
 <DeleteStepsDialog
   count={sel.selected.size}
-  bind:open={showBulkDeleteDialog}
+  bind:open={bulkDeleteAction.open}
   onconfirm={deleteSelectedSteps}
 />
 

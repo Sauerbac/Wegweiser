@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { store } from '$lib/stores/session.svelte';
+import { imageStore } from '$lib/stores/image-cache.svelte';
 import type { Step, StepExportChoice } from '$lib/types';
 import { extraTabIndex } from '$lib/utils';
 
@@ -157,7 +158,7 @@ export function createExportChoice(
     const extraCount = step.extra_image_paths?.length ?? 0;
 
     if (includePrimary) {
-      result.push({ cacheKey: store.imageCacheKey(step), isExtra: false, extraIdx: -1 });
+      result.push({ cacheKey: imageStore.imageCacheKey(step), isExtra: false, extraIdx: -1 });
     }
 
     for (let i = 0; i < extraCount; i++) {
@@ -165,7 +166,7 @@ export function createExportChoice(
         choice.type === 'All' || (choice.type === 'Extra' && choice.value === i);
       if (includeExtra) {
         result.push({
-          cacheKey: store.extraImageKey(step.id, i, ver),
+          cacheKey: imageStore.extraImageKey(step.id, i, ver),
           isExtra: true,
           extraIdx: i,
         });

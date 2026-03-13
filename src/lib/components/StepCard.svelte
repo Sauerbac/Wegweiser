@@ -3,7 +3,7 @@
   import { AlignLeft, GripVertical, Keyboard } from '@lucide/svelte';
   import type { Step } from '$lib/types';
   import { countKeystrokes } from '$lib/utils';
-  import { createDragReorder } from '$lib/stores/drag-reorder.svelte';
+  import { getReviewContext } from '$lib/stores/review-context.svelte';
   import DragInsertBar from './DragInsertBar.svelte';
 
   interface Props {
@@ -11,12 +11,6 @@
     idx: number;
     isActive: boolean;
     isChecked: boolean;
-    isBulkSelectActive: boolean;
-    stepsLength: number;
-    exportedKeys: { cacheKey: string; isExtra: boolean; extraIdx: number }[];
-    imageCache: Record<string, string>;
-    extraImageCache: Record<string, string>;
-    drag: ReturnType<typeof createDragReorder>;
     onSelect: (stepId: number) => void;
     onCheck: (stepId: number) => void;
   }
@@ -26,17 +20,16 @@
     idx,
     isActive,
     isChecked,
-    isBulkSelectActive,
-    stepsLength,
-    exportedKeys,
-    imageCache,
-    extraImageCache,
-    drag,
     onSelect,
     onCheck,
   }: Props = $props();
 
+  const ctx = getReviewContext();
+  const { drag } = ctx;
+
   const keystrokeCount = $derived(countKeystrokes(step.keystrokes));
+  const exportedKeys = $derived(ctx.ec.getExportedImageKeys(step));
+  const stepsLength = $derived(ctx.store.session?.steps.length ?? 0);
 </script>
 
 {#snippet thumbImg(src: string | undefined, alt: string, extraClass = '')}
@@ -47,7 +40,7 @@
   {/if}
 {/snippet}
 
-<DragInsertBar insertIndex={idx} {drag} />
+<DragInsertBar insertIndex={idx} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -73,9 +66,9 @@
     <!-- Drag handle (hidden in bulk-select mode) -->
     <div
       data-drag-handle
-      draggable={!isBulkSelectActive}
+      draggable={!ctx.isBulkSelectActive}
       ondragstart={(e) => drag.handleDragStart(e, step.id)}
-      class="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing {isBulkSelectActive ? 'invisible' : ''}"
+      class="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing {ctx.isBulkSelectActive ? 'invisible' : ''}"
       aria-hidden="true"
     >
       <GripVertical class="size-4" />
@@ -99,15 +92,15 @@
       {#if exportedKeys.length === 1}
         {@const imgKey = exportedKeys[0]}
         {@const src = imgKey.isExtra
-          ? extraImageCache[imgKey.cacheKey]
-          : imageCache[imgKey.cacheKey]}
+          ? ctx.imageStore.extraImageCache[imgKey.cacheKey]
+          : ctx.imageStore.imageCache[imgKey.cacheKey]}
         {@render thumbImg(src, `Step ${idx + 1} thumbnail`)}
       {:else if exportedKeys.length > 1}
         <div class="flex items-center">
           {#each exportedKeys as imgKey, cardIdx (imgKey.cacheKey)}
             {@const src = imgKey.isExtra
-              ? extraImageCache[imgKey.cacheKey]
-              : imageCache[imgKey.cacheKey]}
+              ? ctx.imageStore.extraImageCache[imgKey.cacheKey]
+              : ctx.imageStore.imageCache[imgKey.cacheKey]}
             <div
               class="relative overflow-hidden rounded shadow-sm ring-1 ring-border {cardIdx > 0 ? '-ml-4' : ''}"
               style="z-index: {exportedKeys.length - cardIdx};"
@@ -138,5 +131,5 @@
 </div>
 
 {#if idx === stepsLength - 1}
-  <DragInsertBar insertIndex={stepsLength} {drag} />
+  <DragInsertBar insertIndex={stepsLength} />
 {/if}

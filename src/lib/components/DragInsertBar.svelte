@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { createDragReorder } from '$lib/stores/drag-reorder.svelte';
+  import { getReviewContext } from '$lib/stores/review-context.svelte';
 
   interface Props {
     /** Which slot this bar represents (0 = before first card, steps.length = after last). */
     insertIndex: number;
-    /** The drag-reorder store instance. */
-    drag: ReturnType<typeof createDragReorder>;
   }
 
-  let { insertIndex, drag }: Props = $props();
+  let { insertIndex }: Props = $props();
+
+  const { drag } = getReviewContext();
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

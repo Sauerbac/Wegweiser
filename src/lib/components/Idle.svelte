@@ -14,18 +14,15 @@
   } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
+  import { createConfirmAction } from '$lib/stores/confirm-action.svelte';
   import { DESTRUCTIVE_DIALOG_ACTION_CLASS, monitorLabel, pluralS } from '$lib/utils';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
   import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
 
-  /** Whether the "delete session" confirmation dialog is open. */
-  let showDeleteSessionDialog = $state(false);
-  /** Session dir pending deletion (set when the delete session dialog is opened). */
-  let pendingDeleteSessionDir = $state<string | null>(null);
-  /** Whether the "bulk delete sessions" confirmation dialog is open. */
-  let showBulkDeleteDialog = $state(false);
+  const deleteSessionAction = createConfirmAction<string>();
+  const bulkDeleteAction = createConfirmAction();
 
   const sel = createSelectableList(
     () => store.sessions,
@@ -157,7 +154,7 @@
         selectedIds={sel.selected}
         getKey={(meta) => meta.session_dir}
         onToggleAll={sel.toggleAll}
-        onDeleteSelected={() => { showBulkDeleteDialog = true; }}
+        onDeleteSelected={() => { bulkDeleteAction.request(); }}
       >
         {#snippet actions()}
           <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
@@ -189,8 +186,7 @@
                   size="icon"
                   aria-label="Delete session"
                   onclick={() => {
-                    pendingDeleteSessionDir = meta.session_dir;
-                    showDeleteSessionDialog = true;
+                    deleteSessionAction.request(meta.session_dir);
                   }}
                 >
                   <Trash2 />
@@ -204,7 +200,7 @@
   {/snippet}
 </PageLayout>
 
-<AlertDialog bind:open={showDeleteSessionDialog}>
+<AlertDialog bind:open={deleteSessionAction.open}>
   <AlertDialogContent>
     <AlertDialogHeader>
       <AlertDialogTitle>Delete recording?</AlertDialogTitle>
@@ -214,9 +210,8 @@
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction
         onclick={() => {
-          showDeleteSessionDialog = false;
-          if (pendingDeleteSessionDir !== null) confirmDelete(pendingDeleteSessionDir);
-          pendingDeleteSessionDir = null;
+          if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
+          deleteSessionAction.reset();
         }}
         class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
       >Delete</AlertDialogAction>
@@ -224,7 +219,7 @@
   </AlertDialogContent>
 </AlertDialog>
 
-<AlertDialog bind:open={showBulkDeleteDialog}>
+<AlertDialog bind:open={bulkDeleteAction.open}>
   <AlertDialogContent>
     <AlertDialogHeader>
       <AlertDialogTitle>Delete {sel.selected.size} recording{pluralS(sel.selected.size)}?</AlertDialogTitle>
@@ -233,7 +228,7 @@
     <AlertDialogFooter>
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction
-        onclick={() => { showBulkDeleteDialog = false; deleteSelected(); }}
+        onclick={() => { bulkDeleteAction.reset(); deleteSelected(); }}
         class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
       >Delete</AlertDialogAction>
     </AlertDialogFooter>

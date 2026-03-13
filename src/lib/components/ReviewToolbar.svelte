@@ -20,28 +20,24 @@
     Undo2,
   } from "@lucide/svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
-  import type { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
-  import type { ReviewUndoStore } from "$lib/stores/undo.svelte";
-  import type { createExportChoice } from "$lib/stores/export-choice.svelte";
+  import { getReviewContext } from "$lib/stores/review-context.svelte";
   import { store } from "$lib/stores/session.svelte";
 
   interface Props {
-    nav: ReturnType<typeof createReviewNavigation>;
-    reviewUndo: ReviewUndoStore;
-    ec: ReturnType<typeof createExportChoice>;
+    onRequestBack: () => void;
     isDirty: boolean;
     editorSessionOpen: boolean;
     exportError: string | null;
   }
 
   let {
-    nav,
-    reviewUndo,
-    ec,
+    onRequestBack,
     isDirty,
     editorSessionOpen,
     exportError,
   }: Props = $props();
+
+  const { reviewUndo, ec } = getReviewContext();
 
   // ── Session name draft ─────────────────────────────────────────────────────
   // Draft value for the session name input. Synced from the store when the
@@ -77,7 +73,7 @@
 <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
   <!-- Left: back button -->
   <div class="flex items-center">
-    <Button variant="outline" size="sm" onclick={nav.requestBack}
+    <Button variant="outline" size="sm" onclick={onRequestBack}
       ><ArrowLeft />Back</Button
     >
   </div>
@@ -116,7 +112,7 @@
       variant="outline"
       size="icon"
       aria-label="Save"
-      onclick={nav.saveSession}
+      onclick={() => store.markSaved()}
       disabled={!isDirty}><Save /></Button
     >
     <DropdownMenu bind:open={ec.exportOpen}>

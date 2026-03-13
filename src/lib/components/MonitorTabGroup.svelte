@@ -3,16 +3,16 @@
   import * as ToggleGroup from '$lib/components/ui/toggle-group';
   import { MousePointer2 } from '@lucide/svelte';
   import { monitorLabel } from '$lib/utils';
-  import type { MonitorInfo, Step } from '$lib/types';
-  import type { createExportChoice } from '$lib/stores/export-choice.svelte';
+  import type { Step } from '$lib/types';
+  import { getReviewContext } from '$lib/stores/review-context.svelte';
 
   interface Props {
     step: Step;
-    monitors: MonitorInfo[];
-    ec: ReturnType<typeof createExportChoice>;
   }
 
-  let { step, monitors, ec }: Props = $props();
+  let { step }: Props = $props();
+
+  const { ec, store } = getReviewContext();
 </script>
 
 {#snippet checkboxGuard(tab: string, label: string, isClickMonitor = false)}
@@ -59,10 +59,10 @@
     spacing={0}
     size="sm"
   >
-    {@render checkboxGuard('primary', monitorLabel(monitors, step.click_monitor_index), true)}
+    {@render checkboxGuard('primary', monitorLabel(store.monitors, step.click_monitor_index), true)}
     {#each step.extra_image_paths as _path, i (i)}
       {@const monIdx = step.extra_monitor_indices[i] ?? i}
-      {@render checkboxGuard(`extra_${i}`, monitorLabel(monitors, monIdx))}
+      {@render checkboxGuard(`extra_${i}`, monitorLabel(store.monitors, monIdx))}
     {/each}
   </ToggleGroup.Root>
   <p class="text-xs text-muted-foreground">

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { untrack } from 'svelte';
-  import { store } from '$lib/stores/session.svelte';
+  import { getReviewContext } from '$lib/stores/review-context.svelte';
   import type { Step, WindowRect } from '$lib/types';
   import * as Dialog from '$lib/components/ui/dialog';
   import ImageEditorToolbar from '$lib/components/ImageEditorToolbar.svelte';
@@ -40,6 +40,8 @@
 
   let { step, extraIndex = undefined, open = $bindable(false), depth = $bindable(0), redoDepth = $bindable(0), undoTick = 0, redoTick = 0 }: Props = $props();
 
+  const { imageStore } = getReviewContext();
+
   type Tool = 'blur' | 'crop' | 'window';
 
   let tool = $state<Tool>('blur');
@@ -59,11 +61,11 @@
   /** The data URI for the image to display (primary or extra depending on extraIndex). */
   let imageUri = $derived.by(() => {
     if (extraIndex !== undefined) {
-      const key = store.extraImageKey(step.id, extraIndex, step.image_version ?? 0);
-      return store.extraImageCache[key] ?? null;
+      const key = imageStore.extraImageKey(step.id, extraIndex, step.image_version ?? 0);
+      return imageStore.extraImageCache[key] ?? null;
     }
-    const key = store.imageCacheKey(step);
-    return store.imageCache[key] ?? null;
+    const key = imageStore.imageCacheKey(step);
+    return imageStore.imageCache[key] ?? null;
   });
 
   /**
@@ -264,7 +266,7 @@
     applying = true;
     errorMsg = null;
     try {
-      store.clearStepImageCache(step.id);
+      imageStore.clearStepImageCache(step.id);
       await invoke('apply_image_edit', {
         stepId: step.id,
         edit: { ...edit, x: r.x, y: r.y, w: r.w, h: r.h },
