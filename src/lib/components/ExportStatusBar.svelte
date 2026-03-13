@@ -35,11 +35,13 @@
       ? 'text-card-foreground'
       : 'text-muted-foreground'}"
   >
-    {exportedPath ? `Exported to: ${exportedPath}` : "Ready"}
+    {exportedPath ? `Exported to: ${exportedPath}` : ""}
   </span>
 {/if}
 
-<div class="shrink-0 {exportedPath && exportProgress === null ? '' : 'invisible'}">
+<div
+  class="shrink-0 {exportedPath && exportProgress === null ? '' : 'invisible'}"
+>
   <Button variant="outline" size="sm" onclick={onOpen}>
     <ExternalLink />Open
   </Button>
