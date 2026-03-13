@@ -4,7 +4,7 @@
   import { toggleMode } from 'mode-watcher';
 </script>
 
-<Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
+<Button onclick={toggleMode} variant="outline" size="icon-sm" aria-label="Toggle theme">
   <Sun class="dark:hidden" />
   <Moon class="hidden dark:block" />
 </Button>
