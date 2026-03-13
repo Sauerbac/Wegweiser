@@ -30,6 +30,9 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
     md.push_str("---\n\n");
 
     for step in session.steps.iter() {
+        if step.export_choice == StepExportChoice::Skip {
+            continue;
+        }
         md.push_str(&format!("## Step {}\n\n", step.order));
 
         match &step.export_choice {
@@ -78,6 +81,8 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
                     ));
                 }
             }
+            // Skip is handled by the continue guard above; unreachable here.
+            StepExportChoice::Skip => {}
         }
 
         if !step.description.is_empty() {

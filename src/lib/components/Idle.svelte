@@ -2,14 +2,26 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
+  import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+  } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
-  import { Circle, FolderOpen, Moon, Monitor, RefreshCw, Sun, Trash2 } from '@lucide/svelte';
-  import { toggleMode } from 'mode-watcher';
+  import { createConfirmAction } from '$lib/stores/confirm-action.svelte';
+  import { monitorLabel, pluralS } from '$lib/utils';
+  import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
+  import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
+  import ExportStatusBar from '$lib/components/ExportStatusBar.svelte';
 
-  let pendingDelete = $state<string | null>(null);
+  const deleteSessionAction = $state(createConfirmAction<string>());
+  const bulkDeleteAction = $state(createConfirmAction());
 
   const sel = createSelectableList(
     () => store.sessions,
@@ -36,37 +48,21 @@
 
   async function confirmDelete(sessionDir: string) {
     try {
-      await invoke('delete_session_cmd', { sessionDir });
+      await store.deleteSession(sessionDir);
     } catch (err) {
       console.error('Failed to delete session:', err);
       return;
     }
-    pendingDelete = null;
-    // Remove the deleted item from the selection without clearing everything
-    const next = new Set(sel.selected);
-    next.delete(sessionDir);
-    // Reassign via toggleOne round-trip is not clean; directly patch via clear+re-add
-    sel.clear();
-    for (const id of next) sel.toggleOne(id);
-    await store.refreshSessions();
+    sel.removeOne(sessionDir);
   }
 
   async function deleteSelected() {
-    for (const sessionDir of sel.selected) {
-      try {
-        await invoke('delete_session_cmd', { sessionDir: sessionDir as string });
-      } catch (err) {
-        console.error('Failed to delete session:', sessionDir, err);
-      }
+    try {
+      await store.deleteSessions(sel.selected as Set<string>);
+    } catch (err) {
+      console.error('Failed to delete sessions:', err);
     }
     sel.clear();
-    await store.refreshSessions();
-  }
-
-  function monitorLabel(idx: number): string {
-    const m = store.monitors[idx];
-    if (!m) return `Monitor ${idx + 1}`;
-    return `${idx + 1}: ${m.name} (${m.width}×${m.height})`;
   }
 
   async function identifyMonitors() {
@@ -84,16 +80,14 @@
   headerClass="flex items-center justify-between border-b px-4 py-2"
   leftClass="flex w-80 flex-col gap-4 border-r p-6"
   rightClass="flex flex-1 flex-col overflow-hidden p-6"
+  footerClass="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2"
 >
   {#snippet header()}
     <div class="flex items-center gap-3">
       <h1 class="text-lg font-semibold">Wegweiser</h1>
       <p class="text-sm text-muted-foreground">Windows step recorder</p>
     </div>
-    <Button onclick={toggleMode} variant="outline" size="icon" aria-label="Toggle theme">
-      <Sun class="dark:hidden" />
-      <Moon class="hidden dark:block" />
-    </Button>
+    <ThemeToggleButton />
   {/snippet}
 
   {#snippet left()}
@@ -134,18 +128,20 @@
               checked={store.selectedMonitor === idx}
               onchange={() => (store.selectedMonitor = idx)}
             />
-            <span class="text-sm">{monitorLabel(idx)}</span>
+            <span class="text-sm">{monitorLabel(store.monitors, idx)}</span>
           </label>
         {/each}
       </div>
     </div>
 
-    <Button onclick={startRecording} class="mt-auto w-full">
-      <Circle class="fill-current" />Start Recording
-    </Button>
-    <p class="text-center text-xs text-muted-foreground">
-      Keystrokes from all applications are captured while recording.
-    </p>
+    <div class="mt-auto flex flex-col gap-2">
+      <Button onclick={startRecording} class="w-full">
+        <Circle class="fill-current" />Start Recording
+      </Button>
+      <p class="min-h-8 text-center text-xs text-muted-foreground">
+        Keystrokes from all applications are captured while recording.
+      </p>
+    </div>
   {/snippet}
 
   {#snippet right()}
@@ -160,7 +156,7 @@
         selectedIds={sel.selected}
         getKey={(meta) => meta.session_dir}
         onToggleAll={sel.toggleAll}
-        onDeleteSelected={deleteSelected}
+        onDeleteSelected={() => { bulkDeleteAction.request(); }}
       >
         {#snippet actions()}
           <Button variant="outline" size="sm" onclick={() => store.refreshSessions()}>
@@ -168,7 +164,7 @@
           </Button>
         {/snippet}
         {#snippet row(meta)}
-          <div class="rounded-lg border p-4 transition-colors hover:bg-accent/40">
+          <div class="mb-2 rounded-lg border p-4 transition-colors hover:bg-accent/40">
             <div class="flex items-center justify-between">
               <div class="flex min-w-0 flex-1 items-center gap-3">
                 <Checkbox
@@ -179,35 +175,24 @@
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-sm font-medium">{meta.name}</p>
                   <p class="mt-0.5 text-xs text-muted-foreground">
-                    {meta.step_count} step{meta.step_count !== 1 ? 's' : ''}
+                    {meta.step_count} step{pluralS(meta.step_count)}
                   </p>
                 </div>
               </div>
               <div class="ml-3 flex shrink-0 items-center gap-2">
-                {#if pendingDelete === meta.session_dir}
-                  <span class="text-sm font-medium text-destructive">Delete?</span>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onclick={() => confirmDelete(meta.session_dir)}
-                  >
-                    Yes
-                  </Button>
-                  <Button variant="ghost" size="sm" onclick={() => (pendingDelete = null)}>
-                    No
-                  </Button>
-                {:else}
-                  <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)}>
-                    <FolderOpen />Load
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onclick={() => (pendingDelete = meta.session_dir)}
-                  >
-                    <Trash2 />Delete
-                  </Button>
-                {/if}
+                <Button variant="outline" size="sm" onclick={() => loadSession(meta.session_dir)}>
+                  <FolderOpen />Load
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="icon-sm"
+                  aria-label="Delete session"
+                  onclick={() => {
+                    deleteSessionAction.request(meta.session_dir);
+                  }}
+                >
+                  <Trash2 />
+                </Button>
               </div>
             </div>
           </div>
@@ -215,4 +200,43 @@
       </SelectableList>
     {/if}
   {/snippet}
+
+  {#snippet footer()}
+    <ExportStatusBar exportProgress={null} exportedPath={null} onOpen={() => {}} />
+  {/snippet}
 </PageLayout>
+
+<AlertDialog bind:open={deleteSessionAction.open}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete recording?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <Button variant="outline" onclick={() => { deleteSessionAction.open = false; }}>Cancel</Button>
+      <Button
+        variant="destructive"
+        onclick={() => {
+          if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
+          deleteSessionAction.reset();
+        }}
+      >Delete</Button>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+<AlertDialog bind:open={bulkDeleteAction.open}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete {sel.selected.size} recording{pluralS(sel.selected.size)}?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <Button variant="outline" onclick={() => { bulkDeleteAction.open = false; }}>Cancel</Button>
+      <Button
+        variant="destructive"
+        onclick={() => { bulkDeleteAction.reset(); deleteSelected(); }}
+      >Delete</Button>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>

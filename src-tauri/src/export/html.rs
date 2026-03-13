@@ -1,4 +1,4 @@
-use crate::model::{Session, StepExportChoice};
+use crate::model::{Session, Step, StepExportChoice};
 use anyhow::Result;
 use base64::Engine;
 use std::fs::{self, File};
@@ -17,7 +17,12 @@ pub fn export(
     output_path: &Path,
     on_progress: Option<impl Fn(f32)>,
 ) -> Result<()> {
-    let total = session.steps.len();
+    let exported_steps: Vec<&Step> = session
+        .steps
+        .iter()
+        .filter(|s| s.export_choice != StepExportChoice::Skip)
+        .collect();
+    let total = exported_steps.len();
 
     let file = File::create(output_path)?;
     let mut w = BufWriter::new(file);
@@ -103,6 +108,14 @@ pub fn export(
     }}
     code {{ font-family: ui-monospace, monospace; }}
     .monitor-label {{ margin-top: 1rem; margin-bottom: 0.25rem; }}
+    @media (prefers-color-scheme: dark) {{
+      body {{ color: #e1e1e6; background: #121214; }}
+      .meta {{ color: #999; }}
+      .step {{ background: #1e1e24; border-color: #2e2e38; }}
+      .step h2 {{ color: #a0a0b0; }}
+      .step img {{ border-color: #3a3a4a; }}
+      blockquote {{ background: #1a1a2e; border-left-color: #748ffc; }}
+    }}
   </style>
 </head>
 <body>
@@ -122,7 +135,7 @@ pub fn export(
     )?;
 
     // Write each step directly to the file without accumulating in memory.
-    for (i, step) in session.steps.iter().enumerate() {
+    for (i, step) in exported_steps.iter().enumerate() {
         // Build the image(s) HTML based on the step's export_choice.
         match &step.export_choice {
             StepExportChoice::Primary => {
@@ -169,6 +182,8 @@ pub fn export(
                     )?;
                 }
             }
+            // Skip is pre-filtered; this arm is unreachable but satisfies exhaustiveness.
+            StepExportChoice::Skip => {}
         }
 
         if !step.description.is_empty() {

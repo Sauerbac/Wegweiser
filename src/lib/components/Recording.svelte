@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { store } from '$lib/stores/session.svelte';
+  import { pluralS } from '$lib/utils';
   import { GripVertical, Pause, Play, Square } from '@lucide/svelte';
 
   let stepCount = $derived(store.session?.steps.length ?? 0);
@@ -37,8 +38,7 @@
   >
     <!-- Grip dots -->
     <GripVertical
-      size={16}
-      class="text-muted-foreground shrink-0 pointer-events-none"
+      class="size-4 text-muted-foreground shrink-0 pointer-events-none"
       aria-hidden="true"
     />
     <!-- Status info sits inside drag region; pointer-events:none so it doesn't block dragging -->
@@ -46,7 +46,7 @@
       <div class="h-2.5 w-2.5 rounded-full {isPaused ? 'bg-yellow-400' : 'bg-red-500 animate-pulse'}"></div>
       <span class="text-sm font-medium">{isPaused ? 'Paused' : 'Recording'}</span>
       <span class="rounded bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
-        {stepCount} step{stepCount !== 1 ? 's' : ''}
+        {stepCount} step{pluralS(stepCount)}
       </span>
     </div>
   </div>
@@ -60,9 +60,9 @@
       class="h-7 gap-1 text-sm"
     >
       {#if isPaused}
-        <Play size={12} />{' '}Resume
+        <Play />{' '}Resume
       {:else}
-        <Pause size={12} />{' '}Pause
+        <Pause />{' '}Pause
       {/if}
     </Button>
     <Button
@@ -70,7 +70,7 @@
       onclick={stopRecording}
       class="h-7 gap-1 bg-red-600 text-sm hover:bg-red-700 text-white"
     >
-      <Square size={12} />Stop
+      <Square />Stop
     </Button>
   </div>
 </div>

@@ -53,6 +53,7 @@ pub fn run() {
             commands::load_session_cmd,
             commands::delete_session_cmd,
             commands::new_recording,
+            commands::record_more,
             commands::get_step_image,
             commands::get_session,
             commands::export_markdown,
@@ -60,6 +61,10 @@ pub fn run() {
             commands::open_path,
             commands::rename_session,
             commands::identify_monitors,
+            commands::undo_session,
+            commands::redo_session,
+            commands::apply_image_edit,
+            commands::reorder_steps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

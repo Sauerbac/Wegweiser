@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { KeystrokeSegment, StepExportChoice } from '$lib/types';
+import type { KeystrokeSegment, MonitorInfo, StepExportChoice } from '$lib/types';
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -55,6 +55,7 @@ export function tabFromExportChoice(choice: StepExportChoice | undefined): strin
   if (!choice || choice.type === 'Primary') return 'primary';
   if (choice.type === 'All') return 'all';
   if (choice.type === 'Extra') return `extra_${choice.value}`;
+  if (choice.type === 'Skip') return 'primary';
   // exhaustiveness check
   const _exhaustive: never = choice;
   return 'primary';
@@ -67,6 +68,43 @@ export function choiceFromTab(tab: string): StepExportChoice {
   const idx = parseInt(tab.replace('extra_', ''), 10);
   if (isNaN(idx)) return { type: 'Primary' };
   return { type: 'Extra', value: idx };
+}
+
+/** Return a human-readable label for a monitor by its index (short form: name or fallback). */
+export function monitorLabel(monitors: MonitorInfo[], idx: number): string {
+  return monitors[idx]?.name ?? `Monitor ${idx + 1}`;
+}
+
+/** Return 's' when count !== 1, '' otherwise — for simple English plural suffixes. */
+export function pluralS(count: number): string {
+  return count !== 1 ? 's' : '';
+}
+
+/** Extract the numeric index from an 'extra_N' tab string. */
+export function extraTabIndex(tab: string): number {
+  return parseInt(tab.replace('extra_', ''), 10);
+}
+
+/** Read a CSS custom property from the document root (resolves theme variables). */
+export function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/**
+ * Clip a WindowRect to image bounds.
+ * Returns the clipped rectangle, or null if the rect has no visible area.
+ */
+export function clipRect(
+  wr: { x: number; y: number; w: number; h: number },
+  imageW: number,
+  imageH: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const cx = Math.max(wr.x, 0);
+  const cy = Math.max(wr.y, 0);
+  const cw = Math.min(wr.x + wr.w, imageW) - cx;
+  const ch = Math.min(wr.y + wr.h, imageH) - cy;
+  if (cw <= 0 || ch <= 0) return null;
+  return { x: cx, y: cy, w: cw, h: ch };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

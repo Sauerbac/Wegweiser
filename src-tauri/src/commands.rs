@@ -1,5 +1,6 @@
 use crate::capture::{capture_step, list_monitor_infos};
-use crate::model::{Session, StepExportChoice};
+use xcap::Monitor;
+use crate::model::{ImageEdit, Session, StepExportChoice, UndoState};
 use crate::session::{self, SessionMeta};
 use crate::state::{AppState, RecordingState};
 use base64::Engine;
@@ -30,6 +31,29 @@ const BADGE_DISPLAY_SECS: u64 = 3;
 /// Normalize a filesystem path to forward slashes for consistent frontend display.
 fn normalize_path_for_frontend(path: &str) -> String {
     path.replace('\\', "/")
+}
+
+/// Push a snapshot of the current session onto the undo stack and clear redo.
+/// Caps history at 50 entries (oldest dropped first).
+fn push_undo(st: &mut AppState) {
+    if let Some(ref session) = st.session {
+        if st.undo_history.len() >= 50 {
+            st.undo_history.remove(0);
+        }
+        st.undo_history.push(session.clone());
+        st.redo_history.clear();
+    }
+}
+
+/// Emit an `undo-state-changed` event reflecting the current stack depths.
+/// Acquires the state lock internally — call this **after** releasing any other
+/// lock on the same state to avoid deadlocks.
+fn emit_undo_state(state: &AppStateHandle, app_handle: &AppHandle) {
+    let (can_undo, can_redo) = {
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
+        (!st.undo_history.is_empty(), !st.redo_history.is_empty())
+    };
+    let _ = app_handle.emit("undo-state-changed", UndoState { can_undo, can_redo });
 }
 
 /// Construct a new Session value for the given monitor selection.
@@ -145,6 +169,9 @@ pub fn start_recording(
         st.next_step_id = 1;
         st.next_order = 1;
         st.pending_keystrokes.clear();
+        // Clear undo/redo history for the new recording.
+        st.undo_history.clear();
+        st.redo_history.clear();
         // Refresh monitor infos
         st.monitor_infos = list_monitor_infos();
     }
@@ -426,6 +453,7 @@ pub fn delete_step(
 ) -> Result<(), String> {
     let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
         if let Some(ref mut session) = st.session {
             session.steps.retain(|s| s.id != step_id);
             // Renumber orders
@@ -441,6 +469,7 @@ pub fn delete_step(
     if let Some(s) = session {
         app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
+    emit_undo_state(&state, &app_handle);
     Ok(())
 }
 
@@ -452,6 +481,7 @@ pub fn delete_steps(
 ) -> Result<(), String> {
     let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
         if let Some(ref mut session) = st.session {
             let ids_set: std::collections::HashSet<usize> = step_ids.iter().copied().collect();
             session.steps.retain(|s| !ids_set.contains(&s.id));
@@ -467,6 +497,7 @@ pub fn delete_steps(
     if let Some(s) = session {
         app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
+    emit_undo_state(&state, &app_handle);
     Ok(())
 }
 
@@ -483,6 +514,7 @@ pub fn update_step_description(
     }
     let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
         if let Some(ref mut session) = st.session {
             if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
                 step.description = description;
@@ -496,6 +528,7 @@ pub fn update_step_description(
     if let Some(s) = session {
         app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
+    emit_undo_state(&state, &app_handle);
     Ok(())
 }
 
@@ -508,6 +541,7 @@ pub fn set_step_export_choice(
 ) -> Result<(), String> {
     let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
         if let Some(ref mut session) = st.session {
             if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
                 step.export_choice = choice;
@@ -521,6 +555,7 @@ pub fn set_step_export_choice(
     if let Some(s) = session {
         app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
+    emit_undo_state(&state, &app_handle);
     Ok(())
 }
 
@@ -551,6 +586,9 @@ pub fn load_session_cmd(
             || st.recording_state == RecordingState::Paused;
         st.session = Some(loaded.clone());
         st.recording_state = RecordingState::Reviewing;
+        // Clear undo/redo when loading a session from the library.
+        st.undo_history.clear();
+        st.redo_history.clear();
         (was_recording, st.window_geometry.restore_rect.take(), st.window_geometry.maximized)
     };
 
@@ -573,6 +611,111 @@ pub fn load_session_cmd(
 pub fn delete_session_cmd(session_dir: String) -> Result<(), String> {
     let dir = PathBuf::from(&session_dir);
     session::delete_session(&dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn record_more(
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+    window: WebviewWindow,
+) -> Result<(), String> {
+    // Transition from Reviewing back to Recording, keeping the existing session.
+    // next_step_id and next_order are set to continue past the existing steps so
+    // that newly captured steps never collide with existing IDs.
+    let (session_clone, monitor_index) = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        if st.recording_state != RecordingState::Reviewing {
+            return Err("record_more requires Reviewing state".to_string());
+        }
+        let session = st.session.as_ref().ok_or("No session to extend")?;
+        // Find the highest step id and order currently in the session.
+        let max_id = session.steps.iter().map(|s| s.id).max().unwrap_or(0);
+        let max_order = session.steps.iter().map(|s| s.order).max().unwrap_or(0);
+        let monitor_index = session.monitor_index;
+        st.next_step_id = max_id + 1;
+        st.next_order = max_order + 1;
+        st.pending_keystrokes.clear();
+        st.recording_state = RecordingState::Recording;
+        st.selected_monitor = monitor_index;
+        // Refresh monitor infos
+        st.monitor_infos = list_monitor_infos();
+        (st.session.clone(), monitor_index)
+    };
+
+    // Save current geometry before morphing to mini-bar.
+    {
+        let is_maximized = window.is_maximized().unwrap_or(false);
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.window_geometry.maximized = is_maximized;
+
+        #[cfg(windows)]
+        let restore_pos: Option<(i32, i32)> = window
+            .hwnd()
+            .ok()
+            .and_then(|hwnd| crate::platform::get_window_restore_rect(hwnd.0 as isize))
+            .map(|(rx, ry, _, _)| (rx, ry));
+        #[cfg(not(windows))]
+        let restore_pos: Option<(i32, i32)> = window
+            .outer_position()
+            .ok()
+            .map(|p| (p.x, p.y));
+
+        let restore_size: Option<(u32, u32)> = if !is_maximized {
+            window.inner_size().ok().map(|s| (s.width, s.height))
+        } else {
+            None
+        };
+
+        let (_, _, default_w, default_h) = DEFAULT_RESTORE_RECT;
+        if let (Some((rx, ry)), Some((rw, rh))) = (restore_pos, restore_size) {
+            st.window_geometry.restore_rect = Some((rx, ry, rw, rh));
+        } else if let Some((rx, ry)) = restore_pos {
+            st.window_geometry.restore_rect = Some((rx, ry, default_w, default_h));
+        }
+    }
+
+    // Morph to mini-bar on the selected monitor (or primary as fallback).
+    let infos = {
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.monitor_infos.clone()
+    };
+    let monitor_idx = monitor_index.unwrap_or(0);
+    if let Some(monitor) = infos.get(monitor_idx) {
+        morph_to_minibar(&window, monitor);
+    } else {
+        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080 };
+        morph_to_minibar(&window, &dummy);
+    }
+
+    // Record mini-bar window position and size for self-click filtering.
+    if let Ok(pos) = window.outer_position() {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT }));
+    }
+    {
+        let state_arc = Arc::clone(&*state);
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::Moved(new_pos) = event {
+                if let Ok(mut st) = state_arc.lock() {
+                    if let Some((_, size)) = st.rec_window_bounds {
+                        st.rec_window_bounds = Some((*new_pos, size));
+                    }
+                }
+            }
+        });
+    }
+
+    app_handle
+        .emit("recording-state-changed", RecordingState::Recording)
+        .map_err(|e| e.to_string())?;
+
+    if let Some(ref sess) = session_clone {
+        app_handle
+            .emit("session-updated", sess)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -722,6 +865,7 @@ pub fn rename_session(
     }
     let session = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
         if let Some(ref mut session) = st.session {
             session.name = name;
             if let Err(e) = session::save_session(session) {
@@ -733,20 +877,252 @@ pub fn rename_session(
     if let Some(s) = session {
         app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
     }
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn undo_session(
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let session_to_emit = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        let old_session = st.undo_history.pop().ok_or("Nothing to undo")?;
+        // Push current session onto redo stack.
+        if let Some(current) = st.session.clone() {
+            st.redo_history.push(current);
+        }
+        st.session = Some(old_session.clone());
+        if let Err(e) = session::save_session(&old_session) {
+            eprintln!("[undo_session] save failed: {e}");
+        }
+        old_session
+    };
+    app_handle.emit("session-updated", &session_to_emit).map_err(|e| e.to_string())?;
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn redo_session(
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let session_to_emit = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        let next_session = st.redo_history.pop().ok_or("Nothing to redo")?;
+        // Push current session onto undo stack (without clearing redo).
+        if let Some(current) = st.session.clone() {
+            if st.undo_history.len() >= 50 {
+                st.undo_history.remove(0);
+            }
+            st.undo_history.push(current);
+        }
+        st.session = Some(next_session.clone());
+        if let Err(e) = session::save_session(&next_session) {
+            eprintln!("[redo_session] save failed: {e}");
+        }
+        next_session
+    };
+    app_handle.emit("session-updated", &session_to_emit).map_err(|e| e.to_string())?;
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn apply_image_edit(
+    step_id: usize,
+    edit: ImageEdit,
+    extra_index: Option<usize>,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    // Phase 1: push undo, collect the image path and current version (with lock).
+    let (image_path, current_version) = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
+        let session = st.session.as_ref().ok_or("No active session")?;
+        let step = session.steps.iter().find(|s| s.id == step_id)
+            .ok_or("Step not found")?;
+        let path = match extra_index {
+            None => step.image_path.clone(),
+            Some(i) => step.extra_image_paths.get(i)
+                .ok_or("Extra image index out of range")?
+                .clone(),
+        };
+        (path, step.image_version)
+    };
+
+    // Phase 2: image manipulation — no lock held.
+    let new_version = current_version + 1;
+
+    // Determine output path for the versioned edited file.
+    let dir = image_path.parent().unwrap_or(std::path::Path::new("."));
+    let new_image_path = match extra_index {
+        None => dir.join(format!("step_{:04}_edit{}.png", step_id, new_version)),
+        Some(ei) => dir.join(format!("step_{:04}_extra{}_edit{}.png", step_id, ei, new_version)),
+    };
+
+    let img = image::open(&image_path).map_err(|e| e.to_string())?.to_rgba8();
+
+    // Track the final crop rect (in image pixels) so we can transform window_rects
+    // in Phase 3 — only set for Crop edits, None for Blur.
+    let mut crop_rect: Option<(u32, u32, u32, u32)> = None;
+
+    let result_img: image::RgbaImage = match edit {
+        ImageEdit::Blur { x, y, w, h, sigma } => {
+            let px = (x.max(0) as u32).min(img.width());
+            let py = (y.max(0) as u32).min(img.height());
+            let pw = w.min(img.width().saturating_sub(px));
+            let ph = h.min(img.height().saturating_sub(py));
+            if pw == 0 || ph == 0 {
+                return Err("Blur region is empty".to_string());
+            }
+            let sub = image::imageops::crop_imm(&img, px, py, pw, ph).to_image();
+            let blurred = imageproc::filter::gaussian_blur_f32(&sub, sigma);
+            let mut result = img.clone();
+            image::imageops::replace(&mut result, &blurred, px as i64, py as i64);
+            result
+        }
+        ImageEdit::Crop { x, y, w, h } => {
+            let px = (x.max(0) as u32).min(img.width());
+            let py = (y.max(0) as u32).min(img.height());
+            let pw = w.min(img.width().saturating_sub(px));
+            let ph = h.min(img.height().saturating_sub(py));
+            if pw == 0 || ph == 0 {
+                return Err("Crop region is empty".to_string());
+            }
+            crop_rect = Some((px, py, pw, ph));
+            image::imageops::crop_imm(&img, px, py, pw, ph).to_image()
+        }
+    };
+
+    result_img.save(&new_image_path).map_err(|e| e.to_string())?;
+
+    // Phase 3: update session metadata (with lock).
+    let session_clone = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ref mut session) = st.session {
+            if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
+                step.image_version = new_version;
+                match extra_index {
+                    None => {
+                        step.image_path = new_image_path;
+                        // Bug-004: after a crop the window_rects still reference the
+                        // original coordinate space.  Translate by the crop origin and
+                        // clamp to the new image dimensions so subsequent window-select
+                        // operations in the editor stay aligned.
+                        if let Some((crop_x, crop_y, crop_w, crop_h)) = crop_rect {
+                            step.window_rects = step.window_rects.iter()
+                                .filter_map(|wr| {
+                                    let nx = wr.x - crop_x as i32;
+                                    let ny = wr.y - crop_y as i32;
+                                    let cx = nx.max(0);
+                                    let cy = ny.max(0);
+                                    let cw = ((nx + wr.w as i32).min(crop_w as i32) - cx).max(0) as u32;
+                                    let ch = ((ny + wr.h as i32).min(crop_h as i32) - cy).max(0) as u32;
+                                    if cw == 0 || ch == 0 {
+                                        None // rect is fully outside the crop area
+                                    } else {
+                                        Some(crate::model::WindowRect {
+                                            title: wr.title.clone(),
+                                            x: cx,
+                                            y: cy,
+                                            w: cw,
+                                            h: ch,
+                                        })
+                                    }
+                                })
+                                .collect();
+                        }
+                    }
+                    Some(ei) => {
+                        if let Some(p) = step.extra_image_paths.get_mut(ei) {
+                            *p = new_image_path;
+                        }
+                    }
+                }
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
+        }
+        st.session.clone()
+    };
+
+    if let Some(s) = session_clone {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_steps(
+    step_ids: Vec<usize>,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let session = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
+        if let Some(ref mut session) = st.session {
+            // Build a lookup: id → Step
+            let mut step_map: std::collections::HashMap<usize, crate::model::Step> =
+                session.steps.drain(..).map(|s| (s.id, s)).collect();
+            // Re-insert in the requested order; ignore unknown IDs
+            for (new_order, &id) in step_ids.iter().enumerate() {
+                if let Some(mut step) = step_map.remove(&id) {
+                    step.order = new_order + 1;
+                    session.steps.push(step);
+                }
+            }
+            // Append any steps not mentioned in step_ids (safety net)
+            let mut extra: Vec<_> = step_map.into_values().collect();
+            extra.sort_by_key(|s| s.order);
+            for (i, mut s) in extra.into_iter().enumerate() {
+                s.order = session.steps.len() + i + 1;
+                session.steps.push(s);
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
+        }
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    emit_undo_state(&state, &app_handle);
     Ok(())
 }
 
 #[tauri::command]
 pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
-    let infos = crate::capture::list_monitor_infos();
+    // Enumerate monitors via xcap directly so we can read the per-monitor
+    // scale_factor and convert physical-pixel coordinates to the logical-pixel
+    // space that Tauri's WebviewWindowBuilder::position() expects.
+    // Using MonitorInfo (which stores only physical coords) would cause badge
+    // windows to land in wrong positions on scaled monitors.
+    let monitors = Monitor::all().unwrap_or_else(|e| {
+        eprintln!("identify_monitors: Monitor::all() failed: {e}");
+        Vec::new()
+    });
 
-    for (index, info) in infos.iter().enumerate() {
+    for (index, monitor) in monitors.iter().enumerate() {
         let window_label = format!("identify_{}", index);
         let app_clone = app_handle.clone();
 
-        // Small badge at bottom-left of this monitor
-        let badge_x = info.x as f64 + BADGE_MARGIN;
-        let badge_y = info.y as f64 + info.height as f64 - BADGE_HEIGHT - BADGE_MARGIN;
+        // Convert physical monitor geometry to logical pixels for window placement.
+        let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+        let phys_x = monitor.x().unwrap_or(0) as f64;
+        let phys_y = monitor.y().unwrap_or(0) as f64;
+        let phys_h = monitor.height().unwrap_or(0) as f64;
+
+        // Small badge at bottom-left of this monitor (all values in logical pixels)
+        let badge_x = phys_x / scale + BADGE_MARGIN;
+        let badge_y = phys_y / scale + phys_h / scale - BADGE_HEIGHT - BADGE_MARGIN;
 
         let label_clone = window_label.clone();
         std::thread::spawn(move || {

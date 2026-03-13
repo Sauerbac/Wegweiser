@@ -40,6 +40,25 @@
         ? `All ${items.length}`
         : 'Select all'
   );
+
+  // ── Scroll-reactive fades ────────────────────────────────────────────────────
+
+  let scrollEl = $state<HTMLDivElement | undefined>(undefined);
+  let atTop = $state(true);
+  let atBottom = $state(false);
+
+  function checkScroll() {
+    if (!scrollEl) return;
+    atTop = scrollEl.scrollTop <= 0;
+    atBottom = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 1;
+  }
+
+  // Re-check whenever the element mounts or the item list changes size.
+  $effect(() => {
+    scrollEl;
+    items;
+    checkScroll();
+  });
 </script>
 
 <!-- Heading row: title left, delete button + optional extra actions right -->
@@ -48,11 +67,12 @@
   <div class="flex items-center gap-2">
     <Button
       variant="destructive"
-      size="sm"
+      size="icon-sm"
+      aria-label="Delete selected"
       onclick={onDeleteSelected}
       class={selectedIds.size > 0 && items.length > 0 ? '' : 'invisible'}
     >
-      <Trash2 />Delete Selected
+      <Trash2 />
     </Button>
     {@render actions?.()}
   </div>
@@ -71,9 +91,37 @@
   </div>
 {/if}
 
-<!-- Scrollable row container -->
-<div class="flex flex-col gap-2 overflow-y-auto pr-2">
-  {#each items as item, idx (getKey(item))}
-    {@render row(item, idx)}
-  {/each}
+<!-- Scrollable row container with top/bottom fades -->
+<div class="relative flex-1 min-h-0">
+  <div
+    bind:this={scrollEl}
+    class="list-scroll h-full overflow-y-auto"
+    onscroll={checkScroll}
+  >
+    {#each items as item, idx (getKey(item))}
+      {@render row(item, idx)}
+    {/each}
+  </div>
+
+  <!-- Top fade: hidden when scrolled to the very top -->
+  <div
+    class="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-background to-transparent transition-opacity duration-150"
+    class:opacity-0={atTop}
+  ></div>
+
+  <!-- Bottom fade: hidden when scrolled to the very bottom -->
+  <div
+    class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10 bg-gradient-to-b from-transparent to-background transition-opacity duration-150"
+    class:opacity-0={atBottom}
+  ></div>
 </div>
+
+<style>
+  :global(.list-scroll) {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  :global(.list-scroll)::-webkit-scrollbar {
+    display: none;
+  }
+</style>

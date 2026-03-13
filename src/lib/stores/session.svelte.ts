@@ -1,12 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
-import type { MonitorInfo, RecordingState, Session, SessionMeta, Step } from '$lib/types';
+import type { MonitorInfo, RecordingState, Session, SessionMeta, Step, UndoState } from '$lib/types';
+import { imageStore } from '$lib/stores/image-cache.svelte';
 
 const VALID_STATES: RecordingState[] = ['idle', 'recording', 'paused', 'reviewing'];
 
 // Svelte 5 class-based reactive store (class properties are writable from outside)
-class AppStore {
+export class AppStore {
   private _unlisteners: UnlistenFn[] = [];
 
   recordingState = $state<RecordingState>('idle');
@@ -22,46 +23,10 @@ class AppStore {
   exportProgress = $state<number | null>(null);
   exportedPath = $state<string | null>(null);
   exportError = $state<string | null>(null);
-  /** Cache for primary step images. Key: step.id → asset URI. */
-  imageCache = $state<Record<number, string>>({});
-  /** Cache for extra monitor images. Key: `${step.id}_extra_${monitorIndex}` → asset URI. */
-  extraImageCache = $state<Record<string, string>>({});
-
-  /** Build the cache key for an extra monitor image. */
-  extraImageKey(stepId: number, monitorIndex: number): string {
-    return `${stepId}_extra_${monitorIndex}`;
-  }
-
-  /** Reset both image caches (call when starting a new recording). */
-  clearImageCache() {
-    this.imageCache = {};
-    this.extraImageCache = {};
-  }
-
-  /**
-   * Eagerly pre-load images for all steps not yet in either cache.
-   * Safe to call on every session-updated event — skips already-cached entries.
-   */
-  preloadStepImages(steps: Step[]) {
-    for (const step of steps) {
-      if (!this.imageCache[step.id]) {
-        invoke<string>('get_step_image', { imagePath: step.image_path }).then((uri) => {
-          this.imageCache[step.id] = uri;
-        }).catch(err => console.error('Failed to load image:', err));
-      }
-      for (let i = 0; i < (step.extra_image_paths?.length ?? 0); i++) {
-        const key = this.extraImageKey(step.id, i);
-        if (!this.extraImageCache[key]) {
-          const path = step.extra_image_paths[i] ?? null;
-          if (path !== null) {
-            invoke<string>('get_step_image', { imagePath: path }).then((uri) => {
-              this.extraImageCache[key] = uri;
-            }).catch(err => console.error('Failed to load extra image:', err));
-          }
-        }
-      }
-    }
-  }
+  canUndo = $state(false);
+  canRedo = $state(false);
+  isDirty = $state(false);
+  private _lastKnownSessionId = '';
 
   async init() {
     this.monitors = await invoke<MonitorInfo[]>('list_monitors');
@@ -71,9 +36,21 @@ class AppStore {
       listen<string>('recording-state-changed', (event) => {
         if (VALID_STATES.includes(event.payload as RecordingState)) {
           this.recordingState = event.payload as RecordingState;
+          // Clear undo/redo availability and dirty state when leaving Reviewing state.
+          if (event.payload === 'idle') {
+            this.canUndo = false;
+            this.canRedo = false;
+            this.isDirty = false;
+            this._lastKnownSessionId = '';
+          }
         } else {
           console.error('Unknown recording state:', event.payload);
         }
+      }),
+
+      listen<UndoState>('undo-state-changed', (event) => {
+        this.canUndo = event.payload.can_undo;
+        this.canRedo = event.payload.can_redo;
       }),
 
       listen<Step>('step-captured', (event) => {
@@ -89,8 +66,18 @@ class AppStore {
       }),
 
       listen<Session>('session-updated', (event) => {
+        const isNewSession = event.payload.id !== this._lastKnownSessionId;
+        this._lastKnownSessionId = event.payload.id;
         this.session = event.payload;
-        this.preloadStepImages(event.payload.steps);
+        imageStore.preloadStepImages(event.payload.steps);
+        // Only mark dirty for real user mutations in the Review screen.
+        // - isNewSession: first delivery of a session (from start/stop/load) → not a mutation.
+        // - recordingState !== 'reviewing': session-updated fired during recording
+        //   (e.g. the final snapshot emitted by stop_recording before the state
+        //   transitions to 'reviewing') → not a user edit in the Review screen.
+        if (!isNewSession && this.recordingState === 'reviewing') {
+          this.isDirty = true;
+        }
       }),
 
       listen<number>('export-progress', (event) => {
@@ -117,12 +104,35 @@ class AppStore {
     this._unlisteners = [];
   }
 
+  markSaved() {
+    this.isDirty = false;
+  }
+
+  clearExportState() {
+    this.exportedPath = null;
+    this.exportError = null;
+  }
+
   async refreshSessions() {
     try {
       this.sessions = await invoke<SessionMeta[]>('list_sessions');
     } catch (err) {
       console.error('Failed to refresh sessions:', err);
     }
+  }
+
+  /** Delete a single session and refresh the session list. */
+  async deleteSession(sessionDir: string): Promise<void> {
+    await invoke('delete_session_cmd', { sessionDir });
+    await this.refreshSessions();
+  }
+
+  /** Delete multiple sessions and refresh the session list. */
+  async deleteSessions(sessionDirs: Iterable<string>): Promise<void> {
+    for (const sessionDir of sessionDirs) {
+      await invoke('delete_session_cmd', { sessionDir });
+    }
+    await this.refreshSessions();
   }
 }
 

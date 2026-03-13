@@ -30,3 +30,5 @@ src-tauri/target/
 # Working notes
 todos.md
 todos/
+
+.claude/
