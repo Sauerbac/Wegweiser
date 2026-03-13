@@ -30,6 +30,8 @@
   const keystrokeCount = $derived(countKeystrokes(step.keystrokes));
   const exportedKeys = $derived(ctx.ec.getExportedImageKeys(step));
   const stepsLength = $derived(ctx.store.session?.steps.length ?? 0);
+
+  let cardEl: HTMLDivElement | undefined = $state();
 </script>
 
 {#snippet thumbImg(src: string | undefined, alt: string, extraClass = '')}
@@ -44,14 +46,14 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  bind:this={cardEl}
   role="button"
   tabindex="0"
-  class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'}{drag.draggedStepId === step.id ? 'opacity-50' : ''}"
+  class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {drag.draggedStepId === step.id ? 'opacity-50' : ''}"
   ondragenter={(e) => drag.handleDragEnter(e)}
   ondragover={(e) => drag.handleDragOver(e, step.id, idx)}
   ondragleave={(e) => drag.handleDragLeave(e)}
   ondrop={(e) => drag.handleDrop(e)}
-  ondragend={drag.handleDragEnd}
   onclick={(e) => {
     if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
     if ((e.target as HTMLElement).closest('[data-drag-handle]')) return;
@@ -67,9 +69,16 @@
     <div
       data-drag-handle
       draggable={!ctx.isBulkSelectActive}
-      ondragstart={(e) => drag.handleDragStart(e, step.id)}
       class="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing {ctx.isBulkSelectActive ? 'invisible' : ''}"
       aria-hidden="true"
+      ondragstart={(e) => {
+        drag.handleDragStart(e, step.id);
+        if (cardEl) {
+          const rect = cardEl.getBoundingClientRect();
+          e.dataTransfer?.setDragImage(cardEl, e.clientX - rect.left, e.clientY - rect.top);
+        }
+      }}
+      ondragend={drag.handleDragEnd}
     >
       <GripVertical class="size-4" />
     </div>
