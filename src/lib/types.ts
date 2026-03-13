@@ -9,7 +9,8 @@ export interface ClickPoint {
 export type StepExportChoice =
   | { type: 'Primary' }
   | { type: 'Extra'; value: number }
-  | { type: 'All' };
+  | { type: 'All' }
+  | { type: 'Skip' };
 
 export interface WindowRect {
   title: string;

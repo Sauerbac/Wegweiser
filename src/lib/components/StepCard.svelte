@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Checkbox } from '$lib/components/ui/checkbox';
-  import { AlignLeft, GripVertical, Keyboard } from '@lucide/svelte';
+  import { AlignLeft, EyeOff, GripVertical, Keyboard } from '@lucide/svelte';
   import type { Step } from '$lib/types';
   import { countKeystrokes } from '$lib/utils';
   import { getReviewContext } from '$lib/stores/review-context.svelte';
@@ -89,7 +89,14 @@
     </span>
     <!-- Thumbnails centered in the available space -->
     <div class="flex flex-1 items-center justify-center overflow-hidden">
-      {#if exportedKeys.length === 1}
+      {#if step.export_choice.type === 'Skip'}
+        <div
+          class="flex h-10 w-16 items-center justify-center rounded border border-dashed border-muted-foreground/25"
+          title="Excluded from export"
+        >
+          <EyeOff class="size-4 text-muted-foreground/50" />
+        </div>
+      {:else if exportedKeys.length === 1}
         {@const imgKey = exportedKeys[0]}
         {@const src = imgKey.isExtra
           ? ctx.imageStore.extraImageCache[imgKey.cacheKey]

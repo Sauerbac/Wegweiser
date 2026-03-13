@@ -13,6 +13,8 @@ pub enum StepExportChoice {
     Extra(usize),
     /// Include the primary image first, then all extra images as secondary figures.
     All,
+    /// Exclude this step from the export entirely.
+    Skip,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

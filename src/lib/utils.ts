@@ -63,6 +63,7 @@ export function tabFromExportChoice(choice: StepExportChoice | undefined): strin
   if (!choice || choice.type === 'Primary') return 'primary';
   if (choice.type === 'All') return 'all';
   if (choice.type === 'Extra') return `extra_${choice.value}`;
+  if (choice.type === 'Skip') return 'primary';
   // exhaustiveness check
   const _exhaustive: never = choice;
   return 'primary';

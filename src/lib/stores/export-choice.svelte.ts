@@ -68,7 +68,7 @@ export function createExportChoice(
   /** Whether a given monitor tab is currently included in the export choice. */
   function isExportIncluded(tab: string): boolean {
     const choice = getSelectedStep()?.export_choice;
-    if (!choice) return false;
+    if (!choice || choice.type === 'Skip') return false;
     if (choice.type === 'All') return true;
     if (tab === 'primary') return choice.type === 'Primary';
     const idx = extraTabIndex(tab);
@@ -92,7 +92,7 @@ export function createExportChoice(
    *   only extra N checked   → Extra(N)
    *   all checked            → All
    *   partial subset (3+)    → All (current model limitation)
-   * Unchecking the last included monitor is a no-op.
+   *   none checked           → Skip (step excluded from export)
    */
   async function toggleExportMonitor(tab: string) {
     const step = getSelectedStep();
@@ -111,7 +111,10 @@ export function createExportChoice(
             i === extraTabIndex(tab) ? !v : v,
           );
 
-    if ((newPrimary ? 1 : 0) + newExtras.filter(Boolean).length === 0) return;
+    if ((newPrimary ? 1 : 0) + newExtras.filter(Boolean).length === 0) {
+      await setExportChoice({ type: 'Skip' });
+      return;
+    }
 
     if (newPrimary && newExtras.every(Boolean)) {
       await setExportChoice({ type: 'All' });
@@ -133,11 +136,12 @@ export function createExportChoice(
 
   /**
    * Compute how many monitor images will be exported for a step based on its export_choice.
-   * Primary / Extra = 1 monitor; All = primary + all extra images.
+   * Skip = 0; Primary / Extra = 1; All = primary + all extra images.
    */
   function monitorExportCount(step: Step): number {
     const choice = step.export_choice;
-    if (!choice || choice.type === 'Primary' || choice.type === 'Extra') return 1;
+    if (!choice || choice.type === 'Skip') return 0;
+    if (choice.type === 'Primary' || choice.type === 'Extra') return 1;
     // 'All': primary image + all extra images
     return 1 + (step.extra_image_paths?.length ?? 0);
   }
