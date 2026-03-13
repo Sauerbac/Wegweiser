@@ -73,7 +73,7 @@
 {/if}
 
 <!-- Scrollable row container -->
-<div class="flex flex-col overflow-y-auto" style="scrollbar-gutter: stable">
+<div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
   {#each items as item, idx (getKey(item))}
     {@render row(item, idx)}
   {/each}

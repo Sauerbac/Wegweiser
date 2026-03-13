@@ -160,7 +160,7 @@
           </Button>
         {/snippet}
         {#snippet row(meta)}
-          <div class="rounded-lg border p-4 transition-colors hover:bg-accent/40">
+          <div class="mb-2 rounded-lg border p-4 transition-colors hover:bg-accent/40">
             <div class="flex items-center justify-between">
               <div class="flex min-w-0 flex-1 items-center gap-3">
                 <Checkbox
