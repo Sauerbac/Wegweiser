@@ -66,19 +66,20 @@ export function drawWindowRects(
 }
 
 /**
- * Overlay the orange selection rectangle (used for both freehand drag
+ * Overlay the selection rectangle (used for both freehand drag
  * selections and selected-window highlights).
  */
 export function drawSelectionRect(
   ctx: CanvasRenderingContext2D,
   active: { x: number; y: number; w: number; h: number },
 ): void {
+  const color = cssVar('--chart-3');
   ctx.save();
-  ctx.strokeStyle = '#f97316';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.setLineDash([]);
   ctx.strokeRect(active.x, active.y, active.w, active.h);
-  ctx.fillStyle = 'rgba(249,115,22,0.15)';
+  ctx.fillStyle = `color-mix(in oklch, ${color} 15%, transparent)`;
   ctx.fillRect(active.x, active.y, active.w, active.h);
   ctx.restore();
 }
