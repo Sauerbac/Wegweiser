@@ -1,4 +1,5 @@
 use crate::capture::{capture_step, list_monitor_infos};
+use xcap::Monitor;
 use crate::model::{ImageEdit, Session, StepExportChoice, UndoState};
 use crate::session::{self, SessionMeta};
 use crate::state::{AppState, RecordingState};
@@ -994,15 +995,29 @@ pub fn reorder_steps(
 
 #[tauri::command]
 pub fn identify_monitors(app_handle: AppHandle) -> Result<(), String> {
-    let infos = crate::capture::list_monitor_infos();
+    // Enumerate monitors via xcap directly so we can read the per-monitor
+    // scale_factor and convert physical-pixel coordinates to the logical-pixel
+    // space that Tauri's WebviewWindowBuilder::position() expects.
+    // Using MonitorInfo (which stores only physical coords) would cause badge
+    // windows to land in wrong positions on scaled monitors.
+    let monitors = Monitor::all().unwrap_or_else(|e| {
+        eprintln!("identify_monitors: Monitor::all() failed: {e}");
+        Vec::new()
+    });
 
-    for (index, info) in infos.iter().enumerate() {
+    for (index, monitor) in monitors.iter().enumerate() {
         let window_label = format!("identify_{}", index);
         let app_clone = app_handle.clone();
 
-        // Small badge at bottom-left of this monitor
-        let badge_x = info.x as f64 + BADGE_MARGIN;
-        let badge_y = info.y as f64 + info.height as f64 - BADGE_HEIGHT - BADGE_MARGIN;
+        // Convert physical monitor geometry to logical pixels for window placement.
+        let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+        let phys_x = monitor.x().unwrap_or(0) as f64;
+        let phys_y = monitor.y().unwrap_or(0) as f64;
+        let phys_h = monitor.height().unwrap_or(0) as f64;
+
+        // Small badge at bottom-left of this monitor (all values in logical pixels)
+        let badge_x = phys_x / scale + BADGE_MARGIN;
+        let badge_y = phys_y / scale + phys_h / scale - BADGE_HEIGHT - BADGE_MARGIN;
 
         let label_clone = window_label.clone();
         std::thread::spawn(move || {
