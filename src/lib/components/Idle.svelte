@@ -19,8 +19,8 @@
   import SelectableList from '$lib/components/SelectableList.svelte';
   import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
 
-  const deleteSessionAction = createConfirmAction<string>();
-  const bulkDeleteAction = createConfirmAction();
+  const deleteSessionAction = $state(createConfirmAction<string>());
+  const bulkDeleteAction = $state(createConfirmAction());
 
   const sel = createSelectableList(
     () => store.sessions,
