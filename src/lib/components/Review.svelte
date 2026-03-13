@@ -2,24 +2,7 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { Button } from "$lib/components/ui/button";
-  import { Input } from "$lib/components/ui/input";
   import { Progress } from "$lib/components/ui/progress";
-  import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-  } from "$lib/components/ui/dropdown-menu";
-  import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-  } from "$lib/components/ui/alert-dialog";
   import { store } from "$lib/stores/session.svelte";
   import { ReviewUndoStore } from "$lib/stores/undo.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
@@ -28,28 +11,22 @@
   import { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import { createEditorSession } from "$lib/stores/editor-session.svelte";
   import type { Step } from "$lib/types";
-  import { DESTRUCTIVE_DIALOG_ACTION_CLASS, pluralS } from "$lib/utils";
   import {
-    ArrowLeft,
     Check,
-    ChevronDown,
     ExternalLink,
-    FileCode,
-    FileDown,
     Pencil,
-    Redo2,
-    Save,
     Trash2,
-    Undo2,
   } from "@lucide/svelte";
   import PageLayout from "$lib/components/PageLayout.svelte";
   import SelectableList from "$lib/components/SelectableList.svelte";
   import ImageEditor from "$lib/components/ImageEditor.svelte";
-  import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
   import StepCard from "$lib/components/StepCard.svelte";
   import MonitorTabGroup from "$lib/components/MonitorTabGroup.svelte";
   import StepImageViewer from "$lib/components/StepImageViewer.svelte";
   import StepDescriptionPanel from "$lib/components/StepDescriptionPanel.svelte";
+  import ReviewToolbar from "$lib/components/ReviewToolbar.svelte";
+  import BackNavigationDialog from "$lib/components/BackNavigationDialog.svelte";
+  import DeleteStepsDialog from "$lib/components/DeleteStepsDialog.svelte";
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
@@ -255,84 +232,16 @@
   footerClass="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2"
 >
   {#snippet header()}
-    <!-- Toolbar: three-zone grid (left | center | right) -->
-    <div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
-      <!-- Left: back button -->
-      <div class="flex items-center">
-        <Button variant="outline" size="sm" onclick={nav.requestBack}
-          ><ArrowLeft />Back</Button
-        >
-      </div>
-
-      <!-- Center: editable session name -->
-      <div class="flex items-center justify-center gap-1.5">
-        <Input
-          bind:value={sessionNameDraft}
-          class="h-8 max-w-64 text-center text-sm font-semibold"
-          aria-label="Session name"
-          onblur={saveSessionName}
-          onkeydown={(e: KeyboardEvent) => {
-            if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-          }}
-        />
-        <Pencil class="size-4 shrink-0 text-muted-foreground" />
-      </div>
-
-      <!-- Right: undo/redo + export buttons + theme toggle -->
-      <div class="flex items-center justify-end gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Undo"
-          onclick={() => reviewUndo.undo()}
-          disabled={editorSession.open || !reviewUndo.canUndo}><Undo2 /></Button
-        >
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Redo"
-          onclick={() => reviewUndo.redo()}
-          disabled={editorSession.open || !reviewUndo.canRedo}><Redo2 /></Button
-        >
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Save"
-          onclick={nav.saveSession}
-          disabled={!store.isDirty}><Save /></Button
-        >
-        <DropdownMenu bind:open={ec.exportOpen}>
-          <DropdownMenuTrigger>
-            {#snippet child({ props })}
-              <Button variant="outline" size="sm" {...props}>
-                Export<ChevronDown
-                  class="size-4 transition-transform duration-200 {ec.exportOpen
-                    ? 'rotate-180'
-                    : ''}"
-                />
-              </Button>
-            {/snippet}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onclick={ec.exportMarkdown}>
-              <FileDown class="text-foreground" />Markdown (.md)
-            </DropdownMenuItem>
-            <DropdownMenuItem onclick={ec.exportHtml}>
-              <FileCode class="text-foreground" />HTML (.html)
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <ThemeToggleButton />
-      </div>
-    </div>
-
-    {#if store.exportError}
-      <div class="border-b bg-destructive/10 px-4 py-2">
-        <p class="text-sm text-destructive">
-          Export error: {store.exportError}
-        </p>
-      </div>
-    {/if}
+    <ReviewToolbar
+      {nav}
+      {reviewUndo}
+      {ec}
+      isDirty={store.isDirty}
+      editorSessionOpen={editorSession.open}
+      bind:sessionNameDraft
+      onsaveSessionName={saveSessionName}
+      exportError={store.exportError}
+    />
   {/snippet}
 
   {#snippet left()}
@@ -461,71 +370,22 @@
   {/snippet}
 </PageLayout>
 
-<AlertDialog bind:open={nav.showBackDialog}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
-      <AlertDialogDescription>
-        You have unsaved changes. Do you want to save before going back?
-      </AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <Button
-        variant="outline"
-        onclick={() => {
-          nav.showBackDialog = false;
-        }}>Cancel</Button
-      >
-      <Button
-        variant="destructive"
-        onclick={nav.discardAndNavigateBack}>Discard</Button
-      >
-      <Button
-        onclick={() => {
-          nav.saveSession();
-          nav.showBackDialog = false;
-          navigateBack();
-        }}>Save</Button
-      >
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<BackNavigationDialog {nav} onSaveAndBack={navigateBack} />
 
-<AlertDialog bind:open={showDeleteStepDialog}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Delete step?</AlertDialogTitle>
-      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <AlertDialogCancel>Cancel</AlertDialogCancel>
-      <AlertDialogAction
-        onclick={() => {
-          showDeleteStepDialog = false;
-          if (pendingDeleteStepId !== null) deleteStep(pendingDeleteStepId);
-          pendingDeleteStepId = null;
-        }}
-        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
-      >Delete</AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<DeleteStepsDialog
+  count={1}
+  bind:open={showDeleteStepDialog}
+  onconfirm={() => {
+    if (pendingDeleteStepId !== null) deleteStep(pendingDeleteStepId);
+    pendingDeleteStepId = null;
+  }}
+/>
 
-<AlertDialog bind:open={showBulkDeleteDialog}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Delete {sel.selected.size} step{pluralS(sel.selected.size)}?</AlertDialogTitle>
-      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <AlertDialogCancel>Cancel</AlertDialogCancel>
-      <AlertDialogAction
-        onclick={() => { showBulkDeleteDialog = false; deleteSelectedSteps(); }}
-        class={DESTRUCTIVE_DIALOG_ACTION_CLASS}
-      >Delete</AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<DeleteStepsDialog
+  count={sel.selected.size}
+  bind:open={showBulkDeleteDialog}
+  onconfirm={deleteSelectedSteps}
+/>
 
 {#if selectedStep && editorSession.open}
   <ImageEditor
