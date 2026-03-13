@@ -39,6 +39,14 @@ pub fn capture_step(
     keystrokes: Option<String>,
     all_monitors: bool,
 ) -> Result<Step> {
+    // Wait for any overlay/popup window that was dismissed by the click to
+    // finish closing before taking the screenshot and enumerating windows.
+    // Without this delay, an overlying window that disappears in response to
+    // the click still appears in the screenshot while being absent from the
+    // window list — an inconsistent state that confuses the image editor.
+    // 150 ms covers typical OS window-close animations (~100 ms on Windows).
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
     let monitors = Monitor::all()?;
     let monitor = monitors
         .get(monitor_index)
