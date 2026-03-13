@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import {
@@ -21,6 +23,7 @@
   import type { createReviewNavigation } from "$lib/stores/review-navigation.svelte";
   import type { ReviewUndoStore } from "$lib/stores/undo.svelte";
   import type { createExportChoice } from "$lib/stores/export-choice.svelte";
+  import { store } from "$lib/stores/session.svelte";
 
   interface Props {
     nav: ReturnType<typeof createReviewNavigation>;
@@ -28,8 +31,6 @@
     ec: ReturnType<typeof createExportChoice>;
     isDirty: boolean;
     editorSessionOpen: boolean;
-    sessionNameDraft: string;
-    onsaveSessionName: () => void;
     exportError: string | null;
   }
 
@@ -39,10 +40,37 @@
     ec,
     isDirty,
     editorSessionOpen,
-    sessionNameDraft = $bindable(),
-    onsaveSessionName,
     exportError,
   }: Props = $props();
+
+  // ── Session name draft ─────────────────────────────────────────────────────
+  // Draft value for the session name input. Synced from the store when the
+  // session changes externally, but not reset while the user is typing.
+
+  let sessionNameDraft = $state("");
+
+  // Sync draft from store when the session name changes externally (e.g. after
+  // undo/redo or a load). The draft read is wrapped in untrack so that typing
+  // in the input does not re-trigger this effect — only external name changes
+  // (which update store.session?.name) cause a reset.
+  $effect(() => {
+    const name = store.session?.name ?? "";
+    untrack(() => {
+      if (name !== sessionNameDraft) sessionNameDraft = name;
+    });
+  });
+
+  async function saveSessionName() {
+    const trimmed = sessionNameDraft.trim();
+    if (!trimmed || trimmed === store.session?.name) return;
+    try {
+      await invoke("rename_session", { name: trimmed });
+      reviewUndo.pushBackend();
+    } catch (err) {
+      console.error("Failed to rename session:", err);
+    }
+    sessionNameDraft = trimmed;
+  }
 </script>
 
 <!-- Toolbar: three-zone grid (left | center | right) -->
@@ -60,7 +88,7 @@
       bind:value={sessionNameDraft}
       class="h-8 max-w-64 text-center text-sm font-semibold"
       aria-label="Session name"
-      onblur={onsaveSessionName}
+      onblur={saveSessionName}
       onkeydown={(e: KeyboardEvent) => {
         if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
       }}

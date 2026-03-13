@@ -2,7 +2,6 @@
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { Button } from "$lib/components/ui/button";
-  import { Progress } from "$lib/components/ui/progress";
   import { store } from "$lib/stores/session.svelte";
   import { ReviewUndoStore } from "$lib/stores/undo.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
@@ -12,8 +11,6 @@
   import { createEditorSession } from "$lib/stores/editor-session.svelte";
   import type { Step } from "$lib/types";
   import {
-    Check,
-    ExternalLink,
     Pencil,
     Trash2,
   } from "@lucide/svelte";
@@ -25,6 +22,7 @@
   import StepImageViewer from "$lib/components/StepImageViewer.svelte";
   import StepDescriptionPanel from "$lib/components/StepDescriptionPanel.svelte";
   import ReviewToolbar from "$lib/components/ReviewToolbar.svelte";
+  import ExportStatusBar from "$lib/components/ExportStatusBar.svelte";
   import BackNavigationDialog from "$lib/components/BackNavigationDialog.svelte";
   import DeleteStepsDialog from "$lib/components/DeleteStepsDialog.svelte";
 
@@ -37,8 +35,6 @@
   const reviewUndo = new ReviewUndoStore();
 
   let descriptionDraft = $state("");
-  /** Draft value for the session name input — synced from store on load, editable locally. */
-  let sessionNameDraft = $state("");
 
   /** Whether the "delete step" confirmation dialog is open. */
   let showDeleteStepDialog = $state(false);
@@ -105,16 +101,6 @@
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
-  // Sync session name draft when session changes (e.g. on load)
-  $effect(() => {
-    const name = store.session?.name ?? "";
-    // Only reset if name actually changed externally (avoid clobbering user typing).
-    // untrack the draft read so typing doesn't re-trigger this effect.
-    untrack(() => {
-      if (name !== sessionNameDraft) sessionNameDraft = name;
-    });
-  });
-
   // Restore description draft when the selected step changes.
   // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
@@ -127,10 +113,18 @@
   });
 
   // Pre-select first step only when a genuinely new session is loaded.
-  // lastInitializedSessionId is a plain JS variable (not $state) so writing to it
-  // doesn't trigger reactive updates — this prevents the effect from re-running
-  // every time setExportChoice replaces store.session with the same session ID.
-  // Intentionally NOT $state: we want a write-only guard, not a reactive dependency.
+  //
+  // lastInitializedSessionId is a plain JS variable (NOT $state) so that writing
+  // to it does not trigger reactive updates — this prevents the effect from
+  // re-running every time setExportChoice replaces store.session with the same
+  // session ID. Converting it to $state would create an infinite reactive loop:
+  // the effect reads lastInitializedSessionId → would re-run whenever it's
+  // written → would run again immediately on every session-updated event.
+  //
+  // The writes to selectedStepId and reviewUndo.clear() are wrapped in untrack
+  // because selectedStepId is read by other derived values in this same reactive
+  // scope. Without untrack, writing selectedStepId inside an effect that already
+  // tracks store.session could create a re-entrancy cycle.
   let lastInitializedSessionId = "";
   $effect(() => {
     const sessionId = store.session?.id ?? "";
@@ -160,16 +154,42 @@
     // No optimistic patch — the backend emits session-updated which the store handles.
   }
 
-  async function saveSessionName() {
-    const trimmed = sessionNameDraft.trim();
-    if (!trimmed || trimmed === store.session?.name) return;
-    try {
-      await invoke("rename_session", { name: trimmed });
-      reviewUndo.pushBackend();
-    } catch (err) {
-      console.error("Failed to rename session:", err);
+  /**
+   * Update selectedStepId after one or more steps are deleted.
+   *
+   * @param deletedIds  Set of step IDs that were removed.
+   * @param heuristic   How to pick the replacement:
+   *   - "adjacent": pick the step that slid into the deleted step's position
+   *     (or the new last step). Requires deletedIdx — the pre-deletion index of
+   *     the single deleted step.
+   *   - "first": always pick the first remaining step.
+   */
+  function adjustSelectionAfterDelete(
+    deletedIds: Set<number>,
+    heuristic: "adjacent",
+    deletedIdx: number,
+  ): void;
+  function adjustSelectionAfterDelete(
+    deletedIds: Set<number>,
+    heuristic: "first",
+  ): void;
+  function adjustSelectionAfterDelete(
+    deletedIds: Set<number>,
+    heuristic: "adjacent" | "first",
+    deletedIdx?: number,
+  ): void {
+    if (selectedStepId === null || !deletedIds.has(selectedStepId)) return;
+    const remaining = store.session?.steps ?? [];
+    if (remaining.length === 0) {
+      selectedStepId = null;
+      return;
     }
-    sessionNameDraft = trimmed;
+    if (heuristic === "adjacent") {
+      const nextIdx = Math.min(Math.max(deletedIdx!, 0), remaining.length - 1);
+      selectedStepId = remaining[nextIdx]?.id ?? null;
+    } else {
+      selectedStepId = remaining[0]?.id ?? null;
+    }
   }
 
   async function deleteStep(stepId: number) {
@@ -185,17 +205,7 @@
       return;
     }
     reviewUndo.pushBackend();
-    // If the deleted step was selected, move selection to an adjacent step
-    if (selectedStepId === stepId) {
-      const remaining = store.session?.steps ?? [];
-      if (remaining.length === 0) {
-        selectedStepId = null;
-      } else {
-        // Pick the step that slid into the same position, or the new last step
-        const nextIdx = Math.min(Math.max(deletedIdx, 0), remaining.length - 1);
-        selectedStepId = remaining[nextIdx]?.id ?? null;
-      }
-    }
+    adjustSelectionAfterDelete(new Set([stepId]), "adjacent", deletedIdx);
     // Remove from bulk selection if present
     if (sel.selected.has(stepId)) {
       sel.toggleOne(stepId);
@@ -213,11 +223,7 @@
     }
     reviewUndo.pushBackend();
     sel.clear();
-    // If the selected step was among the deleted ones, update selection
-    if (selectedStepId !== null && ids.includes(selectedStepId)) {
-      const remaining = store.session?.steps ?? [];
-      selectedStepId = remaining.length > 0 ? (remaining[0]?.id ?? null) : null;
-    }
+    adjustSelectionAfterDelete(new Set(ids), "first");
   }
 
   function selectStep(stepId: number) {
@@ -238,8 +244,6 @@
       {ec}
       isDirty={store.isDirty}
       editorSessionOpen={editorSession.open}
-      bind:sessionNameDraft
-      onsaveSessionName={saveSessionName}
       exportError={store.exportError}
     />
   {/snippet}
@@ -339,34 +343,11 @@
   {/snippet}
 
   {#snippet footer()}
-    {#if store.exportProgress !== null}
-      <span class="text-xs text-muted-foreground shrink-0">Exporting…</span>
-      <Progress value={store.exportProgress * 100} class="h-1.5 flex-1" />
-      <span class="text-xs text-muted-foreground shrink-0"
-        >{Math.round(store.exportProgress * 100)}%</span
-      >
-    {:else}
-      <Check
-        class="size-4 shrink-0 {store.exportedPath
-          ? 'text-primary'
-          : 'text-transparent'}"
-      />
-      <span
-        class="flex-1 truncate text-xs {store.exportedPath
-          ? 'text-card-foreground'
-          : 'text-muted-foreground'}"
-      >
-        {store.exportedPath ? `Exported to: ${store.exportedPath}` : "Ready"}
-      </span>
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={ec.openExported}
-        class="shrink-0 {store.exportedPath ? '' : 'invisible'}"
-      >
-        <ExternalLink />Open
-      </Button>
-    {/if}
+    <ExportStatusBar
+      exportProgress={store.exportProgress}
+      exportedPath={store.exportedPath}
+      onOpen={ec.openExported}
+    />
   {/snippet}
 </PageLayout>
 
