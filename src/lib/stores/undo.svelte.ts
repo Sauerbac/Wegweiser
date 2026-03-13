@@ -44,10 +44,12 @@ export class ReviewUndoStore {
   flashStep(stepId: number) {
     if (this._flashTimer !== null) clearTimeout(this._flashTimer);
     this.highlightedStepId = stepId;
+    // Clear after one frame so the browser paints the primary border once,
+    // then the CSS duration-700 transition fades it back immediately.
     this._flashTimer = setTimeout(() => {
       this.highlightedStepId = null;
       this._flashTimer = null;
-    }, 1200);
+    }, 500);
   }
 
   /** Call after any invoke that the backend records on its undo stack (delete, rename, etc.). */

@@ -30,6 +30,7 @@
   const keystrokeCount = $derived(countKeystrokes(step.keystrokes));
   const exportedKeys = $derived(ctx.ec.getExportedImageKeys(step));
   const stepsLength = $derived(ctx.store.session?.steps.length ?? 0);
+  const isHighlighted = $derived(ctx.reviewUndo.highlightedStepId === step.id);
 
   let cardEl: HTMLDivElement | undefined = $state();
 </script>
@@ -49,7 +50,7 @@
   bind:this={cardEl}
   role="button"
   tabindex="0"
-  class="select-none cursor-pointer rounded-lg border p-3 transition-colors {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {drag.draggedStepId === step.id ? 'opacity-50' : ''}"
+  class="select-none cursor-pointer rounded-lg border p-3 transition-[border-color] ease-out {isHighlighted ? 'border-primary duration-0' : 'border-border duration-500'} {isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40'} {drag.draggedStepId === step.id ? 'opacity-50' : ''}"
   ondragenter={(e) => drag.handleDragEnter(e)}
   ondragover={(e) => drag.handleDragOver(e, step.id, idx)}
   ondragleave={(e) => drag.handleDragLeave(e)}
