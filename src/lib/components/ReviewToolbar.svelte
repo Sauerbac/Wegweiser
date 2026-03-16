@@ -70,7 +70,7 @@
 </script>
 
 <!-- Toolbar: three-zone grid (left | center | right) -->
-<div class="grid grid-cols-3 items-center gap-2 border-b px-4 py-2">
+<div class="grid grid-cols-3 items-center gap-2 border-b px-6 py-4">
   <!-- Left: back button -->
   <div class="flex items-center gap-2">
     <Button variant="outline" size="sm" onclick={onRequestBack}
@@ -96,21 +96,21 @@
   <div class="flex items-center justify-end gap-2">
     <Button
       variant="outline"
-      size="icon"
+      size="icon-sm"
       aria-label="Undo"
       onclick={() => reviewUndo.undo()}
       disabled={editorSessionOpen || !reviewUndo.canUndo}><Undo2 /></Button
     >
     <Button
       variant="outline"
-      size="icon"
+      size="icon-sm"
       aria-label="Redo"
       onclick={() => reviewUndo.redo()}
       disabled={editorSessionOpen || !reviewUndo.canRedo}><Redo2 /></Button
     >
     <Button
       variant="outline"
-      size="icon"
+      size="icon-sm"
       aria-label="Save"
       onclick={() => store.markSaved()}
       disabled={!isDirty}><Save /></Button

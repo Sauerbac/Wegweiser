@@ -31,9 +31,10 @@
 
   /** ID of the currently selected step (null = none selected). */
   let selectedStepId = $state<number | null>(null);
-  /** True while the description Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
+  /** True while the description or keystroke Textarea has focus — suppresses Ctrl+Z/Y shortcuts. */
   let isEditing = $state(false);
   let descriptionDraft = $state("");
+  let keystrokesDraft = $state("");
   /** Whether the "unsaved changes" back-navigation dialog is open. */
   let showBackDialog = $state(false);
 
@@ -168,10 +169,11 @@
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
-  // Restore description draft when the selected step changes.
+  // Restore description and keystrokes drafts when the selected step changes.
   // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
     descriptionDraft = selectedStep?.description ?? "";
+    keystrokesDraft = selectedStep?.keystrokes ?? "";
   });
 
   // Pre-select first step only when a genuinely new session is loaded.
@@ -214,6 +216,21 @@
       console.error("Failed to save description:", err);
     }
     // No optimistic patch — the backend emits session-updated which the store handles.
+  }
+
+  async function saveKeystrokes() {
+    if (!selectedStep) return;
+    // Normalise: treat empty/whitespace-only string as null (no keystrokes).
+    const value = keystrokesDraft.trim() || null;
+    try {
+      await invoke("update_step_keystrokes", {
+        stepId: selectedStep.id,
+        keystrokes: value,
+      });
+      reviewUndo.pushBackend();
+    } catch (err) {
+      console.error("Failed to save keystrokes:", err);
+    }
   }
 
   /**
@@ -296,7 +313,7 @@
 
 <PageLayout
   leftClass="flex w-80 shrink-0 flex-col overflow-hidden border-r p-6"
-  rightClass="flex flex-1 flex-col overflow-hidden p-4"
+  rightClass="flex flex-1 flex-col overflow-hidden p-6"
   footerClass="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2"
 >
   {#snippet header()}
@@ -342,29 +359,32 @@
 
   {#snippet right()}
     {#if selectedStep}
-      <div class="mb-3 flex items-center gap-2">
-        <span class="text-sm font-semibold">Step {selectedStepDisplayNum}</span>
-        <div class="flex-1"></div>
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={() => {
-            editorSession.open = true;
-          }}
-        >
-          <Pencil />Edit Image
-        </Button>
-        <Button
-          variant="destructive"
-          size="icon-sm"
-          aria-label="Delete step"
-          onclick={(e: MouseEvent) => {
-            e.stopPropagation();
-            deleteStepAction.request(selectedStep!.id);
-          }}
-        >
-          <Trash2 />
-        </Button>
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Step {selectedStepDisplayNum}
+        </h2>
+        <div class="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onclick={() => {
+              editorSession.open = true;
+            }}
+          >
+            <Pencil />Edit Image
+          </Button>
+          <Button
+            variant="destructive"
+            size="icon-sm"
+            aria-label="Delete step"
+            onclick={(e: MouseEvent) => {
+              e.stopPropagation();
+              deleteStepAction.request(selectedStep!.id);
+            }}
+          >
+            <Trash2 />
+          </Button>
+        </div>
       </div>
 
       <!-- Monitor toggle group: item click = preview; checkbox inside = export inclusion -->
@@ -380,10 +400,11 @@
 
       <!-- Description and keystrokes -->
       <StepDescriptionPanel
-        step={selectedStep}
         bind:descriptionDraft
+        bind:keystrokesDraft
         onfocus={() => { isEditing = true; }}
         onblur={() => { isEditing = false; saveDescription(); }}
+        onkeystrokesblur={saveKeystrokes}
       />
     {:else}
       <div

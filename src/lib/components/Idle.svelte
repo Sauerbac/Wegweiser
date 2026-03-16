@@ -77,7 +77,7 @@
 </script>
 
 <PageLayout
-  headerClass="flex items-center justify-between border-b px-4 py-2"
+  headerClass="flex items-center justify-between border-b px-6 py-4"
   leftClass="flex w-80 flex-col gap-4 border-r p-6"
   rightClass="flex flex-1 flex-col overflow-hidden p-6"
   footerClass="flex shrink-0 items-center gap-3 border-t bg-card px-4 py-2"

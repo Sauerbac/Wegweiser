@@ -49,6 +49,7 @@ pub fn run() {
             commands::delete_step,
             commands::delete_steps,
             commands::update_step_description,
+            commands::update_step_keystrokes,
             commands::set_step_export_choice,
             commands::load_session_cmd,
             commands::delete_session_cmd,

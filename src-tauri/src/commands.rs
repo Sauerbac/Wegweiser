@@ -533,6 +533,37 @@ pub fn update_step_description(
 }
 
 #[tauri::command]
+pub fn update_step_keystrokes(
+    step_id: usize,
+    keystrokes: Option<String>,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    // Reject excessively long keystroke strings.
+    if keystrokes.as_deref().map(|s| s.len()).unwrap_or(0) > 65536 {
+        return Err("Keystrokes string is too long (max 64 KB)".to_string());
+    }
+    let session = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
+        if let Some(ref mut session) = st.session {
+            if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
+                step.keystrokes = keystrokes;
+            }
+            if let Err(e) = session::save_session(session) {
+                eprintln!("[save_session] failed: {e}");
+            }
+        }
+        st.session.clone()
+    };
+    if let Some(s) = session {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_step_export_choice(
     step_id: usize,
     choice: StepExportChoice,

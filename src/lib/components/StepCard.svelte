@@ -138,9 +138,10 @@
       <AlignLeft class="size-4" />
     </span>
     <span
-      class="shrink-0 text-muted-foreground {keystrokeCount > 0
-        ? ''
-        : 'invisible'}"
+      class="shrink-0 {keystrokeCount > 0
+        ? 'text-foreground'
+        : 'text-muted-foreground/25'}"
+      title={keystrokeCount > 0 ? `${keystrokeCount} keystroke${keystrokeCount !== 1 ? 's' : ''}` : 'No keystrokes'}
     >
       <Keyboard class="size-4" />
     </span>
