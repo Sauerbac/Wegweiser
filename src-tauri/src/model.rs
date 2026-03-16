@@ -2,19 +2,37 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Controls which monitor image(s) are included when exporting a step.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[serde(tag = "type", content = "value")]
-pub enum StepExportChoice {
-    /// Include only the primary (annotated, click-monitor) image. Default.
-    #[default]
-    Primary,
-    /// Include only the extra image at index `i` (extra_image_paths[i]) as the main image.
-    Extra(usize),
-    /// Include the primary image first, then all extra images as secondary figures.
-    All,
-    /// Exclude this step from the export entirely.
-    Skip,
+fn default_export_choice() -> Vec<bool> {
+    vec![true]
+}
+
+fn deserialize_export_choice<'de, D>(d: D) -> Result<Vec<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v: serde_json::Value = serde::Deserialize::deserialize(d)?;
+    match v {
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .map(|x| x.as_bool().ok_or_else(|| D::Error::custom("expected bool")))
+            .collect(),
+        serde_json::Value::Object(map) => {
+            match map.get("type").and_then(|t| t.as_str()) {
+                Some("Primary") => Ok(vec![true]),
+                Some("All") => Ok(vec![]),
+                Some("Skip") => Ok(vec![false]),
+                Some("Extra") => {
+                    let n = map.get("value").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let mut sel = vec![false; n + 2];
+                    sel[n + 1] = true;
+                    Ok(sel)
+                }
+                _ => Ok(vec![true]),
+            }
+        }
+        _ => Ok(vec![true]),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,9 +72,11 @@ pub struct Step {
     pub timestamp: DateTime<Utc>,
     pub keystrokes: Option<String>,
     /// Which monitor image(s) to include when exporting this step.
-    /// Absent in older session.json files — defaults to `Primary`.
-    #[serde(default)]
-    pub export_choice: StepExportChoice,
+    /// Vec<bool> where index 0 = primary, index i+1 = extra_image_paths[i].
+    /// Empty vec = include all (migration sentinel for old `All` records).
+    /// Absent in older session.json files — defaults to `[true]` (primary only).
+    #[serde(default = "default_export_choice", deserialize_with = "deserialize_export_choice")]
+    pub export_choice: Vec<bool>,
     /// Visible window bounding boxes captured at screenshot time, in monitor-relative pixels.
     #[serde(default)]
     pub window_rects: Vec<WindowRect>,

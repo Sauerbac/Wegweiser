@@ -99,7 +99,7 @@
     </span>
     <!-- Thumbnails centered in the available space -->
     <div class="flex flex-1 items-center justify-center overflow-hidden">
-      {#if step.export_choice.type === 'Skip'}
+      {#if step.export_choice.length > 0 && step.export_choice.every((b) => !b)}
         <div
           class="flex h-10 w-16 items-center justify-center rounded border border-dashed border-muted-foreground/25"
           title="Excluded from export"

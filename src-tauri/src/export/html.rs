@@ -1,4 +1,4 @@
-use crate::model::{Session, Step, StepExportChoice};
+use crate::model::{Session, Step};
 use anyhow::Result;
 use base64::Engine;
 use std::fs::{self, File};
@@ -20,7 +20,7 @@ pub fn export(
     let exported_steps: Vec<&Step> = session
         .steps
         .iter()
-        .filter(|s| s.export_choice != StepExportChoice::Skip)
+        .filter(|s| s.export_choice.is_empty() || s.export_choice.iter().any(|&b| b))
         .collect();
     let total = exported_steps.len();
 
@@ -136,54 +136,49 @@ pub fn export(
 
     // Write each step directly to the file without accumulating in memory.
     for (i, step) in exported_steps.iter().enumerate() {
-        // Build the image(s) HTML based on the step's export_choice.
-        match &step.export_choice {
-            StepExportChoice::Primary => {
-                let img_bytes = fs::read(&step.image_path)?;
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
+        let extra_count = step.extra_image_paths.len();
+        let total_count = 1 + extra_count;
+
+        // Derive effective selection from export_choice.
+        // Empty vec = all included (migration sentinel for old `All`).
+        let sel: Vec<bool> = if step.export_choice.is_empty() {
+            vec![true; total_count]
+        } else {
+            (0..total_count)
+                .map(|j| step.export_choice.get(j).copied().unwrap_or(false))
+                .collect()
+        };
+
+        // Open the step section.
+        write!(w, "  <section class=\"step\">\n    <h2>Step {order}</h2>\n", order = step.order)?;
+
+        // Primary image (index 0).
+        if sel[0] {
+            let img_bytes = fs::read(&step.image_path)?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
+            write!(
+                w,
+                "    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />\n",
+                order = step.order,
+                b64 = b64,
+            )?;
+        }
+
+        // Extra images (index j+1).
+        for (j, extra_path) in step.extra_image_paths.iter().enumerate() {
+            if sel[j + 1] {
+                let extra_bytes = fs::read(extra_path)?;
+                let extra_b64 = base64::engine::general_purpose::STANDARD.encode(&extra_bytes);
+                let mon_idx = step.extra_monitor_indices.get(j).copied().unwrap_or(j + 1);
                 write!(
                     w,
-                    "  <section class=\"step\">\n    <h2>Step {order}</h2>\n    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />\n",
+                    "    <p class=\"monitor-label\"><strong>Monitor {}:</strong></p>\n    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order} Monitor {mon_num}\" loading=\"lazy\" />\n",
+                    mon_idx + 1,
+                    b64 = extra_b64,
                     order = step.order,
-                    b64 = b64,
+                    mon_num = mon_idx + 1,
                 )?;
             }
-            StepExportChoice::Extra(idx) => {
-                let path = step.extra_image_paths.get(*idx).unwrap_or(&step.image_path);
-                let img_bytes = fs::read(path)?;
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
-                write!(
-                    w,
-                    "  <section class=\"step\">\n    <h2>Step {order}</h2>\n    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />\n",
-                    order = step.order,
-                    b64 = b64,
-                )?;
-            }
-            StepExportChoice::All => {
-                let primary_bytes = fs::read(&step.image_path)?;
-                let primary_b64 = base64::engine::general_purpose::STANDARD.encode(&primary_bytes);
-                write!(
-                    w,
-                    "  <section class=\"step\">\n    <h2>Step {order}</h2>\n    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order}\" loading=\"lazy\" />\n",
-                    order = step.order,
-                    b64 = primary_b64,
-                )?;
-                for (j, extra_path) in step.extra_image_paths.iter().enumerate() {
-                    let extra_bytes = fs::read(extra_path)?;
-                    let extra_b64 = base64::engine::general_purpose::STANDARD.encode(&extra_bytes);
-                    let mon_idx = step.extra_monitor_indices.get(j).copied().unwrap_or(j + 1);
-                    write!(
-                        w,
-                        "    <p class=\"monitor-label\"><strong>Monitor {}:</strong></p>\n    <img src=\"data:image/png;base64,{b64}\" alt=\"Step {order} Monitor {mon_num}\" loading=\"lazy\" />\n",
-                        mon_idx + 1,
-                        b64 = extra_b64,
-                        order = step.order,
-                        mon_num = mon_idx + 1,
-                    )?;
-                }
-            }
-            // Skip is pre-filtered; this arm is unreachable but satisfies exhaustiveness.
-            StepExportChoice::Skip => {}
         }
 
         if !step.description.is_empty() {

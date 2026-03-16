@@ -5,12 +5,14 @@ export interface ClickPoint {
   y: number;
 }
 
-/** Mirrors the Rust StepExportChoice enum (serde tag+content). */
-export type StepExportChoice =
-  | { type: 'Primary' }
-  | { type: 'Extra'; value: number }
-  | { type: 'All' }
-  | { type: 'Skip' };
+/**
+ * Per-step monitor export selection.
+ * index 0 = primary (annotated click-monitor image)
+ * index i+1 = extra_image_paths[i]
+ * [] (empty) = include all monitors (migration sentinel for old `All` records)
+ * [false, false, …] = exclude step from export
+ */
+export type MonitorSelection = boolean[];
 
 export interface WindowRect {
   title: string;
@@ -41,7 +43,7 @@ export interface Step {
   timestamp: string;
   keystrokes: string | null;
   /** Which monitor image(s) to include when exporting this step. */
-  export_choice: StepExportChoice;
+  export_choice: MonitorSelection;
   /** Visible window rects at capture time (monitor-relative pixels). */
   window_rects: WindowRect[];
   /** Incremented on each image edit; used as a cache-busting key. */

@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { KeystrokeSegment, MonitorInfo, StepExportChoice } from '$lib/types';
+import type { KeystrokeSegment, MonitorInfo } from '$lib/types';
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -48,26 +48,6 @@ export function parseKeystrokes(raw: string): KeystrokeSegment[] {
     }
   }
   return segments;
-}
-
-/** Derive a monitor tab string from a step's persisted export_choice. */
-export function tabFromExportChoice(choice: StepExportChoice | undefined): string {
-  if (!choice || choice.type === 'Primary') return 'primary';
-  if (choice.type === 'All') return 'all';
-  if (choice.type === 'Extra') return `extra_${choice.value}`;
-  if (choice.type === 'Skip') return 'primary';
-  // exhaustiveness check
-  const _exhaustive: never = choice;
-  return 'primary';
-}
-
-/** Map a tab value back to a StepExportChoice. */
-export function choiceFromTab(tab: string): StepExportChoice {
-  if (tab === 'primary') return { type: 'Primary' };
-  if (tab === 'all') return { type: 'All' };
-  const idx = parseInt(tab.replace('extra_', ''), 10);
-  if (isNaN(idx)) return { type: 'Primary' };
-  return { type: 'Extra', value: idx };
 }
 
 /** Return a human-readable label for a monitor by its index (1-based number prefix + name). */

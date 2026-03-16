@@ -110,7 +110,7 @@ pub fn capture_step(
         description: String::new(),
         timestamp: Utc::now(),
         keystrokes,
-        export_choice: Default::default(),
+        export_choice: vec![true], // default: primary (click monitor) only
         window_rects,
         image_version: 0,
     })

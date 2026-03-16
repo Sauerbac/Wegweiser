@@ -1,6 +1,6 @@
 use crate::capture::{capture_step, list_monitor_infos};
 use xcap::Monitor;
-use crate::model::{ImageEdit, Session, StepExportChoice, UndoState};
+use crate::model::{ImageEdit, Session, UndoState};
 use crate::session::{self, SessionMeta};
 use crate::state::{AppState, RecordingState};
 use base64::Engine;
@@ -581,7 +581,7 @@ pub fn update_step_keystrokes(
 #[tauri::command]
 pub fn set_step_export_choice(
     step_id: usize,
-    choice: StepExportChoice,
+    choice: Vec<bool>,
     state: State<'_, AppStateHandle>,
     app_handle: AppHandle,
 ) -> Result<(), String> {

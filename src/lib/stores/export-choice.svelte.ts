@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { store } from '$lib/stores/session.svelte';
 import { imageStore } from '$lib/stores/image-cache.svelte';
-import type { Step, StepExportChoice } from '$lib/types';
+import type { Step } from '$lib/types';
 import { extraTabIndex } from '$lib/utils';
 
 /**
@@ -68,14 +68,13 @@ export function createExportChoice(
   /** Whether a given monitor tab is currently included in the export choice. */
   function isExportIncluded(tab: string): boolean {
     const choice = getSelectedStep()?.export_choice;
-    if (!choice || choice.type === 'Skip') return false;
-    if (choice.type === 'All') return true;
-    if (tab === 'primary') return choice.type === 'Primary';
-    const idx = extraTabIndex(tab);
-    return choice.type === 'Extra' && choice.value === idx;
+    if (!choice) return false;
+    if (choice.length === 0) return true; // empty = all included
+    const idx = tab === 'primary' ? 0 : extraTabIndex(tab) + 1;
+    return choice[idx] ?? false;
   }
 
-  async function setExportChoice(choice: StepExportChoice) {
+  async function setExportChoice(choice: boolean[]) {
     const step = getSelectedStep();
     if (!step) return;
     try {
@@ -88,62 +87,39 @@ export function createExportChoice(
 
   /**
    * Toggle a monitor's inclusion in the export choice.
-   *   only primary checked   → Primary
-   *   only extra N checked   → Extra(N)
-   *   all checked            → All
-   *   partial subset (3+)    → All (current model limitation)
-   *   none checked           → Skip (step excluded from export)
+   * Builds a full boolean array, flips the relevant index, and saves it.
    */
   async function toggleExportMonitor(tab: string) {
     const step = getSelectedStep();
     if (!step) return;
     const extraCount = step.extra_image_paths?.length ?? 0;
-    const primaryChecked = isExportIncluded('primary');
-    const extrasChecked = Array.from({ length: extraCount }, (_, i) =>
-      isExportIncluded(`extra_${i}`),
-    );
+    const totalCount = 1 + extraCount;
 
-    const newPrimary = tab === 'primary' ? !primaryChecked : primaryChecked;
-    const newExtras =
-      tab === 'primary'
-        ? [...extrasChecked]
-        : extrasChecked.map((v, i) =>
-            i === extraTabIndex(tab) ? !v : v,
-          );
-
-    if ((newPrimary ? 1 : 0) + newExtras.filter(Boolean).length === 0) {
-      await setExportChoice({ type: 'Skip' });
-      return;
+    // Expand current choice to full-length array.
+    const current = step.export_choice;
+    let expanded: boolean[];
+    if (current.length === 0) {
+      expanded = Array(totalCount).fill(true); // empty = all included
+    } else {
+      expanded = Array.from({ length: totalCount }, (_, i) => current[i] ?? false);
     }
 
-    if (newPrimary && newExtras.every(Boolean)) {
-      await setExportChoice({ type: 'All' });
-      return;
-    }
-    if (newPrimary && newExtras.every((v) => !v)) {
-      await setExportChoice({ type: 'Primary' });
-      return;
-    }
-    const checkedExtras = newExtras
-      .map((v, i) => (v ? i : -1))
-      .filter((i) => i >= 0);
-    if (!newPrimary && checkedExtras.length === 1) {
-      await setExportChoice({ type: 'Extra', value: checkedExtras[0] });
-      return;
-    }
-    await setExportChoice({ type: 'All' });
+    // Flip the toggled index.
+    const idx = tab === 'primary' ? 0 : extraTabIndex(tab) + 1;
+    expanded[idx] = !expanded[idx];
+
+    await setExportChoice(expanded);
   }
 
   /**
    * Compute how many monitor images will be exported for a step based on its export_choice.
-   * Skip = 0; Primary / Extra = 1; All = primary + all extra images.
+   * All false = 0; empty = all; otherwise count trues.
    */
   function monitorExportCount(step: Step): number {
     const choice = step.export_choice;
-    if (!choice || choice.type === 'Skip') return 0;
-    if (choice.type === 'Primary' || choice.type === 'Extra') return 1;
-    // 'All': primary image + all extra images
-    return 1 + (step.extra_image_paths?.length ?? 0);
+    const extraCount = step.extra_image_paths?.length ?? 0;
+    if (choice.length === 0) return 1 + extraCount; // all
+    return choice.filter(Boolean).length;
   }
 
   /**
@@ -155,20 +131,23 @@ export function createExportChoice(
   ): { cacheKey: string; isExtra: boolean; extraIdx: number }[] {
     const choice = step.export_choice;
     const ver = step.image_version ?? 0;
-    const result: { cacheKey: string; isExtra: boolean; extraIdx: number }[] = [];
-    if (!choice) return result;
-
-    const includePrimary = choice.type === 'Primary' || choice.type === 'All';
     const extraCount = step.extra_image_paths?.length ?? 0;
+    const totalCount = 1 + extraCount;
+    const result: { cacheKey: string; isExtra: boolean; extraIdx: number }[] = [];
 
-    if (includePrimary) {
-      result.push({ cacheKey: imageStore.imageCacheKey(step), isExtra: false, extraIdx: -1 });
+    // Expand choice to full-length array.
+    let expanded: boolean[];
+    if (choice.length === 0) {
+      expanded = Array(totalCount).fill(true);
+    } else {
+      expanded = Array.from({ length: totalCount }, (_, i) => choice[i] ?? false);
     }
 
+    if (expanded[0]) {
+      result.push({ cacheKey: imageStore.imageCacheKey(step), isExtra: false, extraIdx: -1 });
+    }
     for (let i = 0; i < extraCount; i++) {
-      const includeExtra =
-        choice.type === 'All' || (choice.type === 'Extra' && choice.value === i);
-      if (includeExtra) {
+      if (expanded[i + 1]) {
         result.push({
           cacheKey: imageStore.extraImageKey(step.id, i, ver),
           isExtra: true,
