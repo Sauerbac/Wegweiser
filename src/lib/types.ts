@@ -75,6 +75,8 @@ export interface MonitorInfo {
   width: number;
   /** Monitor height in physical pixels (Rust: u32, always non-negative). */
   height: number;
+  /** DPI scale factor (e.g. 1.0 = 100 %, 1.5 = 150 %, 2.0 = 200 %). */
+  scale_factor: number;
 }
 
 export interface SessionMeta {

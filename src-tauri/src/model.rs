@@ -101,6 +101,13 @@ pub struct MonitorInfo {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    /// DPI scale factor (e.g. 1.0 = 100%, 1.5 = 150%, 2.0 = 200%).
+    #[serde(default = "default_scale_factor")]
+    pub scale_factor: f64,
+}
+
+fn default_scale_factor() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

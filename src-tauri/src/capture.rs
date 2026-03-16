@@ -18,6 +18,7 @@ pub fn list_monitor_infos() -> Vec<MonitorInfo> {
             y: m.y().unwrap_or(0),
             width: m.width().unwrap_or(0),
             height: m.height().unwrap_or(0),
+            scale_factor: m.scale_factor().unwrap_or(1.0) as f64,
         })
         .collect()
 }

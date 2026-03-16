@@ -85,9 +85,13 @@ fn build_session(
 /// always-on-top, centres at the top edge of `monitor`, and applies the
 /// Windows `WDA_EXCLUDEFROMCAPTURE` flag so the bar is invisible to xcap.
 fn morph_to_minibar(window: &WebviewWindow, monitor: &crate::model::MonitorInfo) {
-    if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-        width: MINIBAR_WIDTH,
-        height: MINIBAR_HEIGHT,
+    // MINIBAR_WIDTH/HEIGHT are logical (CSS) pixel dimensions.
+    // LogicalSize lets the webview content fill the window correctly on HiDPI
+    // displays — PhysicalSize would make the window too small on e.g. a 150%
+    // laptop screen where 380 physical px = only ~253 CSS px.
+    if let Err(e) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: MINIBAR_WIDTH as f64,
+        height: MINIBAR_HEIGHT as f64,
     })) {
         eprintln!("morph_to_minibar: set_size failed: {e}");
     }
@@ -97,9 +101,14 @@ fn morph_to_minibar(window: &WebviewWindow, monitor: &crate::model::MonitorInfo)
     if let Err(e) = window.set_always_on_top(true) {
         eprintln!("morph_to_minibar: set_always_on_top failed: {e}");
     }
-    let x = monitor.x + (monitor.width as i32 - MINIBAR_WIDTH as i32) / 2;
+    // monitor.x / monitor.y / monitor.width are physical pixels (from xcap).
+    // Use PhysicalPosition so the placement is correct regardless of DPI scale.
+    // The bar's physical width = MINIBAR_WIDTH * scale_factor, so we subtract
+    // that from the monitor width to compute the centred X offset.
+    let bar_phys_width = (MINIBAR_WIDTH as f64 * monitor.scale_factor) as i32;
+    let x = monitor.x + (monitor.width as i32 - bar_phys_width) / 2;
     let y = monitor.y;
-    if let Err(e) = window.set_position(tauri::LogicalPosition { x: x as f64, y: y as f64 }) {
+    if let Err(e) = window.set_position(tauri::PhysicalPosition { x, y }) {
         eprintln!("morph_to_minibar: set_position failed: {e}");
     }
     #[cfg(windows)]
@@ -224,20 +233,26 @@ pub fn start_recording(
     let monitor_idx = monitor_index.unwrap_or(0);
     // morph_to_minibar handles resize, decorations, always-on-top, positioning, and
     // WDA_EXCLUDEFROMCAPTURE in one place — avoiding the scattered inline sequence.
-    if let Some(monitor) = infos.get(monitor_idx) {
+    let selected_monitor = infos.get(monitor_idx).cloned();
+    let scale = selected_monitor.as_ref().map_or(1.0, |m| m.scale_factor);
+    if let Some(ref monitor) = selected_monitor {
         morph_to_minibar(&window, monitor);
     } else {
         // Fallback: no monitor info — apply morph without positioning.
-        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080 };
+        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080, scale_factor: 1.0 };
         morph_to_minibar(&window, &dummy);
     }
 
     // Record mini-bar window position and size for self-click filtering.
+    // Physical size = logical constant × scale factor; this must match the
+    // actual OS window size so the click-ignore region is correct on HiDPI.
     // Set the initial position, then keep it updated via a WindowEvent::Moved listener
     // so that dragging the mini-bar doesn't leave a stale cache.
     if let Ok(pos) = window.outer_position() {
+        let phys_w = (MINIBAR_WIDTH as f64 * scale) as u32;
+        let phys_h = (MINIBAR_HEIGHT as f64 * scale) as u32;
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT }));
+        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: phys_w, height: phys_h }));
     }
     {
         let state_arc = Arc::clone(&*state);
@@ -711,17 +726,21 @@ pub fn record_more(
         st.monitor_infos.clone()
     };
     let monitor_idx = monitor_index.unwrap_or(0);
-    if let Some(monitor) = infos.get(monitor_idx) {
+    let selected_monitor_resume = infos.get(monitor_idx).cloned();
+    let scale_resume = selected_monitor_resume.as_ref().map_or(1.0, |m| m.scale_factor);
+    if let Some(ref monitor) = selected_monitor_resume {
         morph_to_minibar(&window, monitor);
     } else {
-        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080 };
+        let dummy = crate::model::MonitorInfo { name: String::new(), x: 0, y: 0, width: 1920, height: 1080, scale_factor: 1.0 };
         morph_to_minibar(&window, &dummy);
     }
 
     // Record mini-bar window position and size for self-click filtering.
     if let Ok(pos) = window.outer_position() {
+        let phys_w = (MINIBAR_WIDTH as f64 * scale_resume) as u32;
+        let phys_h = (MINIBAR_HEIGHT as f64 * scale_resume) as u32;
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: MINIBAR_WIDTH, height: MINIBAR_HEIGHT }));
+        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: phys_w, height: phys_h }));
     }
     {
         let state_arc = Arc::clone(&*state);
