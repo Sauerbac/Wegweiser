@@ -70,9 +70,11 @@ export function choiceFromTab(tab: string): StepExportChoice {
   return { type: 'Extra', value: idx };
 }
 
-/** Return a human-readable label for a monitor by its index (short form: name or fallback). */
+/** Return a human-readable label for a monitor by its index (1-based number prefix + name). */
 export function monitorLabel(monitors: MonitorInfo[], idx: number): string {
-  return monitors[idx]?.name ?? `Monitor ${idx + 1}`;
+  const num = idx + 1;
+  const name = monitors[idx]?.name;
+  return name ? `${num} | ${name}` : `Monitor ${num}`;
 }
 
 /** Return 's' when count !== 1, '' otherwise — for simple English plural suffixes. */
