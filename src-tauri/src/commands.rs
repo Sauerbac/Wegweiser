@@ -14,8 +14,8 @@ type AppStateHandle = Arc<Mutex<AppState>>;
 
 /// Width of the recording mini-bar window in physical pixels.
 const MINIBAR_WIDTH: u32 = 380;
-/// Height of the recording mini-bar window in physical pixels.
-const MINIBAR_HEIGHT: u32 = 64;
+/// Height of the recording mini-bar window in logical pixels.
+const MINIBAR_HEIGHT: u32 = 40;
 /// Fallback window restore position and size used when no saved geometry is available.
 pub const DEFAULT_RESTORE_RECT: (i32, i32, u32, u32) = (100, 100, 900, 650);
 
@@ -98,6 +98,9 @@ fn morph_to_minibar(window: &WebviewWindow, monitor: &crate::model::MonitorInfo)
     if let Err(e) = window.set_decorations(false) {
         eprintln!("morph_to_minibar: set_decorations failed: {e}");
     }
+    if let Err(e) = window.set_resizable(false) {
+        eprintln!("morph_to_minibar: set_resizable failed: {e}");
+    }
     if let Err(e) = window.set_always_on_top(true) {
         eprintln!("morph_to_minibar: set_always_on_top failed: {e}");
     }
@@ -131,6 +134,9 @@ pub(crate) fn restore_window(
     }
     if let Err(e) = window.set_always_on_top(false) {
         eprintln!("restore_window: set_always_on_top failed: {e}");
+    }
+    if let Err(e) = window.set_resizable(true) {
+        eprintln!("restore_window: set_resizable failed: {e}");
     }
     if let Err(e) = window.set_decorations(true) {
         eprintln!("restore_window: set_decorations failed: {e}");
@@ -234,7 +240,6 @@ pub fn start_recording(
     // morph_to_minibar handles resize, decorations, always-on-top, positioning, and
     // WDA_EXCLUDEFROMCAPTURE in one place — avoiding the scattered inline sequence.
     let selected_monitor = infos.get(monitor_idx).cloned();
-    let scale = selected_monitor.as_ref().map_or(1.0, |m| m.scale_factor);
     if let Some(ref monitor) = selected_monitor {
         morph_to_minibar(&window, monitor);
     } else {
@@ -243,29 +248,6 @@ pub fn start_recording(
         morph_to_minibar(&window, &dummy);
     }
 
-    // Record mini-bar window position and size for self-click filtering.
-    // Physical size = logical constant × scale factor; this must match the
-    // actual OS window size so the click-ignore region is correct on HiDPI.
-    // Set the initial position, then keep it updated via a WindowEvent::Moved listener
-    // so that dragging the mini-bar doesn't leave a stale cache.
-    if let Ok(pos) = window.outer_position() {
-        let phys_w = (MINIBAR_WIDTH as f64 * scale) as u32;
-        let phys_h = (MINIBAR_HEIGHT as f64 * scale) as u32;
-        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: phys_w, height: phys_h }));
-    }
-    {
-        let state_arc = Arc::clone(&*state);
-        window.on_window_event(move |event| {
-            if let tauri::WindowEvent::Moved(new_pos) = event {
-                if let Ok(mut st) = state_arc.lock() {
-                    if let Some((_, size)) = st.rec_window_bounds {
-                        st.rec_window_bounds = Some((*new_pos, size));
-                    }
-                }
-            }
-        });
-    }
 
     app_handle
         .emit("recording-state-changed", RecordingState::Recording)
@@ -727,7 +709,6 @@ pub fn record_more(
     };
     let monitor_idx = monitor_index.unwrap_or(0);
     let selected_monitor_resume = infos.get(monitor_idx).cloned();
-    let scale_resume = selected_monitor_resume.as_ref().map_or(1.0, |m| m.scale_factor);
     if let Some(ref monitor) = selected_monitor_resume {
         morph_to_minibar(&window, monitor);
     } else {
@@ -736,21 +717,39 @@ pub fn record_more(
     }
 
     // Record mini-bar window position and size for self-click filtering.
-    if let Ok(pos) = window.outer_position() {
-        let phys_w = (MINIBAR_WIDTH as f64 * scale_resume) as u32;
-        let phys_h = (MINIBAR_HEIGHT as f64 * scale_resume) as u32;
+    // Use outer_size() to get the real physical footprint from the OS rather than
+    // computing logical × scale — see the same comment in start_recording.
+    if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.rec_window_bounds = Some((pos, tauri::PhysicalSize { width: phys_w, height: phys_h }));
+        st.rec_window_bounds = Some((pos, size));
     }
     {
         let state_arc = Arc::clone(&*state);
+        let window_for_event = window.clone();
         window.on_window_event(move |event| {
-            if let tauri::WindowEvent::Moved(new_pos) = event {
-                if let Ok(mut st) = state_arc.lock() {
-                    if let Some((_, size)) = st.rec_window_bounds {
-                        st.rec_window_bounds = Some((*new_pos, size));
+            match event {
+                tauri::WindowEvent::Moved(new_pos) => {
+                    if let Ok(mut st) = state_arc.lock() {
+                        if let Some((_, size)) = st.rec_window_bounds {
+                            st.rec_window_bounds = Some((*new_pos, size));
+                        }
                     }
                 }
+                tauri::WindowEvent::Resized(_) => {
+                    // Re-read the full physical rect from the OS so that DPI scaling
+                    // changes during recording don't leave a stale bounding box.
+                    if let (Ok(pos), Ok(size)) = (
+                        window_for_event.outer_position(),
+                        window_for_event.outer_size(),
+                    ) {
+                        if let Ok(mut st) = state_arc.lock() {
+                            if st.rec_window_bounds.is_some() {
+                                st.rec_window_bounds = Some((pos, size));
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         });
     }

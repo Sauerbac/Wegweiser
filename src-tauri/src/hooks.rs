@@ -20,24 +20,28 @@ fn handle_click(
     click_y: i32,
 ) {
     let task_opt = {
-        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        let st = state.lock().unwrap_or_else(|e| e.into_inner());
 
         if st.recording_state != RecordingState::Recording {
             return;
         }
 
-        // Filter clicks on the mini-bar window itself using the
-        // cached position/size — avoids per-click get_webview_window
-        // + OS API calls.
-        if let Some((pos, size)) = st.rec_window_bounds {
-            if click_x >= pos.x
-                && click_x < pos.x + size.width as i32
-                && click_y >= pos.y
-                && click_y < pos.y + size.height as i32
-            {
-                return;
+        // Filter clicks on the mini-bar window itself.
+        // Read the current OS rect live on each click so the check stays
+        // correct after DPI scaling changes or window moves.
+        drop(st);
+        if let Some(window) = app_handle.get_webview_window("main") {
+            if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
+                if click_x >= pos.x
+                    && click_x < pos.x + size.width as i32
+                    && click_y >= pos.y
+                    && click_y < pos.y + size.height as i32
+                {
+                    return;
+                }
             }
         }
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
 
         // Extract everything we need from the session before mutating.
         // Use the pre-allocated next_order counter (not steps.len() + 1)

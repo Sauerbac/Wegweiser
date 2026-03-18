@@ -52,7 +52,7 @@
   </div>
 
   <!-- Controls — NOT part of drag region so clicks reach the buttons -->
-  <div class="flex items-center gap-1 pr-2 shrink-0">
+  <div class="flex items-center gap-1 pr-3 shrink-0">
     <Button
       variant="ghost"
       size="sm"
