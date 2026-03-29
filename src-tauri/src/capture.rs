@@ -113,6 +113,8 @@ pub fn capture_step(
         export_choice: vec![true], // default: primary (click monitor) only
         window_rects,
         image_version: 0,
+        annotations_json: None,
+        preview_path: None,
     })
 }
 

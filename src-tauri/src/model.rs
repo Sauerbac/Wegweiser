@@ -83,6 +83,10 @@ pub struct Step {
     /// Incremented on each image edit; used by the frontend as a cache-busting key.
     #[serde(default)]
     pub image_version: u32,
+    /// Serialized Fabric.js canvas JSON for non-destructive overlay annotations.
+    pub annotations_json: Option<String>,
+    /// Path to the flattened preview PNG (base image + annotations baked in).
+    pub preview_path: Option<PathBuf>,
 }
 
 /// Bounding box of a visible top-level window, in monitor-relative physical pixels.

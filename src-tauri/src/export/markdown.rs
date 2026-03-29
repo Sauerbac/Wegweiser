@@ -54,7 +54,8 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
         if sel[0] {
             let img_filename = format!("step_{:04}.png", step.id);
             let img_dest = images_dir.join(&img_filename);
-            fs::copy(&step.image_path, &img_dest)?;
+            let primary_path = step.preview_path.as_ref().unwrap_or(&step.image_path);
+            fs::copy(primary_path, &img_dest)?;
             md.push_str(&format!(
                 "![Step {}](images/{})\n\n",
                 step.order, img_filename

@@ -980,6 +980,68 @@ pub fn redo_session(
 }
 
 #[tauri::command]
+pub fn save_annotations(
+    step_id: usize,
+    annotations_json: Option<String>,
+    preview_png_base64: Option<String>,
+    extra_index: Option<usize>,
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let session_clone = {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        push_undo(&mut st);
+
+        let session = st.session.as_mut().ok_or("No active session")?;
+        let step = session.steps.iter_mut().find(|s| s.id == step_id)
+            .ok_or("Step not found")?;
+
+        // Determine which image path to operate on (primary vs extra).
+        let base_image_path = match extra_index {
+            None => &step.image_path,
+            Some(i) => step.extra_image_paths.get(i)
+                .ok_or("Extra image index out of range")?,
+        };
+
+        // Write or clear the preview PNG.
+        if let Some(ref b64) = preview_png_base64 {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .map_err(|e| format!("Invalid base64: {e}"))?;
+            let preview_filename = match extra_index {
+                None => format!("step_{:04}_preview.png", step_id),
+                Some(ei) => format!("step_{:04}_extra{}_preview.png", step_id, ei),
+            };
+            let dir = base_image_path.parent().unwrap_or(std::path::Path::new("."));
+            let preview_path = dir.join(preview_filename);
+            std::fs::write(&preview_path, &bytes).map_err(|e| e.to_string())?;
+            step.preview_path = Some(preview_path);
+        } else {
+            // Remove existing preview file if annotations are cleared.
+            if let Some(ref old_preview) = step.preview_path {
+                let _ = std::fs::remove_file(old_preview);
+            }
+            step.preview_path = None;
+        }
+
+        step.annotations_json = annotations_json;
+        step.image_version += 1;
+
+        if let Err(e) = session::save_session(session) {
+            eprintln!("[save_annotations] save failed: {e}");
+        }
+
+        st.session.clone()
+    };
+
+    if let Some(s) = session_clone {
+        app_handle.emit("session-updated", &s).map_err(|e| e.to_string())?;
+    }
+    emit_undo_state(&state, &app_handle);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn apply_image_edit(
     step_id: usize,
     edit: ImageEdit,

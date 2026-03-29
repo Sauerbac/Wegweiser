@@ -48,6 +48,10 @@ export interface Step {
   window_rects: WindowRect[];
   /** Incremented on each image edit; used as a cache-busting key. */
   image_version: number;
+  /** Serialized Fabric.js JSON for non-destructive overlay annotations. */
+  annotations_json: string | null;
+  /** Path to flattened preview PNG (base + annotations baked in). */
+  preview_path: string | null;
 }
 
 export interface UndoState {

@@ -154,7 +154,8 @@ pub fn export(
 
         // Primary image (index 0).
         if sel[0] {
-            let img_bytes = fs::read(&step.image_path)?;
+            let primary_path = step.preview_path.as_ref().unwrap_or(&step.image_path);
+            let img_bytes = fs::read(primary_path)?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
             write!(
                 w,

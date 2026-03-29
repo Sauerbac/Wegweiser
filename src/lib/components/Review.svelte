@@ -19,7 +19,7 @@
   } from "@lucide/svelte";
   import PageLayout from "$lib/components/PageLayout.svelte";
   import SelectableList from "$lib/components/SelectableList.svelte";
-  import ImageEditor from "$lib/components/ImageEditor.svelte";
+  import AnnotationEditor from "$lib/components/AnnotationEditor.svelte";
   import StepCard from "$lib/components/StepCard.svelte";
   import MonitorTabGroup from "$lib/components/MonitorTabGroup.svelte";
   import StepImageViewer from "$lib/components/StepImageViewer.svelte";
@@ -450,7 +450,7 @@
 />
 
 {#if selectedStep && editorSession.open}
-  <ImageEditor
+  <AnnotationEditor
     step={selectedStep}
     extraIndex={ec.editorExtraIndex}
     bind:open={editorSession.open}
