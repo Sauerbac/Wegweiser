@@ -7,9 +7,10 @@
   import { Button } from '$lib/components/ui/button';
   import { Undo2, Redo2, X } from '@lucide/svelte';
   import AnnotationToolbar from '$lib/components/AnnotationToolbar.svelte';
-  import AnnotationProperties from '$lib/components/AnnotationProperties.svelte';
+  import PropertiesPanel from '$lib/components/editor/PropertiesPanel.svelte';
   import { FabricCanvasWrapper, type AnnotationTool } from '$lib/fabric-canvas.svelte';
   import { clipRect } from '$lib/utils';
+  import { handleEditorKeyDown } from '$lib/editor/keyboard-shortcuts';
 
   interface Props {
     step: Step;
@@ -250,17 +251,42 @@
     }
   });
 
-  // ── Keyboard: Delete key ──────────────────────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
 
-  function handleKeydown(e: KeyboardEvent) {
+  async function handleKeydown(e: KeyboardEvent) {
     if (!open) return;
-    if (e.key === 'Delete' && initialized) {
-      fabricCanvas.deleteSelected();
-    }
+
+    // Escape: 3-stage behavior
+    //   1. Something selected → deselect only
+    //   2. Non-select tool active → switch to select tool
+    //   3. Already on select, nothing selected → do nothing (don't close)
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      handleClose();
+      if (initialized) {
+        const hasSelection = !!fabricCanvas.getCanvas()?.getActiveObject();
+        if (hasSelection) {
+          fabricCanvas.discardSelection();
+          return;
+        }
+        if (fabricCanvas.tool !== 'select') {
+          onSetTool('select');
+          return;
+        }
+        // Nothing selected and already on select → do nothing.
+      }
+      return;
+    }
+
+    // All other shortcuts — delegate to the shared shortcuts module.
+    const consumed = await handleEditorKeyDown(e, {
+      canvas: fabricCanvas,
+      initialized,
+      setTool: onSetTool,
+    });
+    if (consumed) {
+      e.preventDefault();
+      e.stopPropagation();
     }
   }
 </script>
@@ -274,6 +300,7 @@
   <Dialog.Content
     class="flex h-[90vh] w-[90vw] max-w-none sm:max-w-none flex-col gap-0 p-0"
     showCloseButton={false}
+    escapeKeydownBehavior="ignore"
   >
     <!-- Header -->
     <div class="flex shrink-0 items-center justify-between border-b px-4 py-2">
@@ -343,14 +370,14 @@
       </div>
 
       <!-- Right properties panel -->
-      <AnnotationProperties
+      <PropertiesPanel
+        tool={fabricCanvas.tool}
         color={fabricCanvas.color}
         strokeWidth={fabricCanvas.strokeWidth}
         opacity={fabricCanvas.opacity}
         fillEnabled={fabricCanvas.fillEnabled}
         fillColor={fabricCanvas.fillColor}
-        hasSelection={fabricCanvas.objectCount > 0 && fabricCanvas.tool === 'select'}
-        showFill={fabricCanvas.tool === 'rectangle' || fabricCanvas.tool === 'ellipse'}
+        hasSelection={fabricCanvas.selectedCount > 0}
         oncolorChange={(c) => fabricCanvas.setColor(c)}
         onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
         onopacityChange={(o) => fabricCanvas.setOpacity(o)}

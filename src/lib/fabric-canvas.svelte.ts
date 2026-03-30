@@ -12,6 +12,7 @@
 
 import {
   Canvas,
+  ActiveSelection,
   Rect,
   Ellipse,
   Line,
@@ -87,6 +88,9 @@ export class FabricCanvasWrapper {
   /** Count of objects on canvas (excluding crop mask internals). */
   objectCount = $state(0);
 
+  /** Count of currently selected objects. */
+  selectedCount = $state(0);
+
   /** Natural dimensions of the background image. */
   imageWidth = $state(0);
   imageHeight = $state(0);
@@ -105,6 +109,9 @@ export class FabricCanvasWrapper {
 
   /** Dim overlay rects around the crop area. */
   private cropOverlays: Rect[] = [];
+
+  /** Clipboard buffer for copy/paste. */
+  private clipboard: any[] = [];
 
   /** Keyboard event listeners for Shift-to-constrain. */
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null;
@@ -167,6 +174,11 @@ export class FabricCanvasWrapper {
     this.canvas.on('object:modified', () => this.onCanvasModified());
     this.canvas.on('object:removed', () => this.onCanvasModified());
 
+    // Track selection changes.
+    this.canvas.on('selection:created', () => this.updateSelectedCount());
+    this.canvas.on('selection:updated', () => this.updateSelectedCount());
+    this.canvas.on('selection:cleared', () => this.updateSelectedCount());
+
     // Push initial empty state.
     this.pushSnapshot();
   }
@@ -215,10 +227,12 @@ export class FabricCanvasWrapper {
     }
     this.undoStack = [];
     this.redoStack = [];
+    this.clipboard = [];
     this.drawState = null;
     this.cropRect = null;
     this.cropOverlays = [];
     this.nextCalloutNumber = 1;
+    this.selectedCount = 0;
   }
 
   /** Set the active tool. */
@@ -308,6 +322,62 @@ export class FabricCanvasWrapper {
     }
     this.canvas.discardActiveObject();
     this.canvas.renderAll();
+  }
+
+  /** Select all annotation objects on the canvas. */
+  selectAll(): void {
+    if (!this.canvas || this.tool !== 'select') return;
+    const objs = this.canvas.getObjects().filter(
+      (obj) => (obj as any)._wegweiserType !== 'cropOverlay' && obj !== this.cropRect,
+    );
+    if (objs.length === 0) return;
+    if (objs.length === 1) {
+      this.canvas.setActiveObject(objs[0]);
+    } else {
+      const sel = new ActiveSelection(objs, { canvas: this.canvas });
+      this.canvas.setActiveObject(sel);
+    }
+    this.canvas.requestRenderAll();
+  }
+
+  /** Discard the current selection without switching tools. */
+  discardSelection(): void {
+    if (!this.canvas) return;
+    this.canvas.discardActiveObject();
+    this.canvas.requestRenderAll();
+  }
+
+  /** Copy selected objects to internal clipboard. */
+  async copySelected(): Promise<void> {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObjects();
+    if (active.length === 0) return;
+    // Clone each object via toObject.
+    this.clipboard = await Promise.all(active.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber'])));
+  }
+
+  /** Paste previously copied objects, offset by 10px. */
+  async pasteSelected(): Promise<void> {
+    if (!this.canvas || this.clipboard.length === 0) return;
+    this.canvas.discardActiveObject();
+    const clones = await Promise.all(this.clipboard.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber'])));
+    const OFFSET = 10;
+    for (const clone of clones) {
+      clone.set({ left: (clone.left ?? 0) + OFFSET, top: (clone.top ?? 0) + OFFSET, selectable: true, evented: true });
+      this.canvas.add(clone);
+    }
+    if (clones.length === 1) {
+      this.canvas.setActiveObject(clones[0]);
+    }
+    this.canvas.requestRenderAll();
+    // Shift the clipboard so repeated pastes cascade.
+    this.clipboard = clones;
+  }
+
+  /** Duplicate selected objects in place (copy + paste in one step). */
+  async duplicateSelected(): Promise<void> {
+    await this.copySelected();
+    await this.pasteSelected();
   }
 
   /** Undo the last annotation change. */
@@ -1034,6 +1104,15 @@ export class FabricCanvasWrapper {
     });
     this.objectCount = count;
     this.hasAnnotations = count > 0;
+  }
+
+  /** Update the reactive selected object count. */
+  private updateSelectedCount(): void {
+    if (!this.canvas) {
+      this.selectedCount = 0;
+      return;
+    }
+    this.selectedCount = this.canvas.getActiveObjects().length;
   }
 
   /** Recalculate the next callout number from existing callouts on canvas. */
