@@ -264,6 +264,9 @@
       e.preventDefault();
       e.stopPropagation();
       if (initialized) {
+        // If an IText is actively being edited, let Fabric.js handle Escape
+        // (it exits editing mode and keeps the object selected).
+        if (document.activeElement instanceof HTMLTextAreaElement) return;
         const hasSelection = !!fabricCanvas.getCanvas()?.getActiveObject();
         if (hasSelection) {
           fabricCanvas.discardSelection();

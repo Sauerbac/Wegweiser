@@ -38,6 +38,11 @@ export async function handleEditorKeyDown(
 ): Promise<boolean> {
   if (!ctx.initialized) return false;
 
+  // When Fabric.js IText is in editing mode it focuses a hidden <textarea>.
+  // Let the browser (and Fabric.js) handle ALL keys natively in that case;
+  // shortcuts should not fire while the user is typing annotation text.
+  if (document.activeElement instanceof HTMLTextAreaElement) return false;
+
   const { canvas, setTool } = ctx;
   const ctrl = e.ctrlKey || e.metaKey;
   const key = e.key;

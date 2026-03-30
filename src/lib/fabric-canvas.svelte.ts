@@ -720,6 +720,11 @@ export class FabricCanvasWrapper {
   /** Place an editable IText at the given position. */
   private placeText(x: number, y: number): void {
     if (!this.canvas) return;
+    // Place the hidden textarea inside the canvas wrapper rather than document.body.
+    // This is required because the annotation editor runs inside a Dialog that has a
+    // focus trap; any element appended to document.body is outside the trap and has
+    // its focus immediately stolen back, breaking IText keyboard input.
+    const canvasContainer = this.canvas.getElement().parentElement;
     const text = new IText('Text', {
       left: x,
       top: y,
@@ -731,15 +736,31 @@ export class FabricCanvasWrapper {
       opacity: this.opacity,
       selectable: true,
       evented: true,
+      hiddenTextareaContainer: canvasContainer,
     });
     this.canvas.add(text);
 
-    // Switch to select mode so the IText can receive keyboard input,
-    // then activate editing.
+    // Switch to select mode so the IText can receive keyboard input.
+    // This must happen before setActiveObject so that canvas.selection = true
+    // and the object is selectable/evented.
     this.setTool('select');
+    this.canvas.renderAll();
     this.canvas.setActiveObject(text);
-    text.enterEditing();
-    text.selectAll();
+
+    // Defer enterEditing to after the current mouse-event cycle so that:
+    // 1. Fabric.js finishes its internal mouse:down/up handling
+    // 2. The browser allows the hidden textarea to receive focus
+    //    (browsers often block focus() calls mid-mousedown handler)
+    requestAnimationFrame(() => {
+      if (!this.canvas) return;
+      // Fabric.js discards the active object in its own mouse:up handler (the
+      // click had no target when mouse:down fired). Re-set it here so
+      // enterEditing() actually gets applied to an active object.
+      this.canvas.setActiveObject(text);
+      text.enterEditing();
+      text.selectAll();
+      this.canvas.renderAll();
+    });
   }
 
   /** Place a numbered callout (circle + number) at the given position. */
