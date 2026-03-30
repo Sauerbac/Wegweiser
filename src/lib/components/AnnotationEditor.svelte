@@ -137,46 +137,50 @@
     if (closing) return;
     closing = true;
 
-    if (initialized) {
-      saving = true;
-      errorMsg = null;
+    try {
+      if (initialized) {
+        saving = true;
+        errorMsg = null;
 
-      try {
-        const json = fabricCanvas.serialize();
-        const hasContent = fabricCanvas.hasAnnotations;
+        try {
+          const json = fabricCanvas.serialize();
+          const hasContent = fabricCanvas.hasAnnotations;
 
-        let previewBase64: string | null = null;
-        if (hasContent) {
-          const dataUrl = fabricCanvas.toDataURL();
-          // Strip data:image/png;base64, prefix.
-          previewBase64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+          let previewBase64: string | null = null;
+          if (hasContent) {
+            const dataUrl = fabricCanvas.toDataURL();
+            // Strip data:image/png;base64, prefix.
+            previewBase64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+          }
+
+          // Clear cache so the new preview loads.
+          imageStore.clearStepImageCache(step.id);
+
+          await invoke('save_annotations', {
+            stepId: step.id,
+            annotationsJson: hasContent ? json : null,
+            previewPngBase64: previewBase64,
+            extraIndex: extraIndex ?? null,
+          });
+
+          // Increment depth so Review-level undo covers this save.
+          depth += 1;
+          redoDepth = 0;
+        } catch (err) {
+          console.error('Failed to save annotations:', err);
+          errorMsg = `Failed to save annotations: ${err}`;
+          // Still close the editor even on save failure.
         }
 
-        // Clear cache so the new preview loads.
-        imageStore.clearStepImageCache(step.id);
-
-        await invoke('save_annotations', {
-          stepId: step.id,
-          annotationsJson: hasContent ? json : null,
-          previewPngBase64: previewBase64,
-          extraIndex: extraIndex ?? null,
-        });
-
-        // Increment depth so Review-level undo covers this save.
-        depth += 1;
-        redoDepth = 0;
-      } catch (err) {
-        console.error('Failed to save annotations:', err);
-        errorMsg = `Failed to save annotations: ${err}`;
-        // Still close the editor even on save failure.
+        saving = false;
       }
 
-      saving = false;
+      cleanup();
+      open = false;
+    } finally {
+      // Always reset the re-entrancy guard, even if an unexpected error occurs.
+      closing = false;
     }
-
-    cleanup();
-    open = false;
-    closing = false;
   }
 
   /** Cleanup Fabric.js on close. */
@@ -270,7 +274,6 @@
   <Dialog.Content
     class="flex h-[90vh] w-[90vw] max-w-none sm:max-w-none flex-col gap-0 p-0"
     showCloseButton={false}
-    onInteractOutside={(e) => e.preventDefault()}
   >
     <!-- Header -->
     <div class="flex shrink-0 items-center justify-between border-b px-4 py-2">
@@ -296,15 +299,19 @@
         >
           <Redo2 />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Close"
-          onclick={() => handleClose()}
-          disabled={saving}
-        >
-          <X />
-        </Button>
+        <Dialog.Close>
+          {#snippet child({ props })}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close"
+              {...props}
+              disabled={saving}
+            >
+              <X />
+            </Button>
+          {/snippet}
+        </Dialog.Close>
       </div>
     </div>
 
@@ -340,10 +347,15 @@
         color={fabricCanvas.color}
         strokeWidth={fabricCanvas.strokeWidth}
         opacity={fabricCanvas.opacity}
+        fillEnabled={fabricCanvas.fillEnabled}
+        fillColor={fabricCanvas.fillColor}
         hasSelection={fabricCanvas.objectCount > 0 && fabricCanvas.tool === 'select'}
+        showFill={fabricCanvas.tool === 'rectangle' || fabricCanvas.tool === 'ellipse'}
         oncolorChange={(c) => fabricCanvas.setColor(c)}
         onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
         onopacityChange={(o) => fabricCanvas.setOpacity(o)}
+        onfillEnabledChange={(enabled) => fabricCanvas.setFillEnabled(enabled)}
+        onfillColorChange={(c) => fabricCanvas.setFillColor(c)}
         ondelete={() => fabricCanvas.deleteSelected()}
       />
     </div>

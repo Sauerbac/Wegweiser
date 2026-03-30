@@ -64,6 +64,12 @@ export class FabricCanvasWrapper {
   /** Current opacity (0–1). */
   opacity = $state(1);
 
+  /** Whether shapes (rectangle/ellipse) should have a fill. */
+  fillEnabled = $state(false);
+
+  /** Fill color for shapes (rectangle/ellipse). */
+  fillColor = $state('#ef4444');
+
   /** Internal undo stack of JSON snapshots. */
   private undoStack: string[] = [];
   /** Internal redo stack. */
@@ -100,6 +106,10 @@ export class FabricCanvasWrapper {
   /** Dim overlay rects around the crop area. */
   private cropOverlays: Rect[] = [];
 
+  /** Keyboard event listeners for Shift-to-constrain. */
+  private _onKeyDown: ((e: KeyboardEvent) => void) | null = null;
+  private _onKeyUp: ((e: KeyboardEvent) => void) | null = null;
+
   /**
    * Initialize the Fabric.js canvas on the given HTML canvas element.
    * Loads the provided image URI as the non-selectable background.
@@ -112,14 +122,24 @@ export class FabricCanvasWrapper {
     this.imageWidth = w;
     this.imageHeight = h;
 
+    console.log('[FabricCanvas] init: img dimensions', w, h, 'dpr', window.devicePixelRatio);
+
     this.canvas = new Canvas(canvasEl, {
       width: w,
       height: h,
       selection: true,
+      uniformScaling: false,
     });
 
+    console.log('[FabricCanvas] init: canvas logical', this.canvas.width, this.canvas.height,
+      'lower el', canvasEl.width, canvasEl.height,
+      'css', canvasEl.style.width, canvasEl.style.height,
+      'backgroundVpt', this.canvas.backgroundVpt);
+
     // Set background image (not part of objects JSON).
-    img.set({ selectable: false, evented: false });
+    // In Fabric 7 the default origin is 'center', so we must pin it to 'left'/'top'
+    // so that left=0, top=0 places the image at the canvas origin, not its center.
+    img.set({ selectable: false, evented: false, originX: 'left', originY: 'top', left: 0, top: 0 });
     this.canvas.backgroundImage = img;
     this.canvas.renderAll();
 
@@ -127,6 +147,20 @@ export class FabricCanvasWrapper {
     this.canvas.on('mouse:down', (e) => this.onMouseDown(e));
     this.canvas.on('mouse:move', (e) => this.onMouseMove(e));
     this.canvas.on('mouse:up', (e) => this.onMouseUp(e));
+
+    // Shift key: enable uniform (constrained) scaling while held.
+    this._onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && this.canvas) {
+        this.canvas.uniformScaling = true;
+      }
+    };
+    this._onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && this.canvas) {
+        this.canvas.uniformScaling = false;
+      }
+    };
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
 
     // Track modifications for undo.
     this.canvas.on('object:added', () => this.onCanvasModified());
@@ -148,19 +182,33 @@ export class FabricCanvasWrapper {
     const scale = Math.min(containerW / this.imageWidth, containerH / this.imageHeight);
     this.fitScale = scale;
 
-    // Set the DOM element size to the scaled size.
-    this.canvas.setDimensions({
-      width: Math.round(this.imageWidth * scale),
-      height: Math.round(this.imageHeight * scale),
-    });
+    console.log('[FabricCanvas] updateFit: container', containerW, containerH, 'scale', scale);
 
-    // Set the viewport transform so Fabric.js maps scene coords correctly.
-    this.canvas.setViewportTransform([scale, 0, 0, scale, 0, 0]);
+    // Resize only the CSS display size; the backing pixel buffer stays at the
+    // natural image dimensions (imageWidth × imageHeight) so that:
+    //   - the background image fills the buffer exactly at 1:1
+    //   - all shape/mouse coordinates stay in natural image space (0..imageWidth, 0..imageHeight)
+    //   - Fabric's getScenePoint auto-corrects for the CSS-to-buffer ratio
+    this.canvas.setDimensions(
+      { width: Math.round(this.imageWidth * scale), height: Math.round(this.imageHeight * scale) },
+      { cssOnly: true },
+    );
+
+    const el = this.canvas.getElement();
+    console.log('[FabricCanvas] updateFit after: el.width', el.width, 'el.height', el.height,
+      'css', el.style.width, el.style.height,
+      'vpt', this.canvas.viewportTransform);
+
     this.canvas.renderAll();
   }
 
   /** Clean up the Fabric.js canvas. */
   dispose(): void {
+    if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
+    if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
+    this._onKeyDown = null;
+    this._onKeyUp = null;
+
     if (this.canvas) {
       this.canvas.dispose();
       this.canvas = null;
@@ -230,6 +278,18 @@ export class FabricCanvasWrapper {
   /** Update the opacity. Also updates the selected object if any. */
   setOpacity(o: number): void {
     this.opacity = o;
+    this.updateSelectedObjectStyle();
+  }
+
+  /** Toggle fill on/off for shapes. Also updates the selected object if any. */
+  setFillEnabled(enabled: boolean): void {
+    this.fillEnabled = enabled;
+    this.updateSelectedObjectStyle();
+  }
+
+  /** Update the fill color. Also updates the selected object if any. */
+  setFillColor(c: string): void {
+    this.fillColor = c;
     this.updateSelectedObjectStyle();
   }
 
@@ -325,12 +385,8 @@ export class FabricCanvasWrapper {
   toDataURL(): string {
     if (!this.canvas) return '';
 
-    // Temporarily reset viewport to 1:1 for full-res export.
-    const savedVpt = this.canvas.viewportTransform;
-    const savedW = this.canvas.width;
-    const savedH = this.canvas.height;
-    this.canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    this.canvas.setDimensions({ width: this.imageWidth, height: this.imageHeight });
+    // The pixel buffer is always at natural image dimensions with identity VPT,
+    // so no viewport/dimension adjustments are needed before export.
 
     // Temporarily hide crop visuals for export.
     this.hideCropVisuals();
@@ -354,10 +410,6 @@ export class FabricCanvasWrapper {
     }
 
     this.showCropVisuals();
-
-    // Restore viewport.
-    this.canvas.setDimensions({ width: savedW, height: savedH });
-    this.canvas.setViewportTransform(savedVpt);
     this.canvas.renderAll();
 
     return dataUrl;
@@ -376,6 +428,10 @@ export class FabricCanvasWrapper {
     const tool = this.tool;
 
     if (tool === 'select' || tool === 'freehand' || tool === 'window') return;
+
+    // If the click landed on an existing object (or its transform controls),
+    // do not start a new draw operation.
+    if (e.target) return;
 
     if (tool === 'text') {
       this.placeText(pointer.x, pointer.y);
@@ -399,15 +455,18 @@ export class FabricCanvasWrapper {
       const rect = new Rect({
         left: pointer.x,
         top: pointer.y,
+        originX: 'left',
+        originY: 'top',
         width: 0,
         height: 0,
-        fill: tool === 'crop' ? 'transparent' : 'transparent',
+        fill: tool === 'crop' ? 'transparent' : (this.fillEnabled ? this.fillColor : 'transparent'),
         stroke: tool === 'crop' ? '#ffffff' : this.color,
         strokeWidth: tool === 'crop' ? 2 : this.strokeWidth,
         strokeDashArray: tool === 'crop' ? [8, 4] : undefined,
         opacity: this.opacity,
         selectable: false,
         evented: false,
+        lockUniScaling: false,
       });
       this.canvas.add(rect);
       this.drawState.shape = rect;
@@ -415,14 +474,17 @@ export class FabricCanvasWrapper {
       const ellipse = new Ellipse({
         left: pointer.x,
         top: pointer.y,
+        originX: 'left',
+        originY: 'top',
         rx: 0,
         ry: 0,
-        fill: 'transparent',
+        fill: this.fillEnabled ? this.fillColor : 'transparent',
         stroke: this.color,
         strokeWidth: this.strokeWidth,
         opacity: this.opacity,
         selectable: false,
         evented: false,
+        lockUniScaling: false,
       });
       this.canvas.add(ellipse);
       this.drawState.shape = ellipse;
@@ -430,6 +492,8 @@ export class FabricCanvasWrapper {
       const rect = new Rect({
         left: pointer.x,
         top: pointer.y,
+        originX: 'left',
+        originY: 'top',
         width: 0,
         height: 0,
         fill: this.color,
@@ -438,6 +502,7 @@ export class FabricCanvasWrapper {
         opacity: 0.3,
         selectable: false,
         evented: false,
+        lockUniScaling: false,
       });
       this.canvas.add(rect);
       this.drawState.shape = rect;
@@ -455,6 +520,8 @@ export class FabricCanvasWrapper {
       const rect = new Rect({
         left: pointer.x,
         top: pointer.y,
+        originX: 'left',
+        originY: 'top',
         width: 0,
         height: 0,
         fill: 'rgba(128,128,128,0.3)',
@@ -560,7 +627,10 @@ export class FabricCanvasWrapper {
       },
     );
 
-    const arrowLine = new Line([x1, y1, x2, y2], {
+    // Shorten the line so it ends at the base of the arrowhead, not the tip.
+    const x2Short = x2 - headLen * Math.cos(angle);
+    const y2Short = y2 - headLen * Math.sin(angle);
+    const arrowLine = new Line([x1, y1, x2Short, y2Short], {
       stroke: this.color,
       strokeWidth: this.strokeWidth,
       selectable: false,
@@ -583,6 +653,8 @@ export class FabricCanvasWrapper {
     const text = new IText('Text', {
       left: x,
       top: y,
+      originX: 'left',
+      originY: 'top',
       fill: this.color,
       fontSize: Math.max(this.strokeWidth * 6, 24),
       fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -710,6 +782,8 @@ export class FabricCanvasWrapper {
       pixelImg.set({
         left,
         top,
+        originX: 'left',
+        originY: 'top',
         selectable: true,
         evented: true,
         _wegweiserType: 'pixelateOverlay',
@@ -733,6 +807,8 @@ export class FabricCanvasWrapper {
     const rect = new Rect({
       left: x,
       top: y,
+      originX: 'left',
+      originY: 'top',
       width: w,
       height: h,
       fill: 'transparent',
@@ -778,6 +854,8 @@ export class FabricCanvasWrapper {
     const dimColor = 'rgba(0, 0, 0, 0.5)';
     const common = {
       fill: dimColor,
+      originX: 'left',
+      originY: 'top',
       selectable: false,
       evented: false,
       excludeFromExport: true,
@@ -866,6 +944,12 @@ export class FabricCanvasWrapper {
         }
       });
       active.set({ opacity: this.opacity });
+    } else if (active instanceof Rect || active instanceof Ellipse) {
+      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth });
+      active.set({
+        fill: this.fillEnabled ? this.fillColor : 'transparent',
+        opacity: this.opacity,
+      });
     } else {
       if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth });
       if (active.fill && active.fill !== 'transparent') active.set({ fill: this.color });
