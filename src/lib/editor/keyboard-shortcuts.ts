@@ -65,12 +65,11 @@ export async function handleEditorKeyDown(
       case 'd':
         await canvas.duplicateSelected();
         return true;
+      // Ctrl+Z and Ctrl+Y are handled by the editor-session store via undoTick/redoTick.
+      // Do not handle them here to avoid double-firing.
       case 'z':
-        canvas.undo();
-        return true;
       case 'y':
-        canvas.redo();
-        return true;
+        return false;
     }
   }
 

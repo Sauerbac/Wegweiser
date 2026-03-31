@@ -121,18 +121,30 @@ export class ReviewUndoStore {
   }
 
   /**
-   * If the top of the undo stack is an editorSession for the given step, removes it and
-   * returns its depth so the editor can resume where it left off on reopen.
-   * Returns null if the top entry does not match.
+   * Searches the undo stack from the top for the most recent editorSession entry
+   * for the given step. If found, removes it and returns its depth so the editor
+   * can resume where it left off on reopen.
+   * Returns null if no matching entry exists anywhere in the stack.
    *
-   * Called when the editor opens after a normal close (no Review-level undo/redo in
-   * between). This lets the editor continue the same session rather than starting at 0.
+   * Searching the full stack (not just the top) ensures that switching between
+   * steps and re-opening an earlier step correctly restores its depth, even when
+   * other steps' editor sessions sit above it on the stack.
+   *
+   * Called when the editor opens after a normal close (no Review-level undo/redo
+   * in between). This lets the editor continue the same session rather than
+   * starting at 0.
    */
-  popTopEditorSession(stepId: number): number | null {
-    const top = this.undoStack.at(-1);
-    if (top?.type === 'editorSession' && top.stepId === stepId) {
-      this.undoStack = this.undoStack.slice(0, -1);
-      return top.depth;
+  popEditorSession(stepId: number): number | null {
+    // Search from top (most recent) downward.
+    for (let i = this.undoStack.length - 1; i >= 0; i--) {
+      const entry = this.undoStack[i];
+      if (entry.type === 'editorSession' && entry.stepId === stepId) {
+        this.undoStack = [
+          ...this.undoStack.slice(0, i),
+          ...this.undoStack.slice(i + 1),
+        ];
+        return entry.depth;
+      }
     }
     return null;
   }
