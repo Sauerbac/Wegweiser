@@ -77,6 +77,10 @@ export class FabricCanvasWrapper {
   private redoStack: string[] = [];
   /** Whether we're currently loading from undo/redo (suppress snapshot). */
   private isRestoring = false;
+  /** Whether the user is currently dragging to create a shape (suppress intermediate snapshots). */
+  private isDrawing = false;
+  /** Debounce timer for coalescing rapid canvas-modification events (e.g. freehand path:created). */
+  private _modifiedTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Reactive undo/redo availability. */
   canUndo = $state(false);
@@ -233,6 +237,11 @@ export class FabricCanvasWrapper {
     this.cropOverlays = [];
     this.nextCalloutNumber = 1;
     this.selectedCount = 0;
+    this.isDrawing = false;
+    if (this._modifiedTimer !== null) {
+      clearTimeout(this._modifiedTimer);
+      this._modifiedTimer = null;
+    }
   }
 
   /** Set the active tool. */
@@ -397,13 +406,51 @@ export class FabricCanvasWrapper {
     this.restoreSnapshot(next);
   }
 
+  /**
+   * Return a copy of the current internal undo snapshot stack.
+   * Used to persist undo history across editor open/close cycles.
+   */
+  getUndoStack(): string[] {
+    return [...this.undoStack];
+  }
+
+  /**
+   * Return a copy of the current internal redo snapshot stack.
+   * Used to persist redo history across editor open/close cycles.
+   */
+  getRedoStack(): string[] {
+    return [...this.redoStack];
+  }
+
+  /**
+   * Restore undo/redo snapshot stacks from a prior editor session.
+   * Call this after `deserialize()` to reinstate per-shape undo history
+   * when the editor is reopened for a step that was previously edited.
+   *
+   * The provided stacks replace the stacks set by `deserialize()` (which
+   * resets them to `[currentSnapshot]` / `[]`). The last entry of
+   * `undoStack` must describe the same canvas state as after `deserialize()`
+   * so that the first undo correctly reverts to the prior state.
+   */
+  restoreUndoRedoStacks(undoStack: string[], redoStack: string[]): void {
+    if (undoStack.length === 0) return;
+    this.undoStack = [...undoStack];
+    this.redoStack = [...redoStack];
+    this.updateUndoState();
+  }
+
   /** Serialize the canvas overlay objects to JSON string. */
   serialize(): string {
     if (!this.canvas) return '{"objects":[]}';
     // Include custom properties in serialization.
     const json = this.canvas.toObject(['_wegweiserType', '_calloutNumber']);
-    // Remove the backgroundImage from the serialized output (it's the base screenshot).
+    // Remove the backgroundImage (it's the base screenshot, not an annotation).
     delete (json as Record<string, unknown>).backgroundImage;
+    // Exclude crop overlays — they're purely visual and are always rebuilt from
+    // the crop mask rect on deserialize, so including them causes duplicates.
+    (json as any).objects = ((json as any).objects as any[]).filter(
+      (o: any) => o._wegweiserType !== 'cropOverlay',
+    );
     return JSON.stringify(json);
   }
 
@@ -514,6 +561,9 @@ export class FabricCanvasWrapper {
     }
 
     // Start drag for shape tools.
+    // Suppress canvas modification events until mouseup so only ONE snapshot is
+    // pushed after the shape reaches its final size/position.
+    this.isDrawing = true;
     this.drawState = {
       startX: pointer.x,
       startY: pointer.y,
@@ -643,6 +693,7 @@ export class FabricCanvasWrapper {
     if (dx < 3 && dy < 3) {
       if (shape) this.canvas.remove(shape);
       this.drawState = null;
+      this.isDrawing = false; // discard: no snapshot needed
       return;
     }
 
@@ -651,12 +702,24 @@ export class FabricCanvasWrapper {
     } else if (tool === 'crop' && shape instanceof Rect) {
       this.finalizeCrop(shape);
     } else if (tool === 'blur' && shape instanceof Rect) {
+      // Blur finalises asynchronously (image pixelation via fromURL).
+      // finalizeBlur owns the isDrawing lifecycle and pushes the snapshot
+      // once the pixelated FabricImage is ready.
       this.finalizeBlur(shape, startX, startY, pointer.x, pointer.y);
+      this.drawState = null;
+      this.canvas.renderAll();
+      return;
     } else if (shape) {
-      // Rectangle, Ellipse, Highlight — just make selectable.
+      // Rectangle, Ellipse, Highlight — make selectable with final geometry.
       shape.set({ selectable: true, evented: true });
       this.canvas.setActiveObject(shape);
     }
+
+    // Push ONE snapshot capturing the fully-finalised shape at its correct size.
+    // (isDrawing suppressed all intermediate object:added/modified events above.)
+    this.isDrawing = false;
+    this.pushSnapshot();
+    this.updateCounts();
 
     this.drawState = null;
     this.canvas.renderAll();
@@ -870,6 +933,10 @@ export class FabricCanvasWrapper {
 
     const dataUrl = offscreen.toDataURL('image/png');
     FabricImage.fromURL(dataUrl).then((pixelImg) => {
+      if (!this.canvas) {
+        this.isDrawing = false; // ensure flag is cleared even if canvas was disposed
+        return;
+      }
       pixelImg.set({
         left,
         top,
@@ -879,9 +946,14 @@ export class FabricCanvasWrapper {
         evented: true,
         _wegweiserType: 'pixelateOverlay',
       } as any);
-      this.canvas!.add(pixelImg);
-      this.canvas!.setActiveObject(pixelImg);
-      this.canvas!.renderAll();
+      // canvas.add fires object:added, which is still suppressed because isDrawing=true.
+      this.canvas.add(pixelImg);
+      // Clear the flag and push ONE snapshot now that the pixelated image is ready.
+      this.isDrawing = false;
+      this.pushSnapshot();
+      this.updateCounts();
+      this.canvas.setActiveObject(pixelImg);
+      this.canvas.renderAll();
     });
   }
 
@@ -1093,14 +1165,24 @@ export class FabricCanvasWrapper {
 
   /** Called when objects are added/modified/removed. */
   private onCanvasModified(): void {
-    if (this.isRestoring) return;
-    this.pushSnapshot();
-    this.updateCounts();
-
-    // Update crop overlays if the crop rect was modified.
-    if (this.cropRect) {
-      this.updateCropOverlays();
-    }
+    if (this.isRestoring || this.isDrawing) return;
+    // Debounce: coalesce rapid bursts (e.g. freehand fires object:added then
+    // a follow-up event; crop operations fire remove+add for overlay rects).
+    if (this._modifiedTimer !== null) clearTimeout(this._modifiedTimer);
+    this._modifiedTimer = setTimeout(() => {
+      this._modifiedTimer = null;
+      if (!this.canvas) return;
+      this.pushSnapshot();
+      this.updateCounts();
+      // Rebuild crop overlays if the crop rect was moved/resized.
+      // Use isRestoring=true to suppress the object:added/removed events fired
+      // by the overlay update — they must not trigger another onCanvasModified.
+      if (this.cropRect) {
+        this.isRestoring = true;
+        this.updateCropOverlays();
+        this.isRestoring = false;
+      }
+    }, 0);
   }
 
   /** Update reactive undo/redo state. */

@@ -196,6 +196,7 @@
       lastInitializedSessionId = sessionId;
       untrack(() => {
         reviewUndo.clear();
+        editorSession.clearAllFabricSnapshots();
         const steps = store.session?.steps ?? [];
         selectedStepId = steps.length > 0 ? (steps[0]?.id ?? null) : null;
       });
@@ -458,5 +459,12 @@
     bind:redoDepth={editorSession.redoDepth}
     undoTick={editorSession.undoTick}
     redoTick={editorSession.redoTick}
+    initialFabricUndoStack={editorSession.pendingFabricUndo}
+    initialFabricRedoStack={editorSession.pendingFabricRedo}
+    onsaveFabricSnapshots={(u, r) => {
+      if (selectedStep) editorSession.saveFabricSnapshots(selectedStep.id, u, r);
+    }}
+    onclearPendingFabricSnapshots={() => editorSession.clearPendingFabricSnapshots()}
+    onsessionclose={(d) => editorSession.onEditorClosed(d)}
   />
 {/if}

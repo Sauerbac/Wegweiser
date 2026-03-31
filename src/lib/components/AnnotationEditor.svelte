@@ -20,6 +20,20 @@
     redoDepth: number;
     undoTick: number;
     redoTick: number;
+    /** Fabric.js undo snapshot stack to restore on init (from prior editor session). */
+    initialFabricUndoStack?: string[];
+    /** Fabric.js redo snapshot stack to restore on init (from prior editor session). */
+    initialFabricRedoStack?: string[];
+    /** Called when the editor closes, to persist the snapshot stacks for next reopen. */
+    onsaveFabricSnapshots?: (undoStack: string[], redoStack: string[]) => void;
+    /** Called after the editor has consumed the initial snapshot stacks. */
+    onclearPendingFabricSnapshots?: () => void;
+    /**
+     * Called from handleClose() after depth has been incremented and
+     * save_annotations has completed. Lets the Review undo store record the
+     * session close at the correct depth before open is set to false.
+     */
+    onsessionclose?: (finalDepth: number) => void;
   }
 
   let {
@@ -30,6 +44,11 @@
     redoDepth = $bindable(0),
     undoTick = 0,
     redoTick = 0,
+    initialFabricUndoStack = [],
+    initialFabricRedoStack = [],
+    onsaveFabricSnapshots,
+    onclearPendingFabricSnapshots,
+    onsessionclose,
   }: Props = $props();
 
   const { imageStore } = getReviewContext();
@@ -125,6 +144,18 @@
         await fabricCanvas.deserialize(step.annotations_json);
       }
 
+      // Restore the per-step Fabric.js undo/redo stacks from a prior editor
+      // session so that individual annotation operations are undoable on reopen.
+      // initialFabricUndoStack is non-empty only when the editor is being
+      // reopened for a step that was previously edited.
+      if (initialFabricUndoStack.length > 0) {
+        fabricCanvas.restoreUndoRedoStacks(initialFabricUndoStack, initialFabricRedoStack);
+      }
+
+      // Tell the parent store that we've consumed the pending snapshot stacks
+      // so they are not applied again on a subsequent re-render.
+      onclearPendingFabricSnapshots?.();
+
       // Set initial tool.
       fabricCanvas.setTool('select');
     } catch (err) {
@@ -167,6 +198,9 @@
           // Increment depth so Review-level undo covers this save.
           depth += 1;
           redoDepth = 0;
+          // Notify the Review undo store NOW — before open=false — so it reads
+          // the updated depth (Dialog.Close sets open=false before this runs).
+          onsessionclose?.(depth);
         } catch (err) {
           console.error('Failed to save annotations:', err);
           errorMsg = `Failed to save annotations: ${err}`;
@@ -186,6 +220,9 @@
 
   /** Cleanup Fabric.js on close. */
   function cleanup() {
+    // Persist the current Fabric.js undo/redo stacks so they survive the close
+    // and can be restored when the editor is reopened for the same step.
+    onsaveFabricSnapshots?.(fabricCanvas.getUndoStack(), fabricCanvas.getRedoStack());
     fabricCanvas.dispose();
     initialized = false;
   }

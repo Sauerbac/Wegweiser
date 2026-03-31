@@ -10,10 +10,14 @@ import type { ReviewUndoStore } from './undo.svelte';
  *   - `redoTick`       — tick counter incremented to trigger in-editor redo.
  *   - `depth`          — number of editor ops that can be undone (bindable to ImageEditor).
  *   - `redoDepth`      — number of editor ops that can be redone (bindable to ImageEditor).
+ *   - `fabricUndoSnapshots` / `fabricRedoSnapshots` — per-step Fabric.js undo/redo stacks,
+ *     preserved across editor open/close so individual annotation ops are undoable on reopen.
  *
  * Handles:
- *   - Open transition: restores depth/redoDepth from any pending state in reviewUndo.
- *   - Close transition: pushes a collapsed editorSession entry onto the Review undo stack.
+ *   - Open transition: restores depth/redoDepth from any pending state in reviewUndo,
+ *     and restores the per-step Fabric.js snapshot stacks.
+ *   - Close transition: pushes a collapsed editorSession entry onto the Review undo stack,
+ *     and persists the Fabric.js snapshot stacks for next open.
  *   - Keyboard shortcuts: Ctrl+Z/Y while editor is open increment the tick counters;
  *     while editor is closed they delegate to reviewUndo.undo()/redo(). The `isEditing`
  *     getter suppresses shortcuts while a text field has focus.
@@ -44,37 +48,70 @@ export function createEditorSession(
    */
   let redoDepth = $state(0);
 
+  /**
+   * Per-step Fabric.js undo snapshot stacks, keyed by step ID.
+   * Preserved across editor open/close so individual annotation operations
+   * (e.g. add shape, move shape) are undoable when the editor is reopened for
+   * the same step. Each entry is the JSON snapshot string that FabricCanvasWrapper
+   * pushes on every canvas modification.
+   */
+  const fabricUndoSnapshots = new Map<number, string[]>();
+  const fabricRedoSnapshots = new Map<number, string[]>();
+
+  /**
+   * The Fabric.js undo/redo stacks the editor should start with on this open.
+   * Set when the editor opens, consumed by the editor via the getter.
+   * Cleared to empty arrays after the editor reads them once (in initCanvas).
+   */
+  let pendingFabricUndo = $state<string[]>([]);
+  let pendingFabricRedo = $state<string[]>([]);
+
   // Plain (non-reactive) guard — tracks previous value of `open` to detect transitions.
   let wasOpen = false;
 
-  // Detect editor open/close transitions.
-  // On open: restore depth/redoDepth from any pending state set by Review-level undo/redo.
-  // On close: push a collapsed editorSession entry onto the Review undo stack.
-  // The `open` reactive read is outside untrack so the effect re-runs on each toggle;
-  // the write to `wasOpen` is inside untrack so it does not create a dependency.
+  // Detect the editor open transition to restore depth/redoDepth.
+  // The close transition is handled explicitly by onEditorClosed() — not here —
+  // because the Dialog component sets open=false before handleClose() increments
+  // depth, so reading depth inside this effect would always see the stale value.
   $effect(() => {
-    const isOpen = open; // reactive dep — re-runs on every open/close toggle
+    const isOpen = open; // reactive dep — re-runs on every toggle
     untrack(() => {
-      const stepId = getSelectedStepId();
-      if (isOpen && !wasOpen) {
-        // Editor just opened.
-        // Priority 1: pending state from a Review-level undo/redo (explicit depth override).
-        const pending = reviewUndo.consumePendingEditorState(stepId ?? -1);
-        if (pending.depth !== 0 || pending.redoDepth !== 0) {
-          depth = pending.depth;
-          redoDepth = pending.redoDepth;
-        } else {
-          // Priority 2: collapsed session from a prior close — restore depth so the user
-          // can still undo edits made in the previous open of the same step.
-          const prevDepth = reviewUndo.popTopEditorSession(stepId ?? -1);
-          depth = prevDepth ?? 0;
-          redoDepth = 0;
-        }
-      } else if (!isOpen && wasOpen && stepId !== null) {
-        // Editor just closed — collapse this session into a Review undo entry.
-        reviewUndo.pushEditorSession(stepId, depth);
-      }
+      if (isOpen === wasOpen) return; // guard against double-runs in dev mode
       wasOpen = isOpen;
+      if (!isOpen) return; // close path handled by onEditorClosed()
+
+      // Editor just opened.
+      const stepId = getSelectedStepId();
+      // Priority 1: pending state from a Review-level undo/redo (explicit depth override).
+      const pending = reviewUndo.consumePendingEditorState(stepId ?? -1);
+      if (pending.depth !== 0 || pending.redoDepth !== 0) {
+        depth = pending.depth;
+        redoDepth = pending.redoDepth;
+        // Clear preserved Fabric.js stacks when Review-level undo/redo changes the
+        // session state — they are no longer valid for the restored backend state.
+        if (stepId !== null) {
+          fabricUndoSnapshots.delete(stepId);
+          fabricRedoSnapshots.delete(stepId);
+        }
+        pendingFabricUndo = [];
+        pendingFabricRedo = [];
+      } else {
+        // Priority 2: collapsed session from a prior close — restore depth so the user
+        // can still undo edits made in the previous open of the same step.
+        const prevDepth = reviewUndo.popEditorSession(stepId ?? -1);
+        depth = prevDepth ?? 0;
+        redoDepth = 0;
+
+        // Restore the per-step Fabric.js snapshot stacks so individual annotation
+        // operations are undoable inside the editor on reopen.
+        if (stepId !== null) {
+          pendingFabricUndo = fabricUndoSnapshots.get(stepId) ?? [];
+          pendingFabricRedo = fabricRedoSnapshots.get(stepId) ?? [];
+        } else {
+          pendingFabricUndo = [];
+          pendingFabricRedo = [];
+        }
+      }
     });
   });
 
@@ -127,6 +164,59 @@ export function createEditorSession(
     },
     set redoDepth(v: number) {
       redoDepth = v;
+    },
+    /** The Fabric.js undo snapshots the editor should start with (consumed once on open). */
+    get pendingFabricUndo() {
+      return pendingFabricUndo;
+    },
+    /** The Fabric.js redo snapshots the editor should start with (consumed once on open). */
+    get pendingFabricRedo() {
+      return pendingFabricRedo;
+    },
+    /**
+     * Called by the editor after it has consumed the pending snapshot stacks.
+     * Clears pendingFabricUndo/Redo so they are not re-applied on subsequent renders.
+     */
+    clearPendingFabricSnapshots() {
+      pendingFabricUndo = [];
+      pendingFabricRedo = [];
+    },
+    /**
+     * Called by AnnotationEditor (via prop) after it finishes saving annotations
+     * and incrementing its internal depth counter. Collapses the editor session
+     * into a single Review-level undo entry.
+     *
+     * This must be called AFTER depth has been incremented and BEFORE open is set
+     * to false — i.e. explicitly from handleClose(), not inferred from the open
+     * binding — because the Dialog component sets open=false before handleClose()
+     * finishes, which would otherwise race with the depth update.
+     */
+    onEditorClosed(finalDepth: number) {
+      const stepId = getSelectedStepId();
+      if (stepId !== null) {
+        reviewUndo.pushEditorSession(stepId, finalDepth);
+      }
+    },
+
+    /**
+     * Called by the editor when it closes, to persist the current Fabric.js
+     * undo/redo stacks for the given step so they survive across open/close cycles.
+     */
+    saveFabricSnapshots(stepId: number, undoStack: string[], redoStack: string[]) {
+      if (undoStack.length > 0 || redoStack.length > 0) {
+        fabricUndoSnapshots.set(stepId, undoStack);
+        fabricRedoSnapshots.set(stepId, redoStack);
+      } else {
+        fabricUndoSnapshots.delete(stepId);
+        fabricRedoSnapshots.delete(stepId);
+      }
+    },
+    /**
+     * Clear all preserved Fabric.js snapshot stacks (e.g. when a new session is loaded).
+     */
+    clearAllFabricSnapshots() {
+      fabricUndoSnapshots.clear();
+      fabricRedoSnapshots.clear();
     },
   };
 }
