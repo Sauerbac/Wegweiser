@@ -583,6 +583,7 @@ export class FabricCanvasWrapper {
         stroke: tool === 'crop' ? '#ffffff' : this.color,
         strokeWidth: tool === 'crop' ? 2 : this.strokeWidth,
         strokeDashArray: tool === 'crop' ? [8, 4] : undefined,
+        strokeUniform: true,
         opacity: this.opacity,
         selectable: false,
         evented: false,
@@ -601,6 +602,7 @@ export class FabricCanvasWrapper {
         fill: this.fillEnabled ? this.fillColor : 'transparent',
         stroke: this.color,
         strokeWidth: this.strokeWidth,
+        strokeUniform: true,
         opacity: this.opacity,
         selectable: false,
         evented: false,
@@ -630,6 +632,7 @@ export class FabricCanvasWrapper {
       const line = new Line([pointer.x, pointer.y, pointer.x, pointer.y], {
         stroke: this.color,
         strokeWidth: this.strokeWidth,
+        strokeUniform: true,
         opacity: this.opacity,
         selectable: false,
         evented: false,
@@ -755,6 +758,7 @@ export class FabricCanvasWrapper {
         fill: this.color,
         stroke: this.color,
         strokeWidth: 1,
+        strokeUniform: true,
         selectable: false,
         evented: false,
       },
@@ -766,6 +770,7 @@ export class FabricCanvasWrapper {
     const arrowLine = new Line([x1, y1, x2Short, y2Short], {
       stroke: this.color,
       strokeWidth: this.strokeWidth,
+      strokeUniform: true,
       selectable: false,
       evented: false,
     });
@@ -1108,13 +1113,13 @@ export class FabricCanvasWrapper {
       });
       active.set({ opacity: this.opacity });
     } else if (active instanceof Rect || active instanceof Ellipse) {
-      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth });
+      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth, strokeUniform: true });
       active.set({
         fill: this.fillEnabled ? this.fillColor : 'transparent',
         opacity: this.opacity,
       });
     } else {
-      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth });
+      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth, strokeUniform: true });
       if (active.fill && active.fill !== 'transparent') active.set({ fill: this.color });
       active.set({ opacity: this.opacity });
     }
