@@ -304,6 +304,8 @@
         // If an IText is actively being edited, let Fabric.js handle Escape
         // (it exits editing mode and keeps the object selected).
         if (document.activeElement instanceof HTMLTextAreaElement) return;
+        // Stage 0: cancel an in-progress shape drag.
+        if (fabricCanvas.cancelDrawing()) return;
         const hasSelection = !!fabricCanvas.getCanvas()?.getActiveObject();
         if (hasSelection) {
           fabricCanvas.discardSelection();
@@ -438,9 +440,12 @@
     </div>
 
     <!-- Status bar -->
-    <div class="shrink-0 border-t px-4 py-1.5">
+    <div class="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
       <p class="text-xs text-muted-foreground">
         {helpText[fabricCanvas.tool]}
+      </p>
+      <p class={`text-xs text-muted-foreground ${fabricCanvas.isDrawing ? '' : 'invisible'}`}>
+        Press Esc to cancel
       </p>
     </div>
   </Dialog.Content>

@@ -78,7 +78,7 @@ export class FabricCanvasWrapper {
   /** Whether we're currently loading from undo/redo (suppress snapshot). */
   private isRestoring = false;
   /** Whether the user is currently dragging to create a shape (suppress intermediate snapshots). */
-  private isDrawing = false;
+  isDrawing = $state(false);
   /** Debounce timer for coalescing rapid canvas-modification events (e.g. freehand path:created). */
   private _modifiedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -354,6 +354,20 @@ export class FabricCanvasWrapper {
     if (!this.canvas) return;
     this.canvas.discardActiveObject();
     this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Cancel an in-progress shape drag (if any) without adding it to the canvas.
+   * Returns true if a draw was cancelled, false if nothing was in progress.
+   */
+  cancelDrawing(): boolean {
+    if (!this.canvas || !this.drawState) return false;
+    const { shape } = this.drawState;
+    if (shape) this.canvas.remove(shape);
+    this.drawState = null;
+    this.isDrawing = false;
+    this.canvas.renderAll();
+    return true;
   }
 
   /** Copy selected objects to internal clipboard. */
