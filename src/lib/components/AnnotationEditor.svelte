@@ -396,9 +396,19 @@
       />
 
       <!-- Canvas area -->
+      <!-- tabindex="-1" + outline-none: clicking the canvas transfers browser
+           focus here instead of leaving it on the Dialog content div, which
+           would cause a focus-visible ring on the overlay on the next keypress. -->
       <div
         bind:this={canvasContainer}
-        class="relative min-h-0 flex-1 overflow-hidden bg-muted/20"
+        role="presentation"
+        class="relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none"
+        tabindex="-1"
+        onmousedown={(e) => {
+          // Move focus to the canvas container so the dialog content div does
+          // not show a focus-visible ring when the user subsequently presses a key.
+          if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus();
+        }}
       >
         {#if imageUri}
           <canvas bind:this={canvasEl}></canvas>
