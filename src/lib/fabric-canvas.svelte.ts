@@ -266,6 +266,20 @@ export class FabricCanvasWrapper {
       this.forEachAnnotation((obj) => {
         obj.set({ selectable: true, evented: true });
       });
+    } else if (t === 'text') {
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      // In text mode, disable selection on all objects but keep IText objects
+      // evented so that clicking on an existing text enters editing mode.
+      this.canvas.discardActiveObject();
+      this.forEachAnnotation((obj) => {
+        if (obj instanceof IText) {
+          obj.set({ selectable: false, evented: true });
+        } else {
+          obj.set({ selectable: false, evented: false });
+        }
+      });
+      this.canvas.renderAll();
     } else {
       this.canvas.isDrawingMode = false;
       this.canvas.selection = false;
@@ -500,6 +514,11 @@ export class FabricCanvasWrapper {
       this.updateCropOverlays();
     }
 
+    // Fix up IText objects that lost their hiddenTextareaContainer during JSON
+    // round-trip. Without this the hidden textarea is appended to document.body,
+    // which is outside the Dialog focus trap and breaks keyboard input.
+    this.fixupITextContainers();
+
     this.isRestoring = false;
     this.updateCounts();
 
@@ -560,14 +579,22 @@ export class FabricCanvasWrapper {
 
     if (tool === 'select' || tool === 'freehand' || tool === 'window') return;
 
-    // If the click landed on an existing object (or its transform controls),
-    // do not start a new draw operation.
-    if (e.target) return;
-
     if (tool === 'text') {
+      // If the click landed on an existing IText, re-enter editing mode on it
+      // rather than placing a new text object.
+      if (e.target instanceof IText) {
+        this.enterTextEditing(e.target);
+        return;
+      }
+      // If click landed on any other existing object, do nothing.
+      if (e.target) return;
       this.placeText(pointer.x, pointer.y);
       return;
     }
+
+    // If the click landed on an existing object (or its transform controls),
+    // do not start a new draw operation.
+    if (e.target) return;
 
     if (tool === 'callout') {
       this.placeCallout(pointer.x, pointer.y);
@@ -819,15 +846,39 @@ export class FabricCanvasWrapper {
       selectable: true,
       evented: true,
       hiddenTextareaContainer: canvasContainer,
+      // Ensure a visible blinking cursor during editing (match text fill color).
+      cursorColor: this.color,
+      cursorWidth: 2,
     });
     this.canvas.add(text);
 
-    // Switch to select mode so the IText can receive keyboard input.
-    // This must happen before setActiveObject so that canvas.selection = true
-    // and the object is selectable/evented.
-    this.setTool('select');
+    // Enable selection mode temporarily so the IText can receive keyboard
+    // input, without changing this.tool (so the toolbar stays on "text").
+    this.canvas.isDrawingMode = false;
+    this.canvas.selection = true;
     this.canvas.renderAll();
     this.canvas.setActiveObject(text);
+
+    // When the user finishes editing (clicks away or presses Escape/Enter),
+    // restore canvas to text-tool state so the next click places another text.
+    const onEditingExited = () => {
+      text.off('editing:exited', onEditingExited);
+      if (!this.canvas || this.tool !== 'text') return;
+      // Restore non-select canvas state (tool visually stays on "text").
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      // In text mode: IText objects stay evented (for re-editing), all others off.
+      this.forEachAnnotation((obj) => {
+        if (obj instanceof IText) {
+          obj.set({ selectable: false, evented: true });
+        } else {
+          obj.set({ selectable: false, evented: false });
+        }
+      });
+      this.canvas.discardActiveObject();
+      this.canvas.renderAll();
+    };
+    text.on('editing:exited', onEditingExited);
 
     // Defer enterEditing to after the current mouse-event cycle so that:
     // 1. Fabric.js finishes its internal mouse:down/up handling
@@ -841,6 +892,43 @@ export class FabricCanvasWrapper {
       this.canvas.setActiveObject(text);
       text.enterEditing();
       text.selectAll();
+      this.canvas.renderAll();
+    });
+  }
+
+  /**
+   * Enter editing mode on an existing IText object.
+   * Used when the user double-clicks a text object while in text tool mode.
+   */
+  private enterTextEditing(text: IText): void {
+    if (!this.canvas) return;
+    // Temporarily enable selection so the IText can be activated.
+    this.canvas.isDrawingMode = false;
+    this.canvas.selection = true;
+    this.canvas.setActiveObject(text);
+
+    const onEditingExited = () => {
+      text.off('editing:exited', onEditingExited);
+      if (!this.canvas || this.tool !== 'text') return;
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      // In text mode: IText objects stay evented (for re-editing), all others off.
+      this.forEachAnnotation((obj) => {
+        if (obj instanceof IText) {
+          obj.set({ selectable: false, evented: true });
+        } else {
+          obj.set({ selectable: false, evented: false });
+        }
+      });
+      this.canvas.discardActiveObject();
+      this.canvas.renderAll();
+    };
+    text.on('editing:exited', onEditingExited);
+
+    requestAnimationFrame(() => {
+      if (!this.canvas) return;
+      this.canvas.setActiveObject(text);
+      text.enterEditing();
       this.canvas.renderAll();
     });
   }
@@ -1176,6 +1264,8 @@ export class FabricCanvasWrapper {
     }
 
     this.recalcCalloutNumbers();
+    // Re-attach hiddenTextareaContainer on IText objects lost during JSON round-trip.
+    this.fixupITextContainers();
     this.canvas.renderAll();
     this.isRestoring = false;
     this.updateUndoState();
@@ -1235,6 +1325,24 @@ export class FabricCanvasWrapper {
       return;
     }
     this.selectedCount = this.canvas.getActiveObjects().length;
+  }
+
+  /**
+   * After any loadFromJSON call, IText objects lose their hiddenTextareaContainer
+   * because it is a DOM reference and cannot be serialized. Re-attach it here so
+   * that double-click to edit works correctly inside the Dialog focus trap.
+   */
+  private fixupITextContainers(): void {
+    if (!this.canvas) return;
+    const container = this.canvas.getElement().parentElement;
+    if (!container) return;
+    this.canvas.getObjects().forEach((obj) => {
+      if (obj instanceof IText) {
+        (obj as any).hiddenTextareaContainer = container;
+        // Ensure cursor is visible and matches the text fill color.
+        obj.set({ cursorColor: (obj.fill as string) || '#000000', cursorWidth: 2 });
+      }
+    });
   }
 
   /** Recalculate the next callout number from existing callouts on canvas. */

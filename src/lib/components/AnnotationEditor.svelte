@@ -293,6 +293,15 @@
   async function handleKeydown(e: KeyboardEvent) {
     if (!open) return;
 
+    // When Fabric.js IText is in editing mode its hidden textarea has focus.
+    // Keys that would scroll the outer container (Enter, Space, arrow keys,
+    // Page Up/Down) must be stopped here so they don't bubble to the scroll
+    // container or dialog wrapper.
+    if (document.activeElement instanceof HTMLTextAreaElement) {
+      // Let Fabric.js handle all keys natively while editing.
+      return;
+    }
+
     // Escape: 3-stage behavior
     //   1. Something selected → deselect only
     //   2. Non-select tool active → switch to select tool
@@ -301,9 +310,6 @@
       e.preventDefault();
       e.stopPropagation();
       if (initialized) {
-        // If an IText is actively being edited, let Fabric.js handle Escape
-        // (it exits editing mode and keeps the object selected).
-        if (document.activeElement instanceof HTMLTextAreaElement) return;
         // Stage 0: cancel an in-progress shape drag.
         if (fabricCanvas.cancelDrawing()) return;
         const hasSelection = !!fabricCanvas.getCanvas()?.getActiveObject();
@@ -404,7 +410,7 @@
       <div
         bind:this={canvasContainer}
         role="presentation"
-        class="relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none"
+        class="relative min-h-0 flex-1 overflow-clip bg-muted/20 outline-none"
         tabindex="-1"
         onmousedown={(e) => {
           // Move focus to the canvas container so the dialog content div does
