@@ -1227,6 +1227,8 @@ export class FabricCanvasWrapper {
     }
 
     this.canvas.renderAll();
+    // Fire object:modified so onCanvasModified() records an undo snapshot.
+    this.canvas.fire('object:modified', { target: active });
   }
 
   /** Push a JSON snapshot onto the undo stack. */
