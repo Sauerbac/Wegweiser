@@ -10,6 +10,7 @@
     step: Step;
     idx: number;
     isActive: boolean;
+    isHighlighted: boolean;
     isChecked: boolean;
     onSelect: (stepId: number) => void;
     onCheck: (stepId: number) => void;
@@ -19,6 +20,7 @@
     step,
     idx,
     isActive,
+    isHighlighted,
     isChecked,
     onSelect,
     onCheck,
@@ -30,9 +32,15 @@
   const keystrokeCount = $derived(countKeystrokes(step.keystrokes));
   const exportedKeys = $derived(ctx.ec.getExportedImageKeys(step));
   const stepsLength = $derived(ctx.store.session?.steps.length ?? 0);
-  const isHighlighted = $derived(ctx.reviewUndo.highlightedStepId === step.id);
 
   let cardEl: HTMLDivElement | undefined = $state();
+
+  // Scroll this card into view when it becomes the highlighted step (undo/redo).
+  $effect(() => {
+    if (isHighlighted && cardEl) {
+      cardEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  });
 </script>
 
 {#snippet thumbImg(src: string | undefined, alt: string, extraClass = '')}

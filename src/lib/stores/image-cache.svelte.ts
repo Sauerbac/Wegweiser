@@ -24,6 +24,13 @@ export class ImageCacheStore {
    */
   baseImageCache = $state<Record<string, string>>({});
 
+  /**
+   * Tracks the display path (preview_path ?? image_path) that was last loaded for each step.
+   * Used to detect when undo/redo changes the displayed file even if image_version is unchanged,
+   * so preloadStepImages can force-reload without first clearing (which would cause flicker).
+   */
+  private _loadedDisplayPath = new Map<number, string>();
+
   /** Build the versioned primary image cache key for a step. */
   imageCacheKey(step: Step): string {
     return `${step.id}_v${step.image_version ?? 0}`;
@@ -51,6 +58,7 @@ export class ImageCacheStore {
     for (const key of Object.keys(this.baseImageCache)) {
       if (key.startsWith(prefix)) delete this.baseImageCache[key];
     }
+    this._loadedDisplayPath.delete(stepId);
   }
 
   /** Reset all image caches (call when starting a new recording or navigating back). */
@@ -58,6 +66,7 @@ export class ImageCacheStore {
     this.imageCache = {};
     this.extraImageCache = {};
     this.baseImageCache = {};
+    this._loadedDisplayPath.clear();
   }
 
   /**
@@ -71,8 +80,13 @@ export class ImageCacheStore {
     for (const step of steps) {
       // Display image (preview if available, else base).
       const displayKey = this.imageCacheKey(step);
-      if (!this.imageCache[displayKey]) {
-        const displayPath = step.preview_path ?? step.image_path;
+      const displayPath = step.preview_path ?? step.image_path;
+      const lastPath = this._loadedDisplayPath.get(step.id);
+      // Load if not yet cached, OR if the source path changed (e.g. after undo/redo of
+      // annotations). In the path-changed case we do NOT clear the old entry first —
+      // it remains visible until the new fetch resolves, preventing a blank-frame flicker.
+      if (!this.imageCache[displayKey] || lastPath !== displayPath) {
+        this._loadedDisplayPath.set(step.id, displayPath);
         invoke<string>('get_step_image', { imagePath: displayPath }).then((uri) => {
           this.imageCache[displayKey] = uri;
         }).catch(err => console.error('Failed to load image:', err));

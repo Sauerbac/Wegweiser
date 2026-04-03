@@ -176,6 +176,17 @@
     keystrokesDraft = selectedStep?.keystrokes ?? "";
   });
 
+  // When undo/redo fires for an editorSession entry, select the affected step so it
+  // becomes visible and the highlighted border is shown on the active step card.
+  $effect(() => {
+    const highlightedId = reviewUndo.highlightedStepId;
+    if (highlightedId !== null) {
+      untrack(() => {
+        selectedStepId = highlightedId;
+      });
+    }
+  });
+
   // Pre-select first step only when a genuinely new session is loaded.
   //
   // lastInitializedSessionId is a plain JS variable (NOT $state) so that writing
@@ -341,6 +352,7 @@
           {step}
           {idx}
           isActive={selectedStepId === step.id}
+          isHighlighted={reviewUndo.highlightedStepId === step.id}
           isChecked={sel.selected.has(step.id)}
           onSelect={selectStep}
           onCheck={(id) => sel.toggleOne(id)}
