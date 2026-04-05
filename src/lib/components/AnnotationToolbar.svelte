@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
-  import * as Separator from '$lib/components/ui/separator';
   import {
     MousePointer2,
     MoveRight,
@@ -10,19 +9,17 @@
     Type,
     Highlighter,
     Hash,
-    Grid3X3,
+    EyeOff,
     Crop,
-    AppWindow,
   } from '@lucide/svelte';
   import type { AnnotationTool } from '$lib/fabric-canvas.svelte';
 
   interface Props {
     tool: AnnotationTool;
-    hasWindowRects: boolean;
     onsetTool: (t: AnnotationTool) => void;
   }
 
-  let { tool, hasWindowRects, onsetTool }: Props = $props();
+  let { tool, onsetTool }: Props = $props();
 
   const tools: { id: AnnotationTool; icon: typeof MousePointer2; label: string }[] = [
     { id: 'select', icon: MousePointer2, label: 'Select' },
@@ -33,7 +30,7 @@
     { id: 'text', icon: Type, label: 'Text' },
     { id: 'highlight', icon: Highlighter, label: 'Highlight' },
     { id: 'callout', icon: Hash, label: 'Callout' },
-    { id: 'blur', icon: Grid3X3, label: 'Blur' },
+    { id: 'obfuscation', icon: EyeOff, label: 'Obfuscation' },
     { id: 'crop', icon: Crop, label: 'Crop' },
   ];
 </script>
@@ -50,17 +47,4 @@
       <t.icon />
     </Button>
   {/each}
-
-  {#if hasWindowRects}
-    <Separator.Root class="my-0.5" />
-    <Button
-      variant={tool === 'window' ? 'default' : 'ghost'}
-      size="icon-sm"
-      aria-label="Select Window"
-      title="Select Window"
-      onclick={() => onsetTool('window')}
-    >
-      <AppWindow />
-    </Button>
-  {/if}
 </div>

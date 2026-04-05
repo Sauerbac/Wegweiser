@@ -9,7 +9,9 @@
   import FreehandProperties from './properties/FreehandProperties.svelte';
   import HighlightProperties from './properties/HighlightProperties.svelte';
   import CalloutProperties from './properties/CalloutProperties.svelte';
-  import BlurProperties from './properties/BlurProperties.svelte';
+  import ObfuscationProperties from './properties/ObfuscationProperties.svelte';
+  import CropProperties from './properties/CropProperties.svelte';
+  import type { ObfuscationEffect } from '$lib/fabric-canvas.svelte';
 
   interface Props {
     tool: AnnotationTool;
@@ -19,12 +21,20 @@
     fillEnabled: boolean;
     fillColor: string;
     hasSelection: boolean;
+    obfuscationEffect: ObfuscationEffect;
+    blurRadius: number;
+    pixelateBlockSize: number;
+    hasWindowRects: boolean;
     oncolorChange: (c: string) => void;
     onstrokeWidthChange: (w: number) => void;
     onopacityChange: (o: number) => void;
     onfillEnabledChange: (enabled: boolean) => void;
     onfillColorChange: (c: string) => void;
     ondelete: () => void;
+    onobfuscationEffectChange: (effect: ObfuscationEffect) => void;
+    onblurRadiusChange: (r: number) => void;
+    onpixelateBlockSizeChange: (s: number) => void;
+    onselectWindow: () => void;
   }
 
   let {
@@ -35,12 +45,20 @@
     fillEnabled,
     fillColor,
     hasSelection,
+    obfuscationEffect,
+    blurRadius,
+    pixelateBlockSize,
+    hasWindowRects,
     oncolorChange,
     onstrokeWidthChange,
     onopacityChange,
     onfillEnabledChange,
     onfillColorChange,
     ondelete,
+    onobfuscationEffectChange,
+    onblurRadiusChange,
+    onpixelateBlockSizeChange,
+    onselectWindow,
   }: Props = $props();
 </script>
 
@@ -111,10 +129,19 @@
       {onstrokeWidthChange}
       {onopacityChange}
     />
-  {:else if tool === 'blur'}
-    <BlurProperties />
-  {:else if tool === 'crop' || tool === 'window'}
-    <!-- No properties for crop / window select tools -->
-    <p class="text-xs text-muted-foreground">No properties for this tool.</p>
+  {:else if tool === 'obfuscation'}
+    <ObfuscationProperties
+      {obfuscationEffect}
+      {blurRadius}
+      {pixelateBlockSize}
+      {onobfuscationEffectChange}
+      {onblurRadiusChange}
+      {onpixelateBlockSizeChange}
+    />
+  {:else if tool === 'crop'}
+    <CropProperties
+      {hasWindowRects}
+      {onselectWindow}
+    />
   {/if}
 </div>

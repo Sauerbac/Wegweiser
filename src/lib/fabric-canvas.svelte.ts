@@ -36,9 +36,10 @@ export type AnnotationTool =
   | 'text'
   | 'highlight'
   | 'callout'
-  | 'blur'
-  | 'crop'
-  | 'window';
+  | 'obfuscation'
+  | 'crop';
+
+export type ObfuscationEffect = 'blur' | 'pixelate';
 
 interface DrawState {
   startX: number;
@@ -70,6 +71,15 @@ export class FabricCanvasWrapper {
 
   /** Fill color for shapes (rectangle/ellipse). */
   fillColor = $state('#ef4444');
+
+  /** Active effect mode for the Obfuscation tool. */
+  obfuscationEffect = $state<ObfuscationEffect>('blur');
+
+  /** Blur radius for gaussian blur (px). */
+  blurRadius = $state(10);
+
+  /** Block size for pixelate effect (px). */
+  pixelateBlockSize = $state(10);
 
   /** Internal undo stack of JSON snapshots. */
   private undoStack: string[] = [];
@@ -178,7 +188,17 @@ export class FabricCanvasWrapper {
 
     // Track modifications for undo.
     this.canvas.on('object:added', () => this.onCanvasModified());
-    this.canvas.on('object:modified', () => this.onCanvasModified());
+    this.canvas.on('object:modified', (e) => {
+      // Re-render blur/pixelate overlays when they are moved or scaled.
+      const obj = e.target as any;
+      if (obj && (obj._wegweiserType === 'blurOverlay' || obj._wegweiserType === 'pixelateOverlay')) {
+        this.reRenderOverlay(obj as FabricImage);
+        // Don't call onCanvasModified here — reRenderOverlay will handle it
+        // after the async image update completes.
+        return;
+      }
+      this.onCanvasModified();
+    });
     this.canvas.on('object:removed', () => this.onCanvasModified());
 
     // Track selection changes.
@@ -263,6 +283,14 @@ export class FabricCanvasWrapper {
       brush.width = this.strokeWidth;
       this.canvas.freeDrawingBrush = brush;
       this.canvas.selection = false;
+    } else if (t === 'obfuscation' || t === 'crop') {
+      this.canvas.isDrawingMode = false;
+      this.canvas.selection = false;
+      this.canvas.discardActiveObject();
+      this.forEachAnnotation((obj) => {
+        obj.set({ selectable: false, evented: false });
+      });
+      this.canvas.renderAll();
     } else if (t === 'select') {
       this.canvas.isDrawingMode = false;
       this.canvas.selection = true;
@@ -334,6 +362,41 @@ export class FabricCanvasWrapper {
     this.updateSelectedObjectStyle();
   }
 
+  /** Set the obfuscation effect mode. */
+  setObfuscationEffect(effect: ObfuscationEffect): void {
+    this.obfuscationEffect = effect;
+    const active = this.canvas?.getActiveObject();
+    if (
+      active &&
+      ((active as any)._wegweiserType === 'blurOverlay' ||
+        (active as any)._wegweiserType === 'pixelateOverlay')
+    ) {
+      (active as any)._wegweiserType = effect === 'blur' ? 'blurOverlay' : 'pixelateOverlay';
+      (active as any)._wegweiserEffect = effect;
+      this.reRenderOverlay(active as FabricImage);
+    }
+  }
+
+  /** Set the blur radius for the gaussian blur effect. */
+  setBlurRadius(r: number): void {
+    this.blurRadius = r;
+    // Re-render any currently selected blur overlay with the new radius.
+    const active = this.canvas?.getActiveObject();
+    if (active && (active as any)._wegweiserType === 'blurOverlay') {
+      this.reRenderOverlay(active as FabricImage);
+    }
+  }
+
+  /** Set the block size for the pixelate effect. */
+  setPixelateBlockSize(size: number): void {
+    this.pixelateBlockSize = size;
+    // Re-render any currently selected pixelate overlay with the new block size.
+    const active = this.canvas?.getActiveObject();
+    if (active && (active as any)._wegweiserType === 'pixelateOverlay') {
+      this.reRenderOverlay(active as FabricImage);
+    }
+  }
+
   /** Delete the currently selected object(s). */
   deleteSelected(): void {
     if (!this.canvas) return;
@@ -400,14 +463,14 @@ export class FabricCanvasWrapper {
     const active = this.canvas.getActiveObjects();
     if (active.length === 0) return;
     // Clone each object via toObject.
-    this.clipboard = await Promise.all(active.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber'])));
+    this.clipboard = await Promise.all(active.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber', '_wegweiserEffect', '_wegweiserBlurRadius', '_wegweiserBlockSize'])));
   }
 
   /** Paste previously copied objects, centering them at the last known mouse position. */
   async pasteSelected(): Promise<void> {
     if (!this.canvas || this.clipboard.length === 0) return;
     this.canvas.discardActiveObject();
-    const clones = await Promise.all(this.clipboard.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber'])));
+    const clones = await Promise.all(this.clipboard.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber', '_wegweiserEffect', '_wegweiserBlurRadius', '_wegweiserBlockSize'])));
 
     if (this.lastMouseScenePos) {
       // Compute the bounding box of all clones in their original positions.
@@ -507,7 +570,7 @@ export class FabricCanvasWrapper {
   serialize(): string {
     if (!this.canvas) return '{"objects":[]}';
     // Include custom properties in serialization.
-    const json = this.canvas.toObject(['_wegweiserType', '_calloutNumber']);
+    const json = this.canvas.toObject(['_wegweiserType', '_calloutNumber', '_wegweiserEffect', '_wegweiserBlurRadius', '_wegweiserBlockSize']);
     // Remove the backgroundImage (it's the base screenshot, not an annotation).
     delete (json as Record<string, unknown>).backgroundImage;
     // Exclude crop overlays — they're purely visual and are always rebuilt from
@@ -613,7 +676,7 @@ export class FabricCanvasWrapper {
     const pointer = this.canvas.getScenePoint(e.e);
     const tool = this.tool;
 
-    if (tool === 'select' || tool === 'freehand' || tool === 'window') return;
+    if (tool === 'select' || tool === 'freehand') return;
 
     if (tool === 'text') {
       // If the click landed on an existing IText, re-enter editing mode on it
@@ -648,7 +711,7 @@ export class FabricCanvasWrapper {
       arrowHead: null,
     };
 
-    if (tool === 'rectangle' || tool === 'crop') {
+    if (tool === 'obfuscation') {
       const rect = new Rect({
         left: pointer.x,
         top: pointer.y,
@@ -656,10 +719,47 @@ export class FabricCanvasWrapper {
         originY: 'top',
         width: 0,
         height: 0,
-        fill: tool === 'crop' ? 'transparent' : (this.fillEnabled ? this.fillColor : 'transparent'),
-        stroke: tool === 'crop' ? '#ffffff' : this.color,
-        strokeWidth: tool === 'crop' ? 2 : this.strokeWidth,
-        strokeDashArray: tool === 'crop' ? [8, 4] : undefined,
+        fill: 'rgba(128,128,128,0.3)',
+        stroke: '#888',
+        strokeWidth: 1,
+        strokeDashArray: [4, 4],
+        strokeUniform: true,
+        selectable: false,
+        evented: false,
+        lockUniScaling: false,
+      });
+      this.canvas.add(rect);
+      this.drawState.shape = rect;
+    } else if (tool === 'crop') {
+      const rect = new Rect({
+        left: pointer.x,
+        top: pointer.y,
+        originX: 'left',
+        originY: 'top',
+        width: 0,
+        height: 0,
+        fill: 'transparent',
+        stroke: '#ffffff',
+        strokeWidth: 2,
+        strokeDashArray: [8, 4],
+        strokeUniform: true,
+        selectable: false,
+        evented: false,
+        lockUniScaling: false,
+      });
+      this.canvas.add(rect);
+      this.drawState.shape = rect;
+    } else if (tool === 'rectangle') {
+      const rect = new Rect({
+        left: pointer.x,
+        top: pointer.y,
+        originX: 'left',
+        originY: 'top',
+        width: 0,
+        height: 0,
+        fill: this.fillEnabled ? this.fillColor : 'transparent',
+        stroke: this.color,
+        strokeWidth: this.strokeWidth,
         strokeUniform: true,
         opacity: this.opacity,
         selectable: false,
@@ -716,23 +816,6 @@ export class FabricCanvasWrapper {
       });
       this.canvas.add(line);
       this.drawState.shape = line;
-    } else if (tool === 'blur') {
-      const rect = new Rect({
-        left: pointer.x,
-        top: pointer.y,
-        originX: 'left',
-        originY: 'top',
-        width: 0,
-        height: 0,
-        fill: 'rgba(128,128,128,0.3)',
-        stroke: '#888',
-        strokeWidth: 1,
-        strokeDashArray: [4, 4],
-        selectable: false,
-        evented: false,
-      });
-      this.canvas.add(rect);
-      this.drawState.shape = rect;
     }
   }
 
@@ -745,7 +828,7 @@ export class FabricCanvasWrapper {
     const { startX, startY, shape } = this.drawState;
     const tool = this.tool;
 
-    if (tool === 'rectangle' || tool === 'highlight' || tool === 'crop' || tool === 'blur') {
+    if (tool === 'rectangle' || tool === 'highlight' || tool === 'obfuscation' || tool === 'crop') {
       const left = Math.min(startX, pointer.x);
       const top = Math.min(startY, pointer.y);
       const width = Math.abs(pointer.x - startX);
@@ -784,14 +867,20 @@ export class FabricCanvasWrapper {
       this.finalizeArrow(shape, pointer.x, pointer.y);
     } else if (tool === 'crop' && shape instanceof Rect) {
       this.finalizeCrop(shape);
-    } else if (tool === 'blur' && shape instanceof Rect) {
-      // Blur finalises asynchronously (image pixelation via fromURL).
-      // finalizeBlur owns the isDrawing lifecycle and pushes the snapshot
-      // once the pixelated FabricImage is ready.
-      this.finalizeBlur(shape, startX, startY, pointer.x, pointer.y);
-      this.drawState = null;
-      this.canvas.renderAll();
-      return;
+    } else if (tool === 'obfuscation' && shape instanceof Rect) {
+      if (this.obfuscationEffect === 'blur') {
+        // Gaussian blur finalises asynchronously via fromURL.
+        this.finalizeGaussianBlur(shape, startX, startY, pointer.x, pointer.y);
+        this.drawState = null;
+        this.canvas.renderAll();
+        return;
+      } else {
+        // Pixelate finalises asynchronously via fromURL.
+        this.finalizePixelate(shape, startX, startY, pointer.x, pointer.y);
+        this.drawState = null;
+        this.canvas.renderAll();
+        return;
+      }
     } else if (shape) {
       // Rectangle, Ellipse, Highlight — make selectable with final geometry.
       shape.set({ selectable: true, evented: true });
@@ -1037,10 +1126,10 @@ export class FabricCanvasWrapper {
   }
 
   /**
-   * Finalize a blur rect: pixelate the background region and replace the
-   * placeholder rect with a FabricImage of the pixelated data.
+   * Finalize a region as gaussian blur: apply CSS blur filter to the background
+   * region and replace the placeholder rect with a FabricImage of the blurred data.
    */
-  private finalizeBlur(rect: Rect, sx: number, sy: number, ex: number, ey: number): void {
+  private finalizeGaussianBlur(rect: Rect, sx: number, sy: number, ex: number, ey: number): void {
     if (!this.canvas) return;
     this.canvas.remove(rect);
 
@@ -1050,7 +1139,77 @@ export class FabricCanvasWrapper {
     const height = Math.min(Math.abs(ey - sy), this.imageHeight - top);
     if (width < 4 || height < 4) return;
 
-    // Grab the region from the background image.
+    const bgImg = this.canvas.backgroundImage;
+    if (!bgImg) return;
+
+    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
+
+    // Extract the region to a temp canvas with extra padding to avoid edge artifacts.
+    const radius = this.blurRadius;
+    const pad = radius * 2;
+    const padLeft = Math.max(0, left - pad);
+    const padTop = Math.max(0, top - pad);
+    const padRight = Math.min(this.imageWidth, left + width + pad);
+    const padBottom = Math.min(this.imageHeight, top + height + pad);
+    const padW = padRight - padLeft;
+    const padH = padBottom - padTop;
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = padW;
+    tempCanvas.height = padH;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    // Apply CSS blur filter then draw the padded region.
+    tempCtx.filter = `blur(${radius}px)`;
+    tempCtx.drawImage(bgEl, padLeft, padTop, padW, padH, 0, 0, padW, padH);
+    tempCtx.filter = 'none';
+
+    // Crop out just the requested region from the blurred padded canvas.
+    const offscreen = document.createElement('canvas');
+    offscreen.width = width;
+    offscreen.height = height;
+    const ctx = offscreen.getContext('2d')!;
+    ctx.drawImage(tempCanvas, left - padLeft, top - padTop, width, height, 0, 0, width, height);
+
+    const dataUrl = offscreen.toDataURL('image/png');
+    FabricImage.fromURL(dataUrl).then((blurImg) => {
+      if (!this.canvas) {
+        this.isDrawing = false;
+        return;
+      }
+      blurImg.set({
+        left,
+        top,
+        originX: 'left',
+        originY: 'top',
+        selectable: true,
+        evented: true,
+        _wegweiserType: 'blurOverlay',
+        _wegweiserEffect: 'blur',
+        _wegweiserBlurRadius: radius,
+      } as any);
+      this.canvas.add(blurImg);
+      this.isDrawing = false;
+      this.pushSnapshot();
+      this.updateCounts();
+      this.canvas.setActiveObject(blurImg);
+      this.canvas.renderAll();
+    });
+  }
+
+  /**
+   * Finalize a region as pixelate: downsample then upscale with nearest-neighbor
+   * and replace the placeholder rect with a FabricImage of the pixelated data.
+   */
+  private finalizePixelate(rect: Rect, sx: number, sy: number, ex: number, ey: number): void {
+    if (!this.canvas) return;
+    this.canvas.remove(rect);
+
+    const left = Math.max(0, Math.min(sx, ex));
+    const top = Math.max(0, Math.min(sy, ey));
+    const width = Math.min(Math.abs(ex - sx), this.imageWidth - left);
+    const height = Math.min(Math.abs(ey - sy), this.imageHeight - top);
+    if (width < 4 || height < 4) return;
+
     const bgImg = this.canvas.backgroundImage;
     if (!bgImg) return;
 
@@ -1061,8 +1220,7 @@ export class FabricCanvasWrapper {
     const ctx = offscreen.getContext('2d')!;
     ctx.drawImage(bgEl, left, top, width, height, 0, 0, width, height);
 
-    // Pixelate: downsample then upscale with nearest-neighbor.
-    const blockSize = 10;
+    const blockSize = this.pixelateBlockSize;
     const smallW = Math.max(1, Math.ceil(width / blockSize));
     const smallH = Math.max(1, Math.ceil(height / blockSize));
 
@@ -1072,7 +1230,6 @@ export class FabricCanvasWrapper {
     const smallCtx = smallCanvas.getContext('2d')!;
     smallCtx.drawImage(offscreen, 0, 0, smallW, smallH);
 
-    // Upscale back with pixelation.
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, width, height);
     ctx.drawImage(smallCanvas, 0, 0, smallW, smallH, 0, 0, width, height);
@@ -1080,7 +1237,7 @@ export class FabricCanvasWrapper {
     const dataUrl = offscreen.toDataURL('image/png');
     FabricImage.fromURL(dataUrl).then((pixelImg) => {
       if (!this.canvas) {
-        this.isDrawing = false; // ensure flag is cleared even if canvas was disposed
+        this.isDrawing = false;
         return;
       }
       pixelImg.set({
@@ -1091,15 +1248,120 @@ export class FabricCanvasWrapper {
         selectable: true,
         evented: true,
         _wegweiserType: 'pixelateOverlay',
+        _wegweiserEffect: 'pixelate',
+        _wegweiserBlockSize: blockSize,
       } as any);
-      // canvas.add fires object:added, which is still suppressed because isDrawing=true.
       this.canvas.add(pixelImg);
-      // Clear the flag and push ONE snapshot now that the pixelated image is ready.
       this.isDrawing = false;
       this.pushSnapshot();
       this.updateCounts();
       this.canvas.setActiveObject(pixelImg);
       this.canvas.renderAll();
+    });
+  }
+
+  /**
+   * Re-render a blur or pixelate overlay in place.
+   * Re-extracts the region from the background image at the object's current
+   * bounding box (accounting for scale) and re-applies the stored effect.
+   * Updates the overlay's image source via setSrc, preserving position and z-index.
+   */
+  private reRenderOverlay(obj: FabricImage): void {
+    if (!this.canvas) return;
+    const wegType = (obj as any)._wegweiserType as string;
+    if (wegType !== 'blurOverlay' && wegType !== 'pixelateOverlay') return;
+
+    const bgImg = this.canvas.backgroundImage;
+    if (!bgImg) return;
+    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
+
+    const left = Math.round(obj.left ?? 0);
+    const top = Math.round(obj.top ?? 0);
+    const width = Math.round((obj.width ?? 0) * (obj.scaleX ?? 1));
+    const height = Math.round((obj.height ?? 0) * (obj.scaleY ?? 1));
+
+    if (width < 4 || height < 4) return;
+
+    // Clamp to image bounds.
+    const clampedLeft = Math.max(0, Math.min(left, this.imageWidth - 1));
+    const clampedTop = Math.max(0, Math.min(top, this.imageHeight - 1));
+    const clampedW = Math.min(width, this.imageWidth - clampedLeft);
+    const clampedH = Math.min(height, this.imageHeight - clampedTop);
+    if (clampedW < 4 || clampedH < 4) return;
+
+    let dataUrl: string;
+
+    if (wegType === 'blurOverlay') {
+      const radius = this.blurRadius;
+      const pad = radius * 2;
+      const padLeft = Math.max(0, clampedLeft - pad);
+      const padTop = Math.max(0, clampedTop - pad);
+      const padRight = Math.min(this.imageWidth, clampedLeft + clampedW + pad);
+      const padBottom = Math.min(this.imageHeight, clampedTop + clampedH + pad);
+      const padW = padRight - padLeft;
+      const padH = padBottom - padTop;
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = padW;
+      tempCanvas.height = padH;
+      const tempCtx = tempCanvas.getContext('2d')!;
+      tempCtx.filter = `blur(${radius}px)`;
+      tempCtx.drawImage(bgEl, padLeft, padTop, padW, padH, 0, 0, padW, padH);
+      tempCtx.filter = 'none';
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = clampedW;
+      offscreen.height = clampedH;
+      const ctx = offscreen.getContext('2d')!;
+      ctx.drawImage(tempCanvas, clampedLeft - padLeft, clampedTop - padTop, clampedW, clampedH, 0, 0, clampedW, clampedH);
+      dataUrl = offscreen.toDataURL('image/png');
+
+      // Update stored parameters.
+      (obj as any)._wegweiserBlurRadius = radius;
+    } else {
+      // Pixelate.
+      const blockSize = this.pixelateBlockSize;
+      const offscreen = document.createElement('canvas');
+      offscreen.width = clampedW;
+      offscreen.height = clampedH;
+      const ctx = offscreen.getContext('2d')!;
+      ctx.drawImage(bgEl, clampedLeft, clampedTop, clampedW, clampedH, 0, 0, clampedW, clampedH);
+
+      const smallW = Math.max(1, Math.ceil(clampedW / blockSize));
+      const smallH = Math.max(1, Math.ceil(clampedH / blockSize));
+
+      const smallCanvas = document.createElement('canvas');
+      smallCanvas.width = smallW;
+      smallCanvas.height = smallH;
+      const smallCtx = smallCanvas.getContext('2d')!;
+      smallCtx.drawImage(offscreen, 0, 0, smallW, smallH);
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, clampedW, clampedH);
+      ctx.drawImage(smallCanvas, 0, 0, smallW, smallH, 0, 0, clampedW, clampedH);
+      dataUrl = offscreen.toDataURL('image/png');
+
+      // Update stored parameters.
+      (obj as any)._wegweiserBlockSize = blockSize;
+    }
+
+    // Update the overlay image source in place, then reset scale to 1 since
+    // the new image already has the correct pixel dimensions.
+    obj.setSrc(dataUrl).then(() => {
+      if (!this.canvas) return;
+      obj.set({
+        left: clampedLeft,
+        top: clampedTop,
+        scaleX: 1,
+        scaleY: 1,
+        width: clampedW,
+        height: clampedH,
+      });
+      obj.setCoords();
+      this.canvas.renderAll();
+      // Push a snapshot after the async image update.
+      this.pushSnapshot();
+      this.updateCounts();
     });
   }
 
@@ -1240,6 +1502,10 @@ export class FabricCanvasWrapper {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
+
+    // Blur/pixelate overlays are FabricImages — color/stroke properties don't apply.
+    const wegType = (active as any)._wegweiserType as string | undefined;
+    if (wegType === 'blurOverlay' || wegType === 'pixelateOverlay') return;
 
     if (active instanceof IText) {
       active.set({ fill: this.color });

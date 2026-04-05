@@ -5,7 +5,7 @@
  * canvas actions. Import this in AnnotationEditor.svelte's keydown handler.
  */
 
-import type { FabricCanvasWrapper, AnnotationTool } from '$lib/fabric-canvas.svelte';
+import type { FabricCanvasWrapper, AnnotationTool, ObfuscationEffect } from '$lib/fabric-canvas.svelte';
 
 /** Map of single-key shortcuts to tool names. */
 const TOOL_KEYS: Record<string, AnnotationTool> = {
@@ -16,8 +16,13 @@ const TOOL_KEYS: Record<string, AnnotationTool> = {
   t: 'text',
   p: 'freehand',
   h: 'highlight',
-  b: 'blur',
+  o: 'obfuscation',
   c: 'crop',
+};
+
+/** Map of single-key shortcuts to obfuscation effects (only for keys that open the obfuscation tool). */
+const OBFUSCATION_EFFECT_KEYS: Record<string, ObfuscationEffect> = {
+  o: 'blur',
 };
 
 export interface KeyboardShortcutContext {
@@ -94,8 +99,15 @@ export async function handleEditorKeyDown(
   // ── Tool shortcuts (no modifier, single letter) ──────────────────────────
 
   if (!ctrl && !e.altKey && key.length === 1) {
-    const tool = TOOL_KEYS[key.toLowerCase()];
+    const lk = key.toLowerCase();
+    const tool = TOOL_KEYS[lk];
     if (tool) {
+      // For keys that activate the obfuscation tool, apply the default effect
+      // so the Properties panel and drawing behavior are correct.
+      const effect = OBFUSCATION_EFFECT_KEYS[lk];
+      if (effect) {
+        canvas.setObfuscationEffect(effect);
+      }
       setTool(tool);
       return true;
     }

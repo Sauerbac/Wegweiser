@@ -101,10 +101,12 @@
     text: 'Click to place a text label.',
     highlight: 'Click and drag to draw a highlight area.',
     callout: 'Click to place a numbered callout.',
-    blur: 'Click and drag to pixelate a region.',
-    crop: 'Click and drag to define the crop area. Adjust handles afterward.',
-    window: 'Click a highlighted window border to crop to that window.',
+    obfuscation: 'Click and drag to apply blur or pixelate to a region.',
+    crop: 'Click and drag to set the crop region.',
   };
+
+  /** Whether window-select click mode is active (crop tool). */
+  let windowSelectActive = $state(false);
 
   // ── Initialize Fabric.js when dialog opens ────────────────────────────────
 
@@ -231,23 +233,22 @@
 
   function onSetTool(t: AnnotationTool) {
     fabricCanvas.setTool(t);
-
-    // Window select: set up click handler for window rects.
-    if (t === 'window') {
-      setupWindowClickHandler();
+    // Deactivate window-select click mode when switching tools.
+    if (windowSelectActive) {
+      deactivateWindowSelect();
     }
   }
 
-  /** Set up a click handler for window selection. */
-  function setupWindowClickHandler() {
+  // ── Window select (from Properties panel "Select Window" button) ──────────
+
+  let _windowSelectHandler: ((e: any) => void) | null = null;
+
+  function activateWindowSelect() {
     const canvas = fabricCanvas.getCanvas();
     if (!canvas) return;
+    windowSelectActive = true;
 
     const handler = (e: any) => {
-      if (fabricCanvas.tool !== 'window') {
-        canvas.off('mouse:down', handler);
-        return;
-      }
       const pointer = canvas.getScenePoint(e.e);
       const px = pointer.x;
       const py = pointer.y;
@@ -264,9 +265,21 @@
           fabricCanvas.setCropFromRect(clipped.x, clipped.y, clipped.w, clipped.h);
         }
       }
+      // Deactivate after one selection.
+      deactivateWindowSelect();
     };
 
+    _windowSelectHandler = handler;
     canvas.on('mouse:down', handler);
+  }
+
+  function deactivateWindowSelect() {
+    const canvas = fabricCanvas.getCanvas();
+    if (canvas && _windowSelectHandler) {
+      canvas.off('mouse:down', _windowSelectHandler);
+      _windowSelectHandler = null;
+    }
+    windowSelectActive = false;
   }
 
   // ── Undo/redo from parent ticks ───────────────────────────────────────────
@@ -399,7 +412,6 @@
       <!-- Left toolbar -->
       <AnnotationToolbar
         tool={fabricCanvas.tool}
-        hasWindowRects={visibleWindowRects.length > 0}
         onsetTool={onSetTool}
       />
 
@@ -436,19 +448,27 @@
         fillEnabled={fabricCanvas.fillEnabled}
         fillColor={fabricCanvas.fillColor}
         hasSelection={fabricCanvas.selectedCount > 0}
+        obfuscationEffect={fabricCanvas.obfuscationEffect}
+        blurRadius={fabricCanvas.blurRadius}
+        pixelateBlockSize={fabricCanvas.pixelateBlockSize}
+        hasWindowRects={visibleWindowRects.length > 0}
         oncolorChange={(c) => fabricCanvas.setColor(c)}
         onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
         onopacityChange={(o) => fabricCanvas.setOpacity(o)}
         onfillEnabledChange={(enabled) => fabricCanvas.setFillEnabled(enabled)}
         onfillColorChange={(c) => fabricCanvas.setFillColor(c)}
         ondelete={() => fabricCanvas.deleteSelected()}
+        onobfuscationEffectChange={(effect) => fabricCanvas.setObfuscationEffect(effect)}
+        onblurRadiusChange={(r) => fabricCanvas.setBlurRadius(r)}
+        onpixelateBlockSizeChange={(s) => fabricCanvas.setPixelateBlockSize(s)}
+        onselectWindow={activateWindowSelect}
       />
     </div>
 
     <!-- Status bar -->
     <div class="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
       <p class="text-xs text-muted-foreground">
-        {helpText[fabricCanvas.tool]}
+        {windowSelectActive ? 'Click a window border to crop to that window.' : helpText[fabricCanvas.tool]}
       </p>
       <p class={`text-xs text-muted-foreground ${fabricCanvas.isDrawing ? '' : 'invisible'}`}>
         Press Esc to cancel
