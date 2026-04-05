@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 export type ReviewUndoEntry =
   | { type: 'editorSession'; stepId: number; depth: number }
-  | { type: 'backend' };
+  | { type: 'backend'; deletedStepIds?: number[] };
 
 /**
  * Manages the Review-screen undo/redo stack.
@@ -21,8 +21,9 @@ export type ReviewUndoEntry =
 export class ReviewUndoStore {
   undoStack = $state<ReviewUndoEntry[]>([]);
   redoStack = $state<ReviewUndoEntry[]>([]);
-  /** Step ID to flash briefly after a Review-level undo/redo of an editor session. */
-  highlightedStepId = $state<number | null>(null);
+  /** Step IDs to flash briefly after a Review-level undo/redo. Single-element for editor
+   *  session undos; all restored IDs when undoing a step-delete. */
+  highlightedStepIds = $state(new Set<number>());
   /**
    * When a Review-level undo/redo collapses an editorSession, we record the
    * expected depth state so the editor can restore it on next open.
@@ -41,20 +42,26 @@ export class ReviewUndoStore {
     return this.redoStack.length > 0;
   }
 
-  flashStep(stepId: number) {
+  flashSteps(stepIds: number[]) {
     if (this._flashTimer !== null) clearTimeout(this._flashTimer);
-    this.highlightedStepId = stepId;
-    // Clear after one frame so the browser paints the primary border once,
-    // then the CSS duration-700 transition fades it back immediately.
+    this.highlightedStepIds = new Set(stepIds);
     this._flashTimer = setTimeout(() => {
-      this.highlightedStepId = null;
+      this.highlightedStepIds = new Set();
       this._flashTimer = null;
     }, 500);
   }
 
-  /** Call after any invoke that the backend records on its undo stack (delete, rename, etc.). */
-  pushBackend() {
-    this.undoStack = [...this.undoStack, { type: 'backend' }];
+  flashStep(stepId: number) {
+    this.flashSteps([stepId]);
+  }
+
+  /**
+   * Call after any invoke that the backend records on its undo stack (delete, rename, etc.).
+   * Pass `deletedStepIds` when the operation deleted steps — this enables auto-selecting
+   * the restored step when the operation is undone.
+   */
+  pushBackend(deletedStepIds?: number[]) {
+    this.undoStack = [...this.undoStack, { type: 'backend', deletedStepIds }];
     this.redoStack = [];
   }
 
@@ -84,6 +91,10 @@ export class ReviewUndoStore {
       this.flashStep(entry.stepId);
     } else {
       try { await invoke('undo_session'); } catch { /* nothing to undo */ }
+      // If this was a delete operation, flash all restored steps.
+      if (entry.deletedStepIds && entry.deletedStepIds.length > 0) {
+        this.flashSteps(entry.deletedStepIds);
+      }
     }
   }
 
@@ -157,6 +168,6 @@ export class ReviewUndoStore {
       clearTimeout(this._flashTimer);
       this._flashTimer = null;
     }
-    this.highlightedStepId = null;
+    this.highlightedStepIds = new Set();
   }
 }
