@@ -117,6 +117,9 @@ export class FabricCanvasWrapper {
   /** Clipboard buffer for copy/paste. */
   private clipboard: any[] = [];
 
+  /** Last known mouse position in scene (canvas) coordinates, updated on every mouse:move. */
+  private lastMouseScenePos: { x: number; y: number } | null = null;
+
   /** Keyboard event listeners for Shift-to-constrain. */
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null;
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null;
@@ -238,6 +241,7 @@ export class FabricCanvasWrapper {
     this.nextCalloutNumber = 1;
     this.selectedCount = 0;
     this.isDrawing = false;
+    this.lastMouseScenePos = null;
     if (this._modifiedTimer !== null) {
       clearTimeout(this._modifiedTimer);
       this._modifiedTimer = null;
@@ -393,16 +397,42 @@ export class FabricCanvasWrapper {
     this.clipboard = await Promise.all(active.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber'])));
   }
 
-  /** Paste previously copied objects, offset by 10px. */
+  /** Paste previously copied objects, centering them at the last known mouse position. */
   async pasteSelected(): Promise<void> {
     if (!this.canvas || this.clipboard.length === 0) return;
     this.canvas.discardActiveObject();
     const clones = await Promise.all(this.clipboard.map((obj) => obj.clone(['_wegweiserType', '_calloutNumber'])));
-    const OFFSET = 10;
-    for (const clone of clones) {
-      clone.set({ left: (clone.left ?? 0) + OFFSET, top: (clone.top ?? 0) + OFFSET, selectable: true, evented: true });
-      this.canvas.add(clone);
+
+    if (this.lastMouseScenePos) {
+      // Compute the bounding box of all clones in their original positions.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const clone of clones) {
+        const l = clone.left ?? 0;
+        const t = clone.top ?? 0;
+        const w = clone.getScaledWidth?.() ?? clone.width ?? 0;
+        const h = clone.getScaledHeight?.() ?? clone.height ?? 0;
+        minX = Math.min(minX, l);
+        minY = Math.min(minY, t);
+        maxX = Math.max(maxX, l + w);
+        maxY = Math.max(maxY, t + h);
+      }
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const dx = this.lastMouseScenePos.x - centerX;
+      const dy = this.lastMouseScenePos.y - centerY;
+      for (const clone of clones) {
+        clone.set({ left: (clone.left ?? 0) + dx, top: (clone.top ?? 0) + dy, selectable: true, evented: true });
+        this.canvas.add(clone);
+      }
+    } else {
+      // Fallback: no mouse position known — offset by 10px from original.
+      const OFFSET = 10;
+      for (const clone of clones) {
+        clone.set({ left: (clone.left ?? 0) + OFFSET, top: (clone.top ?? 0) + OFFSET, selectable: true, evented: true });
+        this.canvas.add(clone);
+      }
     }
+
     if (clones.length === 1) {
       this.canvas.setActiveObject(clones[0]);
     }
@@ -701,8 +731,11 @@ export class FabricCanvasWrapper {
   }
 
   private onMouseMove(e: TPointerEventInfo<TPointerEvent>): void {
-    if (!this.canvas || !this.drawState?.shape) return;
+    if (!this.canvas) return;
     const pointer = this.canvas.getScenePoint(e.e);
+    // Always track the last mouse position so paste can land at the cursor.
+    this.lastMouseScenePos = { x: pointer.x, y: pointer.y };
+    if (!this.drawState?.shape) return;
     const { startX, startY, shape } = this.drawState;
     const tool = this.tool;
 
