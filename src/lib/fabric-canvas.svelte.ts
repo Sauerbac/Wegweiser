@@ -388,6 +388,12 @@ export class FabricCanvasWrapper {
     return true;
   }
 
+  /** Cut selected objects: copy them to the clipboard, then delete them. */
+  async cutSelected(): Promise<void> {
+    await this.copySelected();
+    this.deleteSelected();
+  }
+
   /** Copy selected objects to internal clipboard. */
   async copySelected(): Promise<void> {
     if (!this.canvas) return;

@@ -59,6 +59,9 @@ export async function handleEditorKeyDown(
       case 'c':
         await canvas.copySelected();
         return true;
+      case 'x':
+        await canvas.cutSelected();
+        return true;
       case 'v':
         await canvas.pasteSelected();
         return true;
