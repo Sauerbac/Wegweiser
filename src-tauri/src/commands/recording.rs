@@ -7,7 +7,7 @@ use crate::state::{AppState, RecordingState};
 use chrono::Local;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 /// Construct a new Session value for the given monitor selection.
@@ -77,11 +77,11 @@ pub fn start_recording(
 
 /// Capture a keystroke-only step when stopping a recording with pending keystrokes.
 ///
-/// Called by both `stop_recording` (commands/recording.rs) and the Ctrl+Shift+Q hotkey
-/// handler (hooks.rs) to avoid duplicating the capture + push + save + emit logic.
+/// Called by `perform_stop_recording` to avoid duplicating the
+/// capture + push + save + emit logic at each call site.
 ///
 /// Returns the updated `Session` on success, or the original `current_session` on error.
-pub fn capture_pending_keystrokes_step(
+fn capture_pending_keystrokes_step(
     state: &Arc<Mutex<AppState>>,
     app_handle: &AppHandle,
     pending_ks: String,
@@ -119,24 +119,41 @@ pub fn capture_pending_keystrokes_step(
     }
 }
 
-#[tauri::command]
-pub fn stop_recording(
-    state: State<'_, AppStateHandle>,
-    app_handle: AppHandle,
-    window: WebviewWindow,
+/// Core stop-recording logic shared by the `stop_recording` Tauri command and
+/// the Ctrl+Shift+Q global hotkey handler in `hooks.rs`.
+///
+/// Both callers perform the same eight steps in the same order:
+/// 1. Guard — return early when not in Recording or Paused state.
+/// 2. Transition `recording_state` → Reviewing and clear `rec_window_bounds`.
+/// 3. Extract `pending_keystrokes`, `step_id`, `order`, monitor info.
+/// 4. Increment counters for the pending-keystroke step (if any).
+/// 5. Persist the in-progress session to disk.
+/// 6. Optionally capture a final keystroke-only step.
+/// 7. Restore the window from mini-bar mode.
+/// 8. Auto-delete empty sessions (reset to Idle) or emit Reviewing state.
+///
+/// The function obtains the main window from `app_handle` so it works from
+/// both a Tauri command context (which could pass its own `WebviewWindow`) and
+/// from a background thread (hotkey handler) where no window parameter is
+/// available.
+pub fn perform_stop_recording(
+    state: &Arc<Mutex<AppState>>,
+    app_handle: &AppHandle,
 ) -> Result<(), String> {
-    // Collect everything we need from state and transition to Reviewing.
-    let (current_session, pending_ks, step_id, order, monitor_index, all_monitors) = {
+    // Step 1-5: collect state, transition, persist.
+    let (current_session, pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized) = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if st.recording_state != RecordingState::Recording
             && st.recording_state != RecordingState::Paused
         {
             return Ok(());
         }
+        // Transition to Reviewing BEFORE extracting pending_ks so no new
+        // keystrokes can be added by the hook thread after this point.
         st.recording_state = RecordingState::Reviewing;
         st.rec_window_bounds = None;
 
-        let pending_ks = st.pending_keystrokes.clone();
+        let pending_ks = std::mem::take(&mut st.pending_keystrokes);
         let step_id = st.next_step_id;
         let order = st.next_order;
         let monitor_index = st.selected_monitor;
@@ -149,7 +166,6 @@ pub fn stop_recording(
         if !pending_ks.is_empty() {
             st.next_step_id += 1;
             st.next_order += 1;
-            st.pending_keystrokes.clear();
         }
 
         if let Some(ref session) = st.session {
@@ -158,15 +174,17 @@ pub fn stop_recording(
             }
         }
 
-        (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors)
+        let restore_rect = st.window_geometry.restore_rect.take();
+        let was_maximized = st.window_geometry.maximized;
+
+        (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized)
     };
 
-    // If there were buffered keystrokes with no trailing click, capture a final
-    // step now (synchronous call is acceptable — we are stopping).
+    // Step 6: capture a keystroke-only step if pending keystrokes remain.
     let current_session = if !pending_ks.is_empty() {
         capture_pending_keystrokes_step(
-            &*state,
-            &app_handle,
+            state,
+            app_handle,
             pending_ks,
             step_id,
             order,
@@ -175,28 +193,26 @@ pub fn stop_recording(
             all_monitors,
         )
     } else {
-        // Re-read session from state to get the most recent version.
+        // Re-read session from state to get the most recent version
+        // (capture worker may have pushed a step since we cloned above).
         let st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.session.clone()
     };
 
-    // Restore full window — reset capture-affinity first so the review window
-    // is visible in any subsequent captures the user might take.
-    let (restore_rect, was_maximized) = {
-        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        (st.window_geometry.restore_rect.take(), st.window_geometry.maximized)
-    };
-    restore_window(&window, restore_rect, was_maximized);
+    // Step 7: restore the window from mini-bar mode.
+    // Reset capture-affinity first so the review window is visible in any
+    // subsequent captures the user might take.
+    if let Some(window) = app_handle.get_webview_window("main") {
+        restore_window(&window, restore_rect, was_maximized);
+    }
 
-    // Auto-delete recordings with 0 steps
+    // Step 8a: auto-delete empty recordings and reset to Idle.
     if let Some(ref sess) = current_session {
         if sess.steps.is_empty() {
-            // Delete the session directory from disk
             // error-handling-015: log failure to delete empty session directory
             if let Err(e) = session::delete_session(&sess.session_dir) {
                 eprintln!("Failed to delete empty session directory: {e}");
             }
-            // Reset state back to Idle
             {
                 let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                 st.recording_state = RecordingState::Idle;
@@ -209,18 +225,27 @@ pub fn stop_recording(
         }
     }
 
-    // Emit session data before state transition so Review screen has data ready
+    // Step 8b: emit session data before state transition so Review screen has
+    // data ready, then signal the new state.
     if let Some(ref sess) = current_session {
         app_handle
             .emit("session-updated", sess)
             .map_err(|e| e.to_string())?;
     }
-
     app_handle
         .emit("recording-state-changed", RecordingState::Reviewing)
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn stop_recording(
+    state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
+    _window: WebviewWindow,
+) -> Result<(), String> {
+    perform_stop_recording(&*state, &app_handle)
 }
 
 #[tauri::command]

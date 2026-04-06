@@ -311,92 +311,9 @@ pub fn register_global_hotkeys(
         if event.state != ShortcutState::Pressed {
             return;
         }
-        let (current_session, pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized, session_to_save) = {
-            let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
-            if st.recording_state != RecordingState::Recording
-                && st.recording_state != RecordingState::Paused
-            {
-                return;
-            }
-            // Transition to Reviewing BEFORE extracting pending_ks so no new
-            // keystrokes can be added by the hook thread after this point.
-            st.recording_state = RecordingState::Reviewing;
-            st.rec_window_bounds = None;
-
-            let pending_ks = std::mem::take(&mut st.pending_keystrokes);
-            let step_id = st.next_step_id;
-            let order = st.next_order;
-            let monitor_index = st.selected_monitor;
-            let all_monitors = st.session.as_ref().map_or(false, |s| s.monitor_index.is_none());
-
-            if !pending_ks.is_empty() {
-                st.next_step_id += 1;
-                st.next_order += 1;
-            }
-
-            // Clone the session for persistence — saving is done off the callback
-            // thread (architecture-004) so file I/O doesn't block the hotkey handler.
-            let session_to_save = st.session.clone();
-
-            let restore_rect = st.window_geometry.restore_rect.take();
-            let was_maximized = st.window_geometry.maximized;
-            (st.session.clone(), pending_ks, step_id, order, monitor_index, all_monitors, restore_rect, was_maximized, session_to_save)
-        };
-
-        // Persist in-progress session state off the hotkey callback thread.
-        // architecture-004: file I/O must not block the rdev/global-shortcut callback.
-        if let Some(session) = session_to_save {
-            std::thread::spawn(move || {
-                if let Err(e) = save_session(&session) {
-                    eprintln!("[save_session] failed: {e}");
-                }
-            });
+        if let Err(e) = crate::commands::perform_stop_recording(&state_stop, &app_stop) {
+            eprintln!("[hotkey] stop recording failed: {e}");
         }
-
-        // If there were buffered keystrokes with no trailing click, capture a final
-        // step now (synchronous call is acceptable — we are stopping).
-        let current_session = if !pending_ks.is_empty() {
-            crate::commands::capture_pending_keystrokes_step(
-                &state_stop,
-                &app_stop,
-                pending_ks,
-                step_id,
-                order,
-                current_session,
-                monitor_index,
-                all_monitors,
-            )
-        } else {
-            current_session
-        };
-
-        // Restore full window using the shared helper.
-        if let Some(window) = app_stop.get_webview_window("main") {
-            crate::commands::restore_window(&window, restore_rect, was_maximized);
-        }
-
-        // Auto-delete empty recordings and reset to Idle
-        if let Some(ref sess) = current_session {
-            if sess.steps.is_empty() {
-                // error-handling-015: log failure to delete empty session directory
-                if let Err(e) = crate::session::delete_session(&sess.session_dir) {
-                    eprintln!("Failed to delete empty session directory: {e}");
-                }
-                {
-                    let mut st = state_stop.lock().unwrap_or_else(|e| e.into_inner());
-                    st.recording_state = RecordingState::Idle;
-                    st.session = None;
-                }
-                let _ = app_stop.emit("recording-state-changed", RecordingState::Idle);
-                return;
-            }
-        }
-
-        // Emit session data and state change to review screen
-        if let Some(ref sess) = current_session {
-            let _ = app_stop.emit("session-updated", sess);
-        }
-        let _ = app_stop.emit("recording-state-changed", RecordingState::Reviewing);
     })?;
 
     Ok(())

@@ -5,9 +5,8 @@ pub mod session;
 pub mod undo;
 pub mod window;
 
-// Re-exports used by hooks.rs (cross-crate helpers, not Tauri commands).
-pub use recording::capture_pending_keystrokes_step;
-pub use window::restore_window;
+// Re-export used by hooks.rs (cross-crate helper, not a Tauri command).
+pub use recording::perform_stop_recording;
 
 use std::sync::{Arc, Mutex};
 use crate::state::AppState;
