@@ -6,6 +6,8 @@
  * return a PNG data URL that the caller places onto the Fabric canvas.
  */
 
+export type ObfuscationEffect = 'blur' | 'pixelate';
+
 /** Shared region geometry, clamped to image bounds. */
 export interface ObfuscationRegion {
   left: number;

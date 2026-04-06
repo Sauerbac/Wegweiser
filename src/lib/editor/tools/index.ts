@@ -7,12 +7,16 @@ import { HighlightToolHandler } from './highlight.js';
 import { TextToolHandler } from './text.js';
 import { CalloutToolHandler } from './callout.js';
 import { ArrowToolHandler } from './arrow.js';
+import { ObfuscationToolHandler } from './obfuscation-tool.js';
+import { CropToolHandler } from './crop.js';
 
 export { ToolRegistry } from './registry.js';
 export type { ToolContext, ToolHandler } from './tool-handler.js';
 export { ArrowToolHandler } from './arrow.js';
 export { TextToolHandler } from './text.js';
 export { CalloutToolHandler } from './callout.js';
+export { ObfuscationToolHandler } from './obfuscation-tool.js';
+export { CropToolHandler } from './crop.js';
 
 /**
  * Register all annotation tool handlers.
@@ -27,5 +31,7 @@ export function createToolRegistry(): ToolRegistry {
     .register(new HighlightToolHandler())
     .register(new TextToolHandler())
     .register(new CalloutToolHandler())
-    .register(new ArrowToolHandler());
+    .register(new ArrowToolHandler())
+    .register(new ObfuscationToolHandler())
+    .register(new CropToolHandler());
 }

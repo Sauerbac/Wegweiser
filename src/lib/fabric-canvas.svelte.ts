@@ -26,12 +26,7 @@ import {
   type TPointerEvent,
 } from 'fabric';
 import { CUSTOM_PROPS } from './editor/canvas-props.js';
-import {
-  clampRegion,
-  clampOverlayRegion,
-  renderBlurRegion,
-  renderPixelateRegion,
-} from './editor/obfuscation.js';
+import type { ObfuscationEffect } from './editor/obfuscation.js';
 import {
   createToolRegistry,
   type ToolContext,
@@ -39,6 +34,8 @@ import {
   ArrowToolHandler,
   TextToolHandler,
   CalloutToolHandler,
+  ObfuscationToolHandler,
+  CropToolHandler,
 } from './editor/tools/index.js';
 
 export type AnnotationTool =
@@ -53,7 +50,7 @@ export type AnnotationTool =
   | 'obfuscation'
   | 'crop';
 
-export type ObfuscationEffect = 'blur' | 'pixelate';
+export type { ObfuscationEffect } from './editor/obfuscation.js';
 
 const UNDO_CAP = 50;
 
@@ -137,12 +134,6 @@ export class FabricCanvasWrapper {
   /** Context object passed to every tool handler. Constructed in init(). */
   private ctx!: ToolContext;
 
-  /** The crop mask rect (if any). */
-  private cropRect: Rect | null = null;
-
-  /** Dim overlay rects around the crop area. */
-  private cropOverlays: Rect[] = [];
-
   /** Clipboard buffer for copy/paste. */
   private clipboard: any[] = [];
 
@@ -198,6 +189,9 @@ export class FabricCanvasWrapper {
       get fillColor() { return wrapper.fillColor; },
       get blurRadius() { return wrapper.blurRadius; },
       get pixelateBlockSize() { return wrapper.pixelateBlockSize; },
+      get obfuscationEffect() { return wrapper.obfuscationEffect; },
+      get imageWidth() { return wrapper.imageWidth; },
+      get imageHeight() { return wrapper.imageHeight; },
       pushSnapshot: () => wrapper.pushSnapshot(),
       updateCounts: () => wrapper.updateCounts(),
       setDrawing: (v) => { wrapper.isDrawing = v; },
@@ -232,7 +226,7 @@ export class FabricCanvasWrapper {
       // Re-render blur/pixelate overlays when they are moved or scaled.
       const obj = e.target as any;
       if (obj && (obj._wegweiserType === 'blurOverlay' || obj._wegweiserType === 'pixelateOverlay')) {
-        this.reRenderOverlay(obj as FabricImage);
+        (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, obj as FabricImage);
         // Don't call onCanvasModified here — reRenderOverlay will handle it
         // after the async image update completes.
         return;
@@ -319,8 +313,7 @@ export class FabricCanvasWrapper {
     this.clipboard = [];
     this.arrowPolylineMode = false;
     this.arrowEditingId = null;
-    this.cropRect = null;
-    this.cropOverlays = [];
+    (this.registry.get('crop') as CropToolHandler).resetState();
     this.selectedCount = 0;
     this.isDrawing = false;
     this.lastMouseScenePos = null;
@@ -343,18 +336,6 @@ export class FabricCanvasWrapper {
     const next = this.registry.get(t);
     if (next) {
       next.onActivate(this.ctx, (fn) => this.forEachAnnotation(fn));
-      return;
-    }
-
-    // Fallback for tools not yet migrated to the plugin system (obfuscation, crop).
-    if (t === 'obfuscation' || t === 'crop') {
-      this.canvas.isDrawingMode = false;
-      this.canvas.selection = false;
-      this.canvas.discardActiveObject();
-      this.forEachAnnotation((obj) => {
-        obj.set({ selectable: false, evented: false });
-      });
-      this.canvas.renderAll();
     }
   }
 
@@ -407,7 +388,7 @@ export class FabricCanvasWrapper {
     ) {
       (active as any)._wegweiserType = effect === 'blur' ? 'blurOverlay' : 'pixelateOverlay';
       (active as any)._wegweiserEffect = effect;
-      this.reRenderOverlay(active as FabricImage);
+      (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, active as FabricImage);
     }
   }
 
@@ -417,7 +398,7 @@ export class FabricCanvasWrapper {
     // Re-render any currently selected blur overlay with the new radius.
     const active = this.canvas?.getActiveObject();
     if (active && (active as any)._wegweiserType === 'blurOverlay') {
-      this.reRenderOverlay(active as FabricImage);
+      (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, active as FabricImage);
     }
   }
 
@@ -427,7 +408,7 @@ export class FabricCanvasWrapper {
     // Re-render any currently selected pixelate overlay with the new block size.
     const active = this.canvas?.getActiveObject();
     if (active && (active as any)._wegweiserType === 'pixelateOverlay') {
-      this.reRenderOverlay(active as FabricImage);
+      (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, active as FabricImage);
     }
   }
 
@@ -436,10 +417,11 @@ export class FabricCanvasWrapper {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObjects();
     if (active.length === 0) return;
+    const cropHandler = this.registry.get('crop') as CropToolHandler;
     for (const obj of active) {
       // If deleting the crop rect, clear crop state.
-      if (obj === this.cropRect) {
-        this.clearCrop();
+      if (obj === cropHandler.getCropRect()) {
+        cropHandler.clearCrop(this.ctx);
         continue;
       }
       this.canvas.remove(obj);
@@ -451,8 +433,9 @@ export class FabricCanvasWrapper {
   /** Select all annotation objects on the canvas. */
   selectAll(): void {
     if (!this.canvas || this.tool !== 'select') return;
+    const cropRect = (this.registry.get('crop') as CropToolHandler).getCropRect();
     const objs = this.canvas.getObjects().filter(
-      (obj) => (obj as any)._wegweiserType !== 'cropOverlay' && obj !== this.cropRect,
+      (obj) => (obj as any)._wegweiserType !== 'cropOverlay' && obj !== cropRect,
     );
     if (objs.length === 0) return;
     if (objs.length === 1) {
@@ -643,21 +626,11 @@ export class FabricCanvasWrapper {
     this.canvas.backgroundImage = bg;
     this.canvas.renderAll();
 
-    // Find crop rect if any.
-    this.cropRect = null;
-    this.canvas.getObjects().forEach((obj) => {
-      if ((obj as any)._wegweiserType === 'cropMask') {
-        this.cropRect = obj as Rect;
-      }
-    });
-
     // Recalculate callout numbering.
     (this.registry.get('callout') as CalloutToolHandler).recalcCalloutNumbers(this.canvas);
 
-    // Update crop overlay if crop exists.
-    if (this.cropRect) {
-      this.updateCropOverlays();
-    }
+    // Rescan for cropMask and rebuild dim overlays.
+    (this.registry.get('crop') as CropToolHandler).updateCropOverlays(this.ctx);
 
     // Fix up IText objects that lost their hiddenTextareaContainer during JSON
     // round-trip. Without this the hidden textarea is appended to document.body,
@@ -689,15 +662,18 @@ export class FabricCanvasWrapper {
     // The pixel buffer is always at natural image dimensions with identity VPT,
     // so no viewport/dimension adjustments are needed before export.
 
+    const cropHandler = this.registry.get('crop') as CropToolHandler;
+    const cropRect = cropHandler.getCropRect();
+
     // Temporarily hide crop visuals for export.
-    this.hideCropVisuals();
+    cropHandler.hideCropVisuals();
 
     let dataUrl: string;
-    if (this.cropRect) {
-      const left = this.cropRect.left!;
-      const top = this.cropRect.top!;
-      const width = this.cropRect.width! * (this.cropRect.scaleX ?? 1);
-      const height = this.cropRect.height! * (this.cropRect.scaleY ?? 1);
+    if (cropRect) {
+      const left = cropRect.left!;
+      const top = cropRect.top!;
+      const width = cropRect.width! * (cropRect.scaleX ?? 1);
+      const height = cropRect.height! * (cropRect.scaleY ?? 1);
       dataUrl = this.canvas.toDataURL({
         format: 'png',
         multiplier: 1,
@@ -710,7 +686,7 @@ export class FabricCanvasWrapper {
       dataUrl = this.canvas.toDataURL({ format: 'png', multiplier: 1 });
     }
 
-    this.showCropVisuals();
+    cropHandler.showCropVisuals();
     this.canvas.renderAll();
 
     return dataUrl;
@@ -726,423 +702,32 @@ export class FabricCanvasWrapper {
   private onMouseDown(e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.canvas || !e.viewportPoint) return;
     const pointer = this.canvas.getScenePoint(e.e);
-    const handler = this.registry.get(this.tool);
-    if (handler) {
-      handler.onMouseDown(this.ctx, pointer, e);
-      return;
-    }
-    // Fallback for tools not yet migrated (obfuscation, crop).
-    this.onMouseDownFallback(pointer, e);
+    this.registry.get(this.tool)?.onMouseDown(this.ctx, pointer, e);
   }
 
   private onMouseMove(e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.canvas) return;
     const pointer = this.canvas.getScenePoint(e.e);
     this.lastMouseScenePos = { x: pointer.x, y: pointer.y };
-    const handler = this.registry.get(this.tool);
-    if (handler) {
-      handler.onMouseMove(this.ctx, pointer, e);
-      return;
-    }
-    this.onMouseMoveFallback(pointer);
+    this.registry.get(this.tool)?.onMouseMove(this.ctx, pointer, e);
   }
 
   private onMouseUp(e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.canvas) return;
     const pointer = this.canvas.getScenePoint(e.e);
-    const handler = this.registry.get(this.tool);
-    if (handler) {
-      handler.onMouseUp(this.ctx, pointer, e);
-      return;
-    }
-    this.onMouseUpFallback(pointer);
-  }
-
-  // ─── Fallback mouse handlers for non-migrated tools (obfuscation, crop) ──
-
-  private drawState: { startX: number; startY: number; shape: Rect | null } | null = null;
-
-  private onMouseDownFallback(
-    pointer: { x: number; y: number },
-    e: TPointerEventInfo<TPointerEvent>,
-  ): void {
-    if (!this.canvas) return;
-    const tool = this.tool;
-    if (e.target) return;
-
-    this.isDrawing = true;
-    this.drawState = { startX: pointer.x, startY: pointer.y, shape: null };
-
-    if (tool === 'obfuscation') {
-      const rect = new Rect({
-        left: pointer.x,
-        top: pointer.y,
-        originX: 'left',
-        originY: 'top',
-        width: 0,
-        height: 0,
-        fill: 'rgba(128,128,128,0.3)',
-        stroke: '#888',
-        strokeWidth: 1,
-        strokeDashArray: [4, 4],
-        strokeUniform: true,
-        selectable: false,
-        evented: false,
-        lockUniScaling: false,
-      });
-      this.canvas.add(rect);
-      this.drawState.shape = rect;
-    } else if (tool === 'crop') {
-      const rect = new Rect({
-        left: pointer.x,
-        top: pointer.y,
-        originX: 'left',
-        originY: 'top',
-        width: 0,
-        height: 0,
-        fill: 'transparent',
-        stroke: '#ffffff',
-        strokeWidth: 2,
-        strokeDashArray: [8, 4],
-        strokeUniform: true,
-        selectable: false,
-        evented: false,
-        lockUniScaling: false,
-      });
-      this.canvas.add(rect);
-      this.drawState.shape = rect;
-    }
-  }
-
-  private onMouseMoveFallback(pointer: { x: number; y: number }): void {
-    if (!this.canvas || !this.drawState?.shape) return;
-    const { startX, startY, shape } = this.drawState;
-    const left = Math.min(startX, pointer.x);
-    const top = Math.min(startY, pointer.y);
-    const width = Math.abs(pointer.x - startX);
-    const height = Math.abs(pointer.y - startY);
-    shape.set({ left, top, width, height });
-    this.canvas.renderAll();
-  }
-
-  private onMouseUpFallback(pointer: { x: number; y: number }): void {
-    if (!this.canvas || !this.drawState) return;
-    const { startX, startY, shape } = this.drawState;
-    const tool = this.tool;
-    const dx = Math.abs(pointer.x - startX);
-    const dy = Math.abs(pointer.y - startY);
-
-    if (dx < 3 && dy < 3) {
-      if (shape) this.canvas.remove(shape);
-      this.drawState = null;
-      this.isDrawing = false;
-      this.canvas.renderAll();
-      return;
-    }
-
-    if (tool === 'crop' && shape instanceof Rect) {
-      this.finalizeCrop(shape);
-    } else if (tool === 'obfuscation' && shape instanceof Rect) {
-      if (this.obfuscationEffect === 'blur') {
-        this.finalizeGaussianBlur(shape, startX, startY, pointer.x, pointer.y);
-      } else {
-        this.finalizePixelate(shape, startX, startY, pointer.x, pointer.y);
-      }
-      this.drawState = null;
-      this.canvas.renderAll();
-      return;
-    }
-
-    this.isDrawing = false;
-    this.pushSnapshot();
-    this.updateCounts();
-    this.drawState = null;
-    this.canvas.renderAll();
-  }
-
-  /** Finalize a crop rect: replace any existing crop, set up dim overlays. */
-  private finalizeCrop(rect: Rect): void {
-    if (!this.canvas) return;
-    // Remove old crop if exists.
-    if (this.cropRect) {
-      this.canvas.remove(this.cropRect);
-      this.removeCropOverlays();
-    }
-
-    (rect as any)._wegweiserType = 'cropMask';
-    rect.set({
-      selectable: true,
-      evented: true,
-      hasRotatingPoint: false,
-      lockRotation: true,
-      strokeUniform: true,
-    });
-    this.cropRect = rect;
-    this.updateCropOverlays();
-    this.canvas.setActiveObject(rect);
-  }
-
-  /**
-   * Finalize a region as gaussian blur: apply CSS blur filter to the background
-   * region and replace the placeholder rect with a FabricImage of the blurred data.
-   */
-  private finalizeGaussianBlur(rect: Rect, sx: number, sy: number, ex: number, ey: number): void {
-    if (!this.canvas) return;
-    this.canvas.remove(rect);
-
-    const region = clampRegion(sx, sy, ex, ey, this.imageWidth, this.imageHeight);
-    if (!region) return;
-
-    const bgImg = this.canvas.backgroundImage;
-    if (!bgImg) return;
-    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
-
-    const radius = this.blurRadius;
-    const dataUrl = renderBlurRegion(bgEl, region, radius, this.imageWidth, this.imageHeight);
-
-    FabricImage.fromURL(dataUrl).then((blurImg) => {
-      if (!this.canvas) {
-        this.isDrawing = false;
-        return;
-      }
-      blurImg.set({
-        left: region.left,
-        top: region.top,
-        originX: 'left',
-        originY: 'top',
-        selectable: true,
-        evented: true,
-        _wegweiserType: 'blurOverlay',
-        _wegweiserEffect: 'blur',
-        _wegweiserBlurRadius: radius,
-      } as any);
-      this.canvas.add(blurImg);
-      this.isDrawing = false;
-      this.pushSnapshot();
-      this.updateCounts();
-      this.canvas.setActiveObject(blurImg);
-      this.canvas.renderAll();
-    });
-  }
-
-  /**
-   * Finalize a region as pixelate: downsample then upscale with nearest-neighbor
-   * and replace the placeholder rect with a FabricImage of the pixelated data.
-   */
-  private finalizePixelate(rect: Rect, sx: number, sy: number, ex: number, ey: number): void {
-    if (!this.canvas) return;
-    this.canvas.remove(rect);
-
-    const region = clampRegion(sx, sy, ex, ey, this.imageWidth, this.imageHeight);
-    if (!region) return;
-
-    const bgImg = this.canvas.backgroundImage;
-    if (!bgImg) return;
-    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
-
-    const blockSize = this.pixelateBlockSize;
-    const dataUrl = renderPixelateRegion(bgEl, region, blockSize);
-
-    FabricImage.fromURL(dataUrl).then((pixelImg) => {
-      if (!this.canvas) {
-        this.isDrawing = false;
-        return;
-      }
-      pixelImg.set({
-        left: region.left,
-        top: region.top,
-        originX: 'left',
-        originY: 'top',
-        selectable: true,
-        evented: true,
-        _wegweiserType: 'pixelateOverlay',
-        _wegweiserEffect: 'pixelate',
-        _wegweiserBlockSize: blockSize,
-      } as any);
-      this.canvas.add(pixelImg);
-      this.isDrawing = false;
-      this.pushSnapshot();
-      this.updateCounts();
-      this.canvas.setActiveObject(pixelImg);
-      this.canvas.renderAll();
-    });
-  }
-
-  /**
-   * Re-render a blur or pixelate overlay in place.
-   * Re-extracts the region from the background image at the object's current
-   * bounding box (accounting for scale) and re-applies the stored effect.
-   * Updates the overlay's image source via setSrc, preserving position and z-index.
-   */
-  private reRenderOverlay(obj: FabricImage): void {
-    if (!this.canvas) return;
-    const wegType = (obj as any)._wegweiserType as string;
-    if (wegType !== 'blurOverlay' && wegType !== 'pixelateOverlay') return;
-
-    const bgImg = this.canvas.backgroundImage;
-    if (!bgImg) return;
-    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
-
-    const left = Math.round(obj.left ?? 0);
-    const top = Math.round(obj.top ?? 0);
-    const width = Math.round((obj.width ?? 0) * (obj.scaleX ?? 1));
-    const height = Math.round((obj.height ?? 0) * (obj.scaleY ?? 1));
-
-    const region = clampOverlayRegion(left, top, width, height, this.imageWidth, this.imageHeight);
-    if (!region) return;
-
-    let dataUrl: string;
-
-    if (wegType === 'blurOverlay') {
-      const radius = this.blurRadius;
-      dataUrl = renderBlurRegion(bgEl, region, radius, this.imageWidth, this.imageHeight);
-      (obj as any)._wegweiserBlurRadius = radius;
-    } else {
-      const blockSize = this.pixelateBlockSize;
-      dataUrl = renderPixelateRegion(bgEl, region, blockSize);
-      (obj as any)._wegweiserBlockSize = blockSize;
-    }
-
-    // Update the overlay image source in place, then reset scale to 1 since
-    // the new image already has the correct pixel dimensions.
-    obj.setSrc(dataUrl).then(() => {
-      if (!this.canvas) return;
-      obj.set({
-        left: region.left,
-        top: region.top,
-        scaleX: 1,
-        scaleY: 1,
-        width: region.width,
-        height: region.height,
-      });
-      obj.setCoords();
-      this.canvas.renderAll();
-      // Push a snapshot after the async image update.
-      this.pushSnapshot();
-      this.updateCounts();
-    });
+    this.registry.get(this.tool)?.onMouseUp(this.ctx, pointer, e);
   }
 
   /** Set the crop rect from external coordinates (used by Window Select). */
   setCropFromRect(x: number, y: number, w: number, h: number): void {
     if (!this.canvas) return;
-
-    // Remove old crop.
-    if (this.cropRect) {
-      this.canvas.remove(this.cropRect);
-      this.removeCropOverlays();
-    }
-
-    const rect = new Rect({
-      left: x,
-      top: y,
-      originX: 'left',
-      originY: 'top',
-      width: w,
-      height: h,
-      fill: 'transparent',
-      stroke: '#ffffff',
-      strokeWidth: 2,
-      strokeDashArray: [8, 4],
-      selectable: true,
-      evented: true,
-      hasRotatingPoint: false,
-      lockRotation: true,
-      strokeUniform: true,
-      _wegweiserType: 'cropMask',
-    } as any);
-
-    this.canvas.add(rect);
-    this.cropRect = rect;
-    this.updateCropOverlays();
-    this.canvas.setActiveObject(rect);
-    this.canvas.renderAll();
+    (this.registry.get('crop') as CropToolHandler).setCropFromRect(this.ctx, x, y, w, h);
   }
 
   /** Clear the crop rect and overlays. */
   clearCrop(): void {
-    if (!this.canvas || !this.cropRect) return;
-    this.canvas.remove(this.cropRect);
-    this.removeCropOverlays();
-    this.cropRect = null;
-    this.canvas.renderAll();
-  }
-
-  /** Create/update the 4 dim overlay rects around the crop area. */
-  private updateCropOverlays(): void {
-    if (!this.canvas || !this.cropRect) return;
-    this.removeCropOverlays();
-
-    const cx = this.cropRect.left!;
-    const cy = this.cropRect.top!;
-    const cw = this.cropRect.width! * (this.cropRect.scaleX ?? 1);
-    const ch = this.cropRect.height! * (this.cropRect.scaleY ?? 1);
-    const iw = this.imageWidth;
-    const ih = this.imageHeight;
-
-    const dimColor = 'rgba(0, 0, 0, 0.5)';
-    const common = {
-      fill: dimColor,
-      originX: 'left',
-      originY: 'top',
-      selectable: false,
-      evented: false,
-      excludeFromExport: true,
-      _wegweiserType: 'cropOverlay',
-    } as any;
-
-    // Top strip.
-    if (cy > 0) {
-      this.cropOverlays.push(new Rect({ left: 0, top: 0, width: iw, height: cy, ...common }));
-    }
-    // Bottom strip.
-    if (cy + ch < ih) {
-      this.cropOverlays.push(new Rect({ left: 0, top: cy + ch, width: iw, height: ih - cy - ch, ...common }));
-    }
-    // Left strip (between top and bottom).
-    if (cx > 0) {
-      this.cropOverlays.push(new Rect({ left: 0, top: cy, width: cx, height: ch, ...common }));
-    }
-    // Right strip (between top and bottom).
-    if (cx + cw < iw) {
-      this.cropOverlays.push(new Rect({ left: cx + cw, top: cy, width: iw - cx - cw, height: ch, ...common }));
-    }
-
-    for (const overlay of this.cropOverlays) {
-      this.canvas.add(overlay);
-    }
-
-    // Ensure crop rect is above overlays.
-    this.canvas.bringObjectToFront(this.cropRect);
-  }
-
-  /** Remove all crop overlay rects from the canvas. */
-  private removeCropOverlays(): void {
     if (!this.canvas) return;
-    for (const overlay of this.cropOverlays) {
-      this.canvas.remove(overlay);
-    }
-    this.cropOverlays = [];
-  }
-
-  /** Hide crop visuals for export (overlays + crop rect stroke). */
-  private hideCropVisuals(): void {
-    for (const overlay of this.cropOverlays) {
-      overlay.set({ visible: false });
-    }
-    if (this.cropRect) {
-      this.cropRect.set({ visible: false });
-    }
-  }
-
-  /** Show crop visuals after export. */
-  private showCropVisuals(): void {
-    for (const overlay of this.cropOverlays) {
-      overlay.set({ visible: true });
-    }
-    if (this.cropRect) {
-      this.cropRect.set({ visible: true });
-    }
+    (this.registry.get('crop') as CropToolHandler).clearCrop(this.ctx);
   }
 
   /** Iterate over all annotation objects (excluding crop overlays). */
@@ -1222,17 +807,8 @@ export class FabricCanvasWrapper {
 
     this.canvas.backgroundImage = bg;
 
-    // Rebuild crop state.
-    this.cropRect = null;
-    this.cropOverlays = [];
-    this.canvas.getObjects().forEach((obj) => {
-      if ((obj as any)._wegweiserType === 'cropMask') {
-        this.cropRect = obj as Rect;
-      }
-    });
-    if (this.cropRect) {
-      this.updateCropOverlays();
-    }
+    // Rescan for cropMask and rebuild dim overlays.
+    (this.registry.get('crop') as CropToolHandler).updateCropOverlays(this.ctx);
 
     (this.registry.get('callout') as CalloutToolHandler).recalcCalloutNumbers(this.canvas);
     // Re-attach hiddenTextareaContainer on IText objects lost during JSON round-trip.
@@ -1261,9 +837,10 @@ export class FabricCanvasWrapper {
       // Rebuild crop overlays if the crop rect was moved/resized.
       // Use isRestoring=true to suppress the object:added/removed events fired
       // by the overlay update — they must not trigger another onCanvasModified.
-      if (this.cropRect) {
+      const cropHandler = this.registry.get('crop') as CropToolHandler;
+      if (cropHandler.getCropRect()) {
         this.isRestoring = true;
-        this.updateCropOverlays();
+        cropHandler.updateCropOverlays(this.ctx);
         this.isRestoring = false;
       }
     }, 0);

@@ -1,4 +1,5 @@
 import type { Canvas, FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
+import type { ObfuscationEffect } from '../obfuscation.js';
 
 /**
  * Context object passed to every ToolHandler call.
@@ -14,6 +15,9 @@ export interface ToolContext {
   readonly fillColor: string;
   readonly blurRadius: number;
   readonly pixelateBlockSize: number;
+  readonly obfuscationEffect: ObfuscationEffect;
+  readonly imageWidth: number;
+  readonly imageHeight: number;
   pushSnapshot(): void;
   updateCounts(): void;
   setDrawing(active: boolean): void;
