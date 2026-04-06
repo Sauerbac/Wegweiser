@@ -20,7 +20,7 @@
     Undo2,
   } from "@lucide/svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
-  import { getReviewContext } from "$lib/stores/review-context.svelte";
+  import { getReviewContext } from "$lib/review/context.svelte";
   import { store } from "$lib/stores/session.svelte";
 
   interface Props {

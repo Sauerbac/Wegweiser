@@ -1,10 +1,10 @@
 import { setContext, getContext } from 'svelte';
 import type { AppStore } from '$lib/stores/session.svelte';
 import type { ImageCacheStore } from '$lib/stores/image-cache.svelte';
-import type { createDragReorder } from '$lib/stores/drag-reorder.svelte';
-import type { createExportChoice } from '$lib/stores/export-choice.svelte';
-import type { ReviewUndoStore } from '$lib/stores/undo.svelte';
-import type { createEditorSession } from '$lib/stores/editor-session.svelte';
+import type { createDragReorder } from '$lib/review/drag-reorder.svelte';
+import type { createExportChoice } from '$lib/review/export-choice.svelte';
+import type { ReviewUndoStore } from '$lib/review/undo.svelte';
+import type { createEditorSession } from '$lib/review/editor-session.svelte';
 
 const REVIEW_CTX_KEY = Symbol('review-context');
 

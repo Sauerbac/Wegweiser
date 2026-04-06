@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { untrack } from 'svelte';
-  import { getReviewContext } from '$lib/stores/review-context.svelte';
+  import { getReviewContext } from '$lib/review/context.svelte';
   import type { Step, WindowRect } from '$lib/types';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';

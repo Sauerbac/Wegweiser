@@ -3,7 +3,7 @@
   import { AlignLeft, EyeOff, GripVertical, Keyboard } from '@lucide/svelte';
   import type { Step } from '$lib/types';
   import { countKeystrokes } from '$lib/utils';
-  import { getReviewContext } from '$lib/stores/review-context.svelte';
+  import { getReviewContext } from '$lib/review/context.svelte';
   import DragInsertBar from './DragInsertBar.svelte';
 
   interface Props {

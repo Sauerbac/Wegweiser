@@ -4,13 +4,13 @@
   import { Button } from "$lib/components/ui/button";
   import { store } from "$lib/stores/session.svelte";
   import { imageStore } from "$lib/stores/image-cache.svelte";
-  import { ReviewUndoStore } from "$lib/stores/undo.svelte";
+  import { ReviewUndoStore } from "$lib/review/undo.svelte";
   import { createSelectableList } from "$lib/stores/selectable.svelte";
-  import { createDragReorder } from "$lib/stores/drag-reorder.svelte";
-  import { createExportChoice } from "$lib/stores/export-choice.svelte";
-  import { createEditorSession } from "$lib/stores/editor-session.svelte";
+  import { createDragReorder } from "$lib/review/drag-reorder.svelte";
+  import { createExportChoice } from "$lib/review/export-choice.svelte";
+  import { createEditorSession } from "$lib/review/editor-session.svelte";
   import { createConfirmAction } from "$lib/stores/confirm-action.svelte";
-  import { setReviewContext } from "$lib/stores/review-context.svelte";
+  import { setReviewContext } from "$lib/review/context.svelte";
   import type { Step } from "$lib/types";
   import {
     Circle,
