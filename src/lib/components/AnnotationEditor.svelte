@@ -94,7 +94,7 @@
   /** Help text per tool. */
   const helpText: Record<AnnotationTool, string> = {
     select: 'Click an annotation to select it. Drag to move, use handles to resize.',
-    arrow: 'Click and drag to draw an arrow.',
+    arrow: 'Drag for a quick arrow, or click to start a multi-segment polyline.',
     rectangle: 'Click and drag to draw a rectangle.',
     ellipse: 'Click and drag to draw an ellipse.',
     freehand: 'Draw freely with the mouse.',
@@ -315,6 +315,17 @@
       return;
     }
 
+    // Enter: finalize an in-progress arrow polyline.
+    if (e.key === 'Enter') {
+      if (initialized && fabricCanvas.arrowPolylineMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        fabricCanvas.finalizeArrowPolyline();
+        return;
+      }
+      // Fall through — not consumed.
+    }
+
     // Escape: 3-stage behavior
     //   1. Something selected → deselect only
     //   2. Non-select tool active → switch to select tool
@@ -323,7 +334,7 @@
       e.preventDefault();
       e.stopPropagation();
       if (initialized) {
-        // Stage 0: cancel an in-progress shape drag.
+        // Stage 0: cancel an in-progress shape drag or polyline.
         if (fabricCanvas.cancelDrawing()) return;
         const hasSelection = !!fabricCanvas.getCanvas()?.getActiveObject();
         if (hasSelection) {
@@ -468,7 +479,13 @@
     <!-- Status bar -->
     <div class="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
       <p class="text-xs text-muted-foreground">
-        {windowSelectActive ? 'Click a window border to crop to that window.' : helpText[fabricCanvas.tool]}
+        {#if windowSelectActive}
+          Click a window border to crop to that window.
+        {:else if fabricCanvas.arrowPolylineMode}
+          Click to add waypoints. Double-click or press Enter to finish.
+        {:else}
+          {helpText[fabricCanvas.tool]}
+        {/if}
       </p>
       <p class={`text-xs text-muted-foreground ${fabricCanvas.isDrawing ? '' : 'invisible'}`}>
         Press Esc to cancel
