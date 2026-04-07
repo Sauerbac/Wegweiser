@@ -60,13 +60,18 @@ export class RectangleToolHandler implements ToolHandler {
     this.shape = rect;
   }
 
-  onMouseMove(ctx: ToolContext, pointer: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {
+  onMouseMove(ctx: ToolContext, pointer: { x: number; y: number }, e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.shape) return;
-    const left = Math.min(this.startX, pointer.x);
-    const top = Math.min(this.startY, pointer.y);
-    const width = Math.abs(pointer.x - this.startX);
-    const height = Math.abs(pointer.y - this.startY);
-    this.shape.set({ left, top, width, height });
+    let dx = pointer.x - this.startX;
+    let dy = pointer.y - this.startY;
+    if ((e.e as MouseEvent).shiftKey) {
+      const side = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = (dx < 0 ? -1 : 1) * side;
+      dy = (dy < 0 ? -1 : 1) * side;
+    }
+    const left = Math.min(this.startX, this.startX + dx);
+    const top = Math.min(this.startY, this.startY + dy);
+    this.shape.set({ left, top, width: Math.abs(dx), height: Math.abs(dy) });
     ctx.canvas.renderAll();
   }
 

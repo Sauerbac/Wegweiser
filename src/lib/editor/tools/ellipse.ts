@@ -60,13 +60,18 @@ export class EllipseToolHandler implements ToolHandler {
     this.shape = ellipse;
   }
 
-  onMouseMove(ctx: ToolContext, pointer: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {
+  onMouseMove(ctx: ToolContext, pointer: { x: number; y: number }, e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.shape) return;
-    const left = Math.min(this.startX, pointer.x);
-    const top = Math.min(this.startY, pointer.y);
-    const rx = Math.abs(pointer.x - this.startX) / 2;
-    const ry = Math.abs(pointer.y - this.startY) / 2;
-    this.shape.set({ left, top, rx, ry });
+    let dx = pointer.x - this.startX;
+    let dy = pointer.y - this.startY;
+    if ((e.e as MouseEvent).shiftKey) {
+      const side = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = (dx < 0 ? -1 : 1) * side;
+      dy = (dy < 0 ? -1 : 1) * side;
+    }
+    const left = Math.min(this.startX, this.startX + dx);
+    const top = Math.min(this.startY, this.startY + dy);
+    this.shape.set({ left, top, rx: Math.abs(dx) / 2, ry: Math.abs(dy) / 2 });
     ctx.canvas.renderAll();
   }
 

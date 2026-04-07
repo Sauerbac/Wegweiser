@@ -146,9 +146,8 @@ export class FabricCanvasWrapper {
   /** Last known mouse position in scene (canvas) coordinates, updated on every mouse:move. */
   private lastMouseScenePos: { x: number; y: number } | null = null;
 
-  /** Keyboard event listeners for Shift-to-constrain. */
+  /** Keydown listener for re-anchoring uniform scaling when Shift is pressed mid-drag. */
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null;
-  private _onKeyUp: ((e: KeyboardEvent) => void) | null = null;
 
   /**
    * Initialize the Fabric.js canvas on the given HTML canvas element.
@@ -207,24 +206,24 @@ export class FabricCanvasWrapper {
       getCurrentTool: () => wrapper.tool,
     };
 
+    // When Shift is pressed mid-drag, re-anchor the transform's original state to the
+    // current scale so uniform scaling locks to the aspect ratio at the moment Shift
+    // is pressed, not the pre-drag ratio.
+    this._onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && this.canvas) {
+        const transform = (this.canvas as any)._currentTransform;
+        if (transform?.target) {
+          transform.original.scaleX = transform.target.scaleX;
+          transform.original.scaleY = transform.target.scaleY;
+        }
+      }
+    };
+    window.addEventListener('keydown', this._onKeyDown);
+
     // Wire up event handlers.
     this.canvas.on('mouse:down', (e) => this.onMouseDown(e));
     this.canvas.on('mouse:move', (e) => this.onMouseMove(e));
     this.canvas.on('mouse:up', (e) => this.onMouseUp(e));
-
-    // Shift key: enable uniform (constrained) scaling while held.
-    this._onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && this.canvas) {
-        this.canvas.uniformScaling = true;
-      }
-    };
-    this._onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' && this.canvas) {
-        this.canvas.uniformScaling = false;
-      }
-    };
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup', this._onKeyUp);
 
     // Track modifications for undo.
     this.canvas.on('object:added', () => this.onCanvasModified());
@@ -312,10 +311,7 @@ export class FabricCanvasWrapper {
   /** Clean up the Fabric.js canvas. */
   dispose(): void {
     if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
-    if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
     this._onKeyDown = null;
-    this._onKeyUp = null;
-
     if (this.canvas) {
       this.canvas.dispose();
       this.canvas = null;
