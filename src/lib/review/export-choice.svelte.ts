@@ -1,12 +1,29 @@
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
-import { store } from '$lib/stores/session.svelte';
 import { imageStore } from '$lib/stores/image-cache.svelte';
 import type { Step } from '$lib/types';
 import { extraTabIndex } from '$lib/utils';
 
 /**
- * createExportChoice — monitor-tab view + export inclusion logic for the detail panel.
+ * Expand a step's export_choice to a full-length boolean array.
+ *
+ * - Empty array → all `totalCount` images included (legacy "All" sentinel).
+ * - Short array → padded with `false` to `totalCount` entries.
+ *
+ * Mirrors `Step::effective_export_selection` in Rust (model.rs).
+ */
+export function expandExportChoice(choice: boolean[], totalCount: number): boolean[] {
+  if (choice.length === 0) {
+    return Array(totalCount).fill(true);
+  }
+  return Array.from({ length: totalCount }, (_, i) => choice[i] ?? false);
+}
+
+/**
+ * createExportChoice — monitor-tab view state + export inclusion domain logic
+ * for the detail panel.
+ *
+ * File I/O orchestration (exportMarkdown, exportHtml, openExported) lives in
+ * createExportActions (export-actions.svelte.ts).
  *
  * @param getSelectedStep   Reactive getter for the currently selected Step (or null).
  * @param getSelectedStepId Reactive getter for the selected step's ID only — used to
@@ -31,8 +48,6 @@ export function createExportChoice(
   let lastNonEmptyMonitorTab = $state<string>('primary');
   /** Set to true while a monitor-export checkbox is being pressed; suppresses tab switching in onValueChange. */
   let checkboxInteracting = false;
-  /** Whether the export dropdown is open. */
-  let exportOpen = $state(false);
 
   // Reset the monitor tab only when the selected step ID changes, not on every
   // content update (e.g. image_version bump after an edit).
@@ -95,14 +110,7 @@ export function createExportChoice(
     const extraCount = step.extra_image_paths?.length ?? 0;
     const totalCount = 1 + extraCount;
 
-    // Expand current choice to full-length array.
-    const current = step.export_choice;
-    let expanded: boolean[];
-    if (current.length === 0) {
-      expanded = Array(totalCount).fill(true); // empty = all included
-    } else {
-      expanded = Array.from({ length: totalCount }, (_, i) => current[i] ?? false);
-    }
+    const expanded = expandExportChoice(step.export_choice, totalCount);
 
     // Flip the toggled index.
     const idx = tab === 'primary' ? 0 : extraTabIndex(tab) + 1;
@@ -129,19 +137,12 @@ export function createExportChoice(
   function getExportedImageKeys(
     step: Step,
   ): { cacheKey: string; isExtra: boolean; extraIdx: number }[] {
-    const choice = step.export_choice;
     const ver = step.image_version ?? 0;
     const extraCount = step.extra_image_paths?.length ?? 0;
     const totalCount = 1 + extraCount;
     const result: { cacheKey: string; isExtra: boolean; extraIdx: number }[] = [];
 
-    // Expand choice to full-length array.
-    let expanded: boolean[];
-    if (choice.length === 0) {
-      expanded = Array(totalCount).fill(true);
-    } else {
-      expanded = Array.from({ length: totalCount }, (_, i) => choice[i] ?? false);
-    }
+    const expanded = expandExportChoice(step.export_choice, totalCount);
 
     if (expanded[0]) {
       result.push({ cacheKey: imageStore.imageCacheKey(step), isExtra: false, extraIdx: -1 });
@@ -156,47 +157,6 @@ export function createExportChoice(
       }
     }
     return result;
-  }
-
-  async function exportMarkdown() {
-    const filePath = await save({
-      title: 'Export Markdown',
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-      defaultPath: `${store.session?.name ?? 'tutorial'}.md`,
-    });
-    if (!filePath) return;
-    store.clearExportState();
-    try {
-      const outPath = await invoke<string>('export_markdown', { outputPath: filePath });
-      store.exportedPath = outPath;
-    } catch (err) {
-      console.error('Failed to export Markdown:', err);
-    }
-  }
-
-  async function exportHtml() {
-    const path = await save({
-      title: 'Export HTML',
-      filters: [{ name: 'HTML', extensions: ['html'] }],
-      defaultPath: `${store.session?.name ?? 'tutorial'}.html`,
-    });
-    if (!path) return;
-    store.clearExportState();
-    try {
-      await invoke('export_html', { outputPath: path });
-    } catch (err) {
-      console.error('Failed to export HTML:', err);
-    }
-  }
-
-  async function openExported() {
-    if (store.exportedPath) {
-      try {
-        await invoke('open_path', { path: store.exportedPath });
-      } catch (err) {
-        console.error('Failed to open exported file:', err);
-      }
-    }
   }
 
   return {
@@ -218,12 +178,6 @@ export function createExportChoice(
     set checkboxInteracting(v: boolean) {
       checkboxInteracting = v;
     },
-    get exportOpen() {
-      return exportOpen;
-    },
-    set exportOpen(v: boolean) {
-      exportOpen = v;
-    },
     get editorExtraIndex() {
       return editorExtraIndex;
     },
@@ -233,8 +187,5 @@ export function createExportChoice(
     toggleExportMonitor,
     monitorExportCount,
     getExportedImageKeys,
-    exportMarkdown,
-    exportHtml,
-    openExported,
   };
 }

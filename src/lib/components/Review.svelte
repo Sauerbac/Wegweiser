@@ -8,6 +8,7 @@
   import { createSelectableList } from "$lib/stores/selectable.svelte";
   import { createDragReorder } from "$lib/review/drag-reorder.svelte";
   import { createExportChoice } from "$lib/review/export-choice.svelte";
+  import { createExportActions } from "$lib/review/export-actions.svelte";
   import { createEditorSession } from "$lib/review/editor-session.svelte";
   import { createConfirmAction } from "$lib/stores/confirm-action.svelte";
   import { setReviewContext } from "$lib/review/context.svelte";
@@ -82,6 +83,8 @@
     () => selectedStepId,
   );
 
+  const exportActions = createExportActions();
+
   /** Image editor session — owns open flag, tick counters, depth bindings, and keyboard shortcuts. */
   const editorSession = createEditorSession(reviewUndo, () => selectedStepId, () => isEditing);
 
@@ -92,6 +95,7 @@
     imageStore,
     drag,
     ec,
+    exportActions,
     reviewUndo,
     editorSession,
     get isBulkSelectActive() { return isBulkSelectActive; },
@@ -425,7 +429,7 @@
     <ExportStatusBar
       exportProgress={store.exportProgress}
       exportedPath={store.exportedPath}
-      onOpen={ec.openExported}
+      onOpen={exportActions.openExported}
     />
   {/snippet}
 </PageLayout>

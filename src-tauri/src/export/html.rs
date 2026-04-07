@@ -139,15 +139,7 @@ pub fn export(
         let extra_count = step.extra_image_paths.len();
         let total_count = 1 + extra_count;
 
-        // Derive effective selection from export_choice.
-        // Empty vec = all included (migration sentinel for old `All`).
-        let sel: Vec<bool> = if step.export_choice.is_empty() {
-            vec![true; total_count]
-        } else {
-            (0..total_count)
-                .map(|j| step.export_choice.get(j).copied().unwrap_or(false))
-                .collect()
-        };
+        let sel = step.effective_export_selection(total_count);
 
         // Open the step section.
         write!(w, "  <section class=\"step\">\n    <h2>Step {order}</h2>\n", order = step.order)?;

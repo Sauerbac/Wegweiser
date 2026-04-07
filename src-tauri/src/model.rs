@@ -89,6 +89,23 @@ pub struct Step {
     pub preview_path: Option<PathBuf>,
 }
 
+impl Step {
+    /// Returns a full-length boolean slice indicating which monitor images are
+    /// included in the export for this step.
+    ///
+    /// - Empty `export_choice` → all `total_count` images are included (legacy "All" sentinel).
+    /// - Short `export_choice` → padded with `false` to `total_count` entries.
+    pub fn effective_export_selection(&self, total_count: usize) -> Vec<bool> {
+        if self.export_choice.is_empty() {
+            vec![true; total_count]
+        } else {
+            (0..total_count)
+                .map(|i| self.export_choice.get(i).copied().unwrap_or(false))
+                .collect()
+        }
+    }
+}
+
 /// Bounding box of a visible top-level window, in monitor-relative physical pixels.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowRect {

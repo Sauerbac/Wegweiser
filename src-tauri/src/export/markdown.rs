@@ -33,15 +33,7 @@ pub fn export(session: &Session, output_path: &Path) -> Result<()> {
         let extra_count = step.extra_image_paths.len();
         let total_count = 1 + extra_count;
 
-        // Derive effective selection from export_choice.
-        // Empty vec = all included (migration sentinel for old `All`).
-        let sel: Vec<bool> = if step.export_choice.is_empty() {
-            vec![true; total_count]
-        } else {
-            (0..total_count)
-                .map(|i| step.export_choice.get(i).copied().unwrap_or(false))
-                .collect()
-        };
+        let sel = step.effective_export_selection(total_count);
 
         // Skip step if all monitors are excluded.
         if sel.iter().all(|&b| !b) {

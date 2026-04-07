@@ -37,7 +37,7 @@
     exportError,
   }: Props = $props();
 
-  const { reviewUndo, ec } = getReviewContext();
+  const { reviewUndo, ec, exportActions } = getReviewContext();
 
   // ── Session name draft ─────────────────────────────────────────────────────
   // Draft value for the session name input. Synced from the store when the
@@ -115,23 +115,19 @@
       onclick={() => store.markSaved()}
       disabled={!isDirty}><Save /></Button
     >
-    <DropdownMenu bind:open={ec.exportOpen}>
+    <DropdownMenu>
       <DropdownMenuTrigger>
         {#snippet child({ props })}
           <Button variant="outline" size="sm" {...props}>
-            Export<ChevronDown
-              class="size-4 transition-transform duration-200 {ec.exportOpen
-                ? 'rotate-180'
-                : ''}"
-            />
+            Export<ChevronDown />
           </Button>
         {/snippet}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onclick={ec.exportMarkdown}>
+        <DropdownMenuItem onclick={exportActions.exportMarkdown}>
           <FileDown class="text-foreground" />Markdown (.md)
         </DropdownMenuItem>
-        <DropdownMenuItem onclick={ec.exportHtml}>
+        <DropdownMenuItem onclick={exportActions.exportHtml}>
           <FileCode class="text-foreground" />HTML (.html)
         </DropdownMenuItem>
       </DropdownMenuContent>
