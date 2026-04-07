@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import { Trash2 } from '@lucide/svelte';
+  import { PRESET_COLORS } from '$lib/editor/constants';
 
   interface Props {
     color: string;
@@ -35,16 +36,6 @@
     ondelete,
   }: Props = $props();
 
-  const presetColors = [
-    '#ef4444', // red
-    '#3b82f6', // blue
-    '#22c55e', // green
-    '#eab308', // yellow
-    '#f97316', // orange
-    '#ffffff', // white
-    '#000000', // black
-  ];
-
   /** True when the current stroke color is transparent (no stroke). */
   const strokeIsTransparent = $derived(color === 'transparent');
 
@@ -75,7 +66,7 @@
         <span class="absolute inset-0 bg-white"></span>
         <span class="absolute inset-0" style="background: linear-gradient(to bottom right, transparent calc(50% - 1px), #ef4444 calc(50% - 1px), #ef4444 calc(50% + 1px), transparent calc(50% + 1px));"></span>
       </button>
-      {#each presetColors as c}
+      {#each PRESET_COLORS as c}
         <button
           class="size-6 rounded-full border-2 transition-transform hover:scale-110"
           class:border-foreground={color === c}
@@ -113,7 +104,7 @@
           <span class="absolute inset-0 bg-white"></span>
           <span class="absolute inset-0" style="background: linear-gradient(to bottom right, transparent calc(50% - 1px), #ef4444 calc(50% - 1px), #ef4444 calc(50% + 1px), transparent calc(50% + 1px));"></span>
         </button>
-        {#each presetColors as c}
+        {#each PRESET_COLORS as c}
           <button
             class="size-6 rounded-full border-2 transition-transform hover:scale-110"
             class:border-foreground={fillEnabled && fillColor === c}

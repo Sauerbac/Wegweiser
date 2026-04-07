@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { PRESET_COLORS } from '$lib/editor/constants';
+
   interface Props {
     label: string;
     value: string;
@@ -7,16 +9,6 @@
   }
 
   let { label, value, allowTransparent = false, onchange }: Props = $props();
-
-  const presetColors = [
-    '#ef4444', // red
-    '#3b82f6', // blue
-    '#22c55e', // green
-    '#eab308', // yellow
-    '#f97316', // orange
-    '#ffffff', // white
-    '#000000', // black
-  ];
 
   const isTransparent = $derived(value === 'transparent');
 </script>
@@ -40,7 +32,7 @@
         ></span>
       </button>
     {/if}
-    {#each presetColors as c}
+    {#each PRESET_COLORS as c}
       <button
         class="size-6 rounded-full border-2 transition-transform hover:scale-110"
         class:border-foreground={value === c}
