@@ -1,4 +1,4 @@
-use super::{emit_undo_state, AppStateHandle};
+use super::{emit_undo_state, AppStateHandle, UNDO_HISTORY_CAP};
 use crate::session;
 use tauri::{AppHandle, Emitter, State};
 
@@ -35,7 +35,7 @@ pub fn redo_session(
         let next_session = st.redo_history.pop().ok_or("Nothing to redo")?;
         // Push current session onto undo stack (without clearing redo).
         if let Some(current) = st.session.clone() {
-            if st.undo_history.len() >= 50 {
+            if st.undo_history.len() >= UNDO_HISTORY_CAP {
                 st.undo_history.remove(0);
             }
             st.undo_history.push(current);

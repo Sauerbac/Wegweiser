@@ -7,7 +7,25 @@ export type ReviewUndoEntry =
 /**
  * Manages the Review-screen undo/redo stack.
  *
- * Two kinds of entries:
+ * ## Dual-stack contract
+ *
+ * The app maintains two independent but coordinated undo stacks:
+ *   1. **Backend** (`AppState.undo_history` / `redo_history`) — full `Session`
+ *      snapshots, capped at `UNDO_HISTORY_CAP` (currently 50, defined in
+ *      `src-tauri/src/commands/mod.rs`).
+ *   2. **Frontend** (`ReviewUndoStore.undoStack` / `redoStack`) — metadata
+ *      entries (`backend` or `editorSession`), driving Ctrl+Z/Y UX.
+ *
+ * **Invariant**: For every `editorSession(depth)` entry on `undoStack`, the
+ * backend undo stack contains exactly `depth` corresponding entries. Any
+ * mutating command that pushes onto the backend stack **must** also call
+ * `pushBackend()` or `pushEditorSession()` on this store; failing to do so
+ * silently desynchronises the stacks and causes incorrect undo behaviour.
+ *
+ * Both caps must remain equal. If `UNDO_HISTORY_CAP` changes in Rust, update
+ * `UNDO_CAP` in `fabric-canvas.svelte.ts` to match.
+ *
+ * ## Entry kinds
  *   - 'backend'       — a single backend-tracked op (delete, rename, reorder).
  *                       Undo/redo calls invoke("undo_session") once.
  *   - 'editorSession' — a collapsed image-editor session. Undo/redo calls

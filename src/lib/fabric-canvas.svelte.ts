@@ -52,6 +52,7 @@ export type AnnotationTool =
 
 export type { ObfuscationEffect } from './editor/obfuscation.js';
 
+/** Maximum annotation-editor undo steps. **Must match `UNDO_HISTORY_CAP` in `src-tauri/src/commands/mod.rs`** — both caps must be equal so that an `editorSession(depth)` entry on the Review undo stack always corresponds to exactly `depth` entries on the backend undo stack. */
 const UNDO_CAP = 50;
 
 export class FabricCanvasWrapper {

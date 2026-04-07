@@ -15,6 +15,12 @@ use tauri::{AppHandle, Emitter};
 
 pub type AppStateHandle = Arc<Mutex<AppState>>;
 
+/// Maximum number of session snapshots kept on the undo/redo history stacks.
+/// **Must match `UNDO_CAP` in `src/lib/fabric-canvas.svelte.ts`** — both stacks
+/// are capped at the same depth so that the frontend `editorSession(depth)` entry
+/// always corresponds to exactly `depth` entries on the backend undo stack.
+pub(super) const UNDO_HISTORY_CAP: usize = 50;
+
 /// Width of the recording mini-bar window in physical pixels.
 pub(super) const MINIBAR_WIDTH: u32 = 380;
 /// Height of the recording mini-bar window in logical pixels.
@@ -37,10 +43,10 @@ pub(super) fn normalize_path_for_frontend(path: &str) -> String {
 }
 
 /// Push a snapshot of the current session onto the undo stack and clear redo.
-/// Caps history at 50 entries (oldest dropped first).
+/// Caps history at [`UNDO_HISTORY_CAP`] entries (oldest dropped first).
 pub(super) fn push_undo(st: &mut AppState) {
     if let Some(ref session) = st.session {
-        if st.undo_history.len() >= 50 {
+        if st.undo_history.len() >= UNDO_HISTORY_CAP {
             st.undo_history.remove(0);
         }
         st.undo_history.push(session.clone());
