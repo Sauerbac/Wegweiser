@@ -181,6 +181,16 @@
     if (steps.length > 0) imageStore.preloadStepImages(steps);
   });
 
+  // Auto-select the first step when steps are restored (e.g. after undoing "delete all steps")
+  // and no step is currently selected. This can happen when all steps were deleted
+  // (setting selectedStepId to null) and then the deletion is undone via Ctrl+Z.
+  $effect(() => {
+    const steps = store.session?.steps ?? [];
+    if (selectedStepId === null && steps.length > 0) {
+      untrack(() => { selectedStepId = steps[0]?.id ?? null; });
+    }
+  });
+
   // Restore description and keystrokes drafts when the selected step changes.
   // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
