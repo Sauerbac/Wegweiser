@@ -38,6 +38,9 @@ export interface Step {
   /** Monitor list indices parallel to extra_image_paths. */
   extra_monitor_indices: number[];
   click: ClickPoint | null;
+  /** Click position relative to the clicked monitor's top-left corner (physical pixels).
+   *  Present for all new steps; absent in older session files (use `click` + monitor origin as fallback). */
+  click_relative: ClickPoint | null;
   description: string;
   /** ISO 8601 UTC datetime string serialized from Rust DateTime<Utc>. */
   timestamp: string;

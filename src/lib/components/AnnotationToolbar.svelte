@@ -11,6 +11,7 @@
     Hash,
     EyeOff,
     Crop,
+    Crosshair,
   } from '@lucide/svelte';
   import type { AnnotationTool } from '$lib/fabric-canvas.svelte';
 
@@ -32,6 +33,7 @@
     { id: 'callout', icon: Hash, label: 'Callout' },
     { id: 'obfuscation', icon: EyeOff, label: 'Obfuscation' },
     { id: 'crop', icon: Crop, label: 'Crop' },
+    { id: 'click-indicator', icon: Crosshair, label: 'Click Indicator' },
   ];
 </script>
 

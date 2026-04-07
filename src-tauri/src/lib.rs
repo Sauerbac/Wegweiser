@@ -1,4 +1,3 @@
-mod annotate;
 mod capture;
 mod commands;
 mod export;

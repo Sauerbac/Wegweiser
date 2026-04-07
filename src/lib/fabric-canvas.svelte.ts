@@ -36,6 +36,7 @@ import {
   CalloutToolHandler,
   ObfuscationToolHandler,
   CropToolHandler,
+  ClickIndicatorToolHandler,
 } from './editor/tools/index.js';
 
 export type AnnotationTool =
@@ -48,7 +49,8 @@ export type AnnotationTool =
   | 'highlight'
   | 'callout'
   | 'obfuscation'
-  | 'crop';
+  | 'crop'
+  | 'click-indicator';
 
 export type { ObfuscationEffect } from './editor/obfuscation.js';
 
@@ -103,6 +105,9 @@ export class FabricCanvasWrapper {
 
   /** Whether the canvas has any annotation objects. */
   hasAnnotations = $state(false);
+
+  /** Whether the click indicator object is currently on the canvas. */
+  clickIndicatorVisible = $state(false);
 
   /** Count of objects on canvas (excluding crop mask internals). */
   objectCount = $state(0);
@@ -244,6 +249,9 @@ export class FabricCanvasWrapper {
       if (target && (target as any).customType === 'polyline-arrow') {
         arrowHandler.enterEditMode(this.ctx, target as Group);
       }
+      if (target && (target as any)._wegweiserType === 'clickIndicator') {
+        this.setTool('click-indicator');
+      }
     });
     this.canvas.on('selection:updated', (e) => {
       this.updateSelectedCount();
@@ -254,6 +262,9 @@ export class FabricCanvasWrapper {
       if (newTarget && (newTarget as any).customType === 'polyline-arrow' &&
           (newTarget as any)._arrowUid !== this.arrowEditingId) {
         arrowHandler.enterEditMode(this.ctx, newTarget as Group);
+      }
+      if (newTarget && (newTarget as any)._wegweiserType === 'clickIndicator') {
+        this.setTool('click-indicator');
       }
     });
     this.canvas.on('selection:cleared', () => {
@@ -647,6 +658,19 @@ export class FabricCanvasWrapper {
     this.isRestoring = false;
     this.updateCounts();
 
+    // If a click indicator was restored from JSON, sync its current canvas
+    // position back into the handler so toggleClickIndicator() places it
+    // where the user last left it, not at the original click_relative.
+    const indicator = this.canvas.getObjects().find(
+      (o) => (o as any)._wegweiserType === 'clickIndicator',
+    );
+    if (indicator && indicator.left !== undefined && indicator.top !== undefined) {
+      (this.registry.get('click-indicator') as ClickIndicatorToolHandler).setPosition(
+        indicator.left,
+        indicator.top,
+      );
+    }
+
     // Reset undo stack to current state.
     this.undoStack = [this.serialize()];
     this.redoStack = [];
@@ -691,6 +715,32 @@ export class FabricCanvasWrapper {
     this.canvas.renderAll();
 
     return dataUrl;
+  }
+
+  /**
+   * Store the click position on the handler so toggleClickIndicator() always
+   * knows where to place the indicator. Must be called before initClickIndicator()
+   * or toggleClickIndicator(), including when re-opening a step that already has
+   * annotations_json (the position isn't stored in the JSON).
+   */
+  setClickIndicatorPosition(x: number, y: number): void {
+    (this.registry.get('click-indicator') as ClickIndicatorToolHandler).setPosition(x, y);
+  }
+
+  /**
+   * Place the click indicator at the previously set position.
+   * Called once from AnnotationEditor when opening a fresh step (no saved annotations).
+   */
+  initClickIndicator(x: number, y: number): void {
+    const handler = this.registry.get('click-indicator') as ClickIndicatorToolHandler;
+    handler.setPosition(x, y);
+    handler.placeIndicator(this.ctx);
+  }
+
+  /** Toggle the click indicator on/off. Delegates to ClickIndicatorToolHandler. */
+  toggleClickIndicator(): void {
+    if (!this.canvas) return;
+    (this.registry.get('click-indicator') as ClickIndicatorToolHandler).toggleIndicator(this.ctx);
   }
 
   /** Get the underlying Fabric.js canvas (for advanced use). */
@@ -858,17 +908,23 @@ export class FabricCanvasWrapper {
     if (!this.canvas) {
       this.hasAnnotations = false;
       this.objectCount = 0;
+      this.clickIndicatorVisible = false;
       return;
     }
     let count = 0;
+    let hasIndicator = false;
     this.canvas.getObjects().forEach((obj) => {
       const type = (obj as any)._wegweiserType;
       if (type !== 'cropOverlay') {
         count++;
       }
+      if (type === 'clickIndicator') {
+        hasIndicator = true;
+      }
     });
     this.objectCount = count;
     this.hasAnnotations = count > 0;
+    this.clickIndicatorVisible = hasIndicator;
   }
 
   /** Update the reactive selected object count. */

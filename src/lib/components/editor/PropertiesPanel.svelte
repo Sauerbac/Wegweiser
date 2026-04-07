@@ -11,6 +11,7 @@
   import CalloutProperties from './properties/CalloutProperties.svelte';
   import ObfuscationProperties from './properties/ObfuscationProperties.svelte';
   import CropProperties from './properties/CropProperties.svelte';
+  import ClickIndicatorProperties from './properties/ClickIndicatorProperties.svelte';
   import type { ObfuscationEffect } from '$lib/fabric-canvas.svelte';
 
   interface Props {
@@ -25,6 +26,7 @@
     blurRadius: number;
     pixelateBlockSize: number;
     hasWindowRects: boolean;
+    indicatorVisible: boolean;
     oncolorChange: (c: string) => void;
     onstrokeWidthChange: (w: number) => void;
     onopacityChange: (o: number) => void;
@@ -35,6 +37,7 @@
     onblurRadiusChange: (r: number) => void;
     onpixelateBlockSizeChange: (s: number) => void;
     onselectWindow: () => void;
+    onindicatorToggle: () => void;
   }
 
   let {
@@ -49,6 +52,7 @@
     blurRadius,
     pixelateBlockSize,
     hasWindowRects,
+    indicatorVisible,
     oncolorChange,
     onstrokeWidthChange,
     onopacityChange,
@@ -59,6 +63,7 @@
     onblurRadiusChange,
     onpixelateBlockSizeChange,
     onselectWindow,
+    onindicatorToggle,
   }: Props = $props();
 </script>
 
@@ -143,5 +148,7 @@
       {hasWindowRects}
       {onselectWindow}
     />
+  {:else if tool === 'click-indicator'}
+    <ClickIndicatorProperties visible={indicatorVisible} ontoggle={onindicatorToggle} />
   {/if}
 </div>

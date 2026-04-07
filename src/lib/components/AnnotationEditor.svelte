@@ -103,6 +103,7 @@
     callout: 'Click to place a numbered callout.',
     obfuscation: 'Click and drag to apply blur or pixelate to a region.',
     crop: 'Click and drag to set the crop region.',
+    'click-indicator': 'Toggle the click indicator on or off.',
   };
 
   /** Whether window-select click mode is active (crop tool). */
@@ -141,9 +142,19 @@
       await fabricCanvas.init(canvasEl, imageUri);
       initialized = true;
 
+      // Always register the click position so the indicator tool knows where to
+      // place the dot even when restoring from saved annotations_json.
+      if (step.click_relative && extraIndex === undefined) {
+        fabricCanvas.setClickIndicatorPosition(step.click_relative.x, step.click_relative.y);
+      }
+
       // If the step has saved annotations, restore them.
       if (step.annotations_json) {
         await fabricCanvas.deserialize(step.annotations_json);
+      } else if (step.click_relative && extraIndex === undefined) {
+        // Fresh step with no annotations yet — inject an editable click indicator
+        // at the monitor-relative click position so the user can move or delete it.
+        fabricCanvas.initClickIndicator(step.click_relative.x, step.click_relative.y);
       }
 
       // Restore the per-step Fabric.js undo/redo stacks from a prior editor
@@ -463,6 +474,7 @@
         blurRadius={fabricCanvas.blurRadius}
         pixelateBlockSize={fabricCanvas.pixelateBlockSize}
         hasWindowRects={visibleWindowRects.length > 0}
+        indicatorVisible={fabricCanvas.clickIndicatorVisible}
         oncolorChange={(c) => fabricCanvas.setColor(c)}
         onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
         onopacityChange={(o) => fabricCanvas.setOpacity(o)}
@@ -473,6 +485,7 @@
         onblurRadiusChange={(r) => fabricCanvas.setBlurRadius(r)}
         onpixelateBlockSizeChange={(s) => fabricCanvas.setPixelateBlockSize(s)}
         onselectWindow={activateWindowSelect}
+        onindicatorToggle={() => fabricCanvas.toggleClickIndicator()}
       />
     </div>
 

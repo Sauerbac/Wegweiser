@@ -68,6 +68,13 @@ pub struct Step {
     #[serde(default)]
     pub extra_monitor_indices: Vec<usize>,
     pub click: Option<ClickPoint>,
+    /// The click position relative to the top-left corner of the clicked monitor
+    /// (physical pixels).  Absent in older session files — use `click` plus the
+    /// monitor origin as a fallback.  Populated for every new step so the
+    /// annotation editor can place the editable click indicator without needing
+    /// the live monitor list.
+    #[serde(default)]
+    pub click_relative: Option<ClickPoint>,
     pub description: String,
     pub timestamp: DateTime<Utc>,
     pub keystrokes: Option<String>,

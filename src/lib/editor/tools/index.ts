@@ -9,6 +9,7 @@ import { CalloutToolHandler } from './callout.js';
 import { ArrowToolHandler } from './arrow.js';
 import { ObfuscationToolHandler } from './obfuscation-tool.js';
 import { CropToolHandler } from './crop.js';
+import { ClickIndicatorToolHandler } from './click-indicator.js';
 
 export { ToolRegistry } from './registry.js';
 export type { ToolContext, ToolHandler } from './tool-handler.js';
@@ -17,6 +18,7 @@ export { TextToolHandler } from './text.js';
 export { CalloutToolHandler } from './callout.js';
 export { ObfuscationToolHandler } from './obfuscation-tool.js';
 export { CropToolHandler } from './crop.js';
+export { ClickIndicatorToolHandler } from './click-indicator.js';
 
 /**
  * Register all annotation tool handlers.
@@ -33,5 +35,6 @@ export function createToolRegistry(): ToolRegistry {
     .register(new CalloutToolHandler())
     .register(new ArrowToolHandler())
     .register(new ObfuscationToolHandler())
-    .register(new CropToolHandler());
+    .register(new CropToolHandler())
+    .register(new ClickIndicatorToolHandler());
 }

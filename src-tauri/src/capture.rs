@@ -23,8 +23,10 @@ pub fn list_monitor_infos() -> Vec<MonitorInfo> {
         .collect()
 }
 
-/// Capture a screenshot of `monitor_index`, draw a click indicator if
-/// `click` is provided, save as PNG to `session_dir`, and return a `Step`.
+/// Capture a screenshot of `monitor_index`, save as PNG to `session_dir`,
+/// and return a `Step`. The click coordinate (if provided) is stored in the
+/// returned `Step` as `click_relative` so the annotation editor can render it
+/// as an editable indicator object instead of baking it into the PNG.
 ///
 /// When `all_monitors` is `true` every monitor **other** than `monitor_index`
 /// is also captured (without annotation) and their paths are stored in
@@ -53,20 +55,18 @@ pub fn capture_step(
         .get(monitor_index)
         .ok_or_else(|| anyhow!("Monitor index {} not found", monitor_index))?;
 
-    // xcap 0.8 returns an RgbaImage directly
-    let mut rgba = monitor.capture_image()?;
+    // Compute the monitor-relative click position before capturing the image.
+    // rdev delivers absolute virtual-desktop coordinates; xcap screenshots are
+    // relative to the monitor's own top-left corner.
+    let mon_origin_x = monitor.x().unwrap_or(0);
+    let mon_origin_y = monitor.y().unwrap_or(0);
+    let click_relative = click.as_ref().map(|cp| crate::model::ClickPoint {
+        x: (cp.x as i32 - mon_origin_x).max(0) as u32,
+        y: (cp.y as i32 - mon_origin_y).max(0) as u32,
+    });
 
-    if let Some(ref cp) = click {
-        // rdev delivers absolute physical-pixel coordinates across the whole
-        // virtual desktop. xcap's screenshot is relative to the monitor's own
-        // top-left corner, so we must subtract the monitor origin before drawing.
-        let mon_x = monitor.x().unwrap_or(0);
-        let mon_y = monitor.y().unwrap_or(0);
-        let rel_x = (cp.x as i32 - mon_x).max(0) as u32;
-        let rel_y = (cp.y as i32 - mon_y).max(0) as u32;
-        let adjusted = crate::model::ClickPoint { x: rel_x, y: rel_y };
-        crate::annotate::draw_click_indicator(&mut rgba, &adjusted);
-    }
+    // xcap 0.8 returns an RgbaImage directly
+    let rgba = monitor.capture_image()?;
 
     let filename = format!("step_{:04}.png", step_id);
     let image_path = session_dir.join(&filename);
@@ -93,11 +93,9 @@ pub fn capture_step(
     };
 
     // Enumerate visible windows on the clicked monitor for later use in the image editor.
-    let mon_x = monitor.x().unwrap_or(0);
-    let mon_y = monitor.y().unwrap_or(0);
     let mon_w = monitor.width().unwrap_or(0);
     let mon_h = monitor.height().unwrap_or(0);
-    let window_rects = crate::platform::enumerate_visible_windows(mon_x, mon_y, mon_w, mon_h);
+    let window_rects = crate::platform::enumerate_visible_windows(mon_origin_x, mon_origin_y, mon_w, mon_h);
 
     Ok(Step {
         id: step_id,
@@ -107,6 +105,7 @@ pub fn capture_step(
         click_monitor_index: monitor_index,
         extra_monitor_indices,
         click,
+        click_relative,
         description: String::new(),
         timestamp: Utc::now(),
         keystrokes,

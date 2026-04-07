@@ -7,3 +7,6 @@ export const PRESET_COLORS = [
   '#ffffff', // white
   '#000000', // black
 ] as const;
+
+/** The orange used for the click indicator. Matches PRESET_COLORS[4]. */
+export const CLICK_INDICATOR_COLOR = PRESET_COLORS[4];
