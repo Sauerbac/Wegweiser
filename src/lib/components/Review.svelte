@@ -5,12 +5,12 @@
   import { store } from "$lib/stores/session.svelte";
   import { imageStore } from "$lib/stores/image-cache.svelte";
   import { ReviewUndoStore } from "$lib/review/undo.svelte";
-  import { createSelectableList } from "$lib/stores/selectable.svelte";
+  import { createSelectableList } from "$lib/utils/selectable.svelte";
   import { createDragReorder } from "$lib/review/drag-reorder.svelte";
   import { createExportChoice } from "$lib/review/export-choice.svelte";
   import { createExportActions } from "$lib/review/export-actions.svelte";
   import { createEditorSession } from "$lib/review/editor-session.svelte";
-  import { createConfirmAction } from "$lib/stores/confirm-action.svelte";
+  import { createConfirmAction } from "$lib/utils/confirm-action.svelte";
   import { setReviewContext } from "$lib/review/context.svelte";
   import type { Step } from "$lib/types";
   import {

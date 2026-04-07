@@ -3,8 +3,8 @@
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { store } from '$lib/stores/session.svelte';
-  import { createSelectableList } from '$lib/stores/selectable.svelte';
-  import { createConfirmAction } from '$lib/stores/confirm-action.svelte';
+  import { createSelectableList } from '$lib/utils/selectable.svelte';
+  import { createConfirmAction } from '$lib/utils/confirm-action.svelte';
   import { monitorLabel, pluralS } from '$lib/utils';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
