@@ -4,6 +4,7 @@ use crate::state::{AppState, CaptureTask, RecordingState};
 use rdev::{listen, Button, EventType, Key};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+use anyhow::Result as AnyhowResult;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,37 @@ fn handle_click(
             Some(std::mem::take(&mut st.pending_keystrokes))
         };
 
+        // Build a narrow callback that captures only what the worker needs:
+        // - Arc<Mutex<AppState>> to push the step into session.steps
+        // - AppHandle to emit the step-captured / step-capture-error event
+        let state_for_cb = Arc::clone(state);
+        let app_handle_for_cb = app_handle.clone();
+        let on_complete = Box::new(move |result: AnyhowResult<crate::model::Step>| {
+            match result {
+                Ok(step) => {
+                    let session_to_save = {
+                        let mut st = state_for_cb.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(ref mut session) = st.session {
+                            session.steps.push(step.clone());
+                            Some(session.clone())
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(ref s) = session_to_save {
+                        if let Err(e) = save_session(s) {
+                            eprintln!("[save_session] failed: {e}");
+                        }
+                    }
+                    let _ = app_handle_for_cb.emit("step-captured", &step);
+                }
+                Err(e) => {
+                    eprintln!("[capture] step capture error: {e}");
+                    let _ = app_handle_for_cb.emit("step-capture-error", format!("{e}"));
+                }
+            }
+        });
+
         let task = CaptureTask {
             monitor_idx,
             click: Some(ClickPoint { x: click_x as u32, y: click_y as u32 }),
@@ -97,8 +129,7 @@ fn handle_click(
             session_dir,
             keystrokes,
             all_monitors,
-            app_handle: app_handle.clone(),
-            state: Arc::clone(state),
+            on_complete,
         };
         Some((task, st.capture_tx.clone()))
     };
@@ -179,7 +210,7 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
         .name("capture-worker".into())
         .spawn(move || {
             for task in rx {
-                match crate::capture::capture_step(
+                let result = crate::capture::capture_step(
                     task.monitor_idx,
                     task.click,
                     task.step_id,
@@ -187,32 +218,8 @@ pub fn spawn_hook_thread(app_handle: AppHandle, state: Arc<Mutex<AppState>>) {
                     &task.session_dir,
                     task.keystrokes,
                     task.all_monitors,
-                ) {
-                    Ok(step) => {
-                        // Push the step into the session and persist it — save
-                        // outside the mutex lock to keep the critical section
-                        // as short as possible.
-                        let session_to_save = {
-                            let mut st = task.state.lock().unwrap_or_else(|e| e.into_inner());
-                            if let Some(ref mut session) = st.session {
-                                session.steps.push(step.clone());
-                                Some(session.clone())
-                            } else {
-                                None
-                            }
-                        };
-                        if let Some(ref s) = session_to_save {
-                            if let Err(e) = save_session(s) {
-                                eprintln!("[save_session] failed: {e}");
-                            }
-                        }
-                        let _ = task.app_handle.emit("step-captured", &step);
-                    }
-                    Err(e) => {
-                        eprintln!("[capture] step capture error: {e}");
-                        let _ = task.app_handle.emit("step-capture-error", format!("{e}"));
-                    }
-                }
+                );
+                (task.on_complete)(result);
             }
         })
         .expect("failed to spawn capture worker");
