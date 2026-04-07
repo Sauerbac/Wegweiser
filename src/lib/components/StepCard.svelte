@@ -126,14 +126,14 @@
         {@const imgKey = exportedKeys[0]}
         {@const src = imgKey.isExtra
           ? ctx.imageStore.extraImageCache[imgKey.cacheKey]
-          : ctx.imageStore.imageCache[imgKey.cacheKey]}
+          : ctx.imageStore.stepDisplayUri[step.id]}
         {@render thumbImg(src, `Step ${idx + 1} thumbnail`)}
       {:else if exportedKeys.length > 1}
         <div class="flex items-center">
           {#each exportedKeys as imgKey, cardIdx (imgKey.cacheKey)}
             {@const src = imgKey.isExtra
               ? ctx.imageStore.extraImageCache[imgKey.cacheKey]
-              : ctx.imageStore.imageCache[imgKey.cacheKey]}
+              : ctx.imageStore.stepDisplayUri[step.id]}
             <div
               class="relative overflow-hidden rounded shadow-sm ring-1 ring-border {cardIdx > 0 ? '-ml-4' : ''}"
               style="z-index: {exportedKeys.length - cardIdx};"

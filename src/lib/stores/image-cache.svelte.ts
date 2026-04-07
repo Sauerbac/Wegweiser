@@ -23,6 +23,15 @@ export class ImageCacheStore {
    * Key: `${step.id}_base_v${step.image_version}` → asset URI.
    */
   baseImageCache = $state<Record<string, string>>({});
+  /**
+   * Stable display URI per step ID — the last successfully loaded primary image URI.
+   * Updated atomically when a new image finishes loading. Never cleared on cache
+   * invalidation (only on clearAll or when a new URI has loaded), so the previous
+   * image stays visible while a replacement loads — preventing blank-frame flicker
+   * on annotation undo and editor exit.
+   * Key: step.id → asset URI.
+   */
+  stepDisplayUri = $state<Record<number, string>>({});
 
   /**
    * Tracks the display path (preview_path ?? image_path) that was last loaded for each step.
@@ -46,7 +55,11 @@ export class ImageCacheStore {
     return `${step.id}_base_v${step.image_version ?? 0}`;
   }
 
-  /** Remove all cache entries for a given step ID (all versions). */
+  /**
+   * Remove all versioned cache entries for a given step ID (all versions).
+   * stepDisplayUri is intentionally NOT cleared here — it keeps the last-known
+   * image visible while the replacement loads, preventing flicker.
+   */
   clearStepImageCache(stepId: number) {
     const prefix = `${stepId}_`;
     for (const key of Object.keys(this.imageCache)) {
@@ -66,6 +79,7 @@ export class ImageCacheStore {
     this.imageCache = {};
     this.extraImageCache = {};
     this.baseImageCache = {};
+    this.stepDisplayUri = {};
     this._loadedDisplayPath.clear();
   }
 
@@ -87,9 +101,18 @@ export class ImageCacheStore {
       // it remains visible until the new fetch resolves, preventing a blank-frame flicker.
       if (!this.imageCache[displayKey] || lastPath !== displayPath) {
         this._loadedDisplayPath.set(step.id, displayPath);
+        const stepId = step.id;
         invoke<string>('get_step_image', { imagePath: displayPath }).then((uri) => {
           this.imageCache[displayKey] = uri;
+          // Atomically promote to the stable display URI so the swap is
+          // instantaneous and never passes through a blank/placeholder frame.
+          this.stepDisplayUri[stepId] = uri;
         }).catch(err => console.error('Failed to load image:', err));
+      } else if (!this.stepDisplayUri[step.id]) {
+        // Cache hit but stepDisplayUri not yet populated (e.g. first render after
+        // component mount). Promote from the existing cache entry immediately so
+        // components using stepDisplayUri show the image without a round-trip.
+        this.stepDisplayUri[step.id] = this.imageCache[displayKey];
       }
 
       // Base image (for editor background — only preload if annotations exist,

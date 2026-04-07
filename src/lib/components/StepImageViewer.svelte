@@ -24,7 +24,6 @@
 
 <div class="mb-3 min-h-0 flex-1 overflow-hidden rounded border bg-muted/20">
   {#if ctx.ec.activeMonitorTab === 'all'}
-    {@const imgKey = ctx.imageStore.imageCacheKey(step)}
     <!-- All monitors: stacked scrollable view -->
     <div class="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <div class="flex flex-col gap-1">
@@ -32,9 +31,9 @@
           <MousePointer2 class="size-4" />
           {monitorLabel(ctx.store.monitors, step.click_monitor_index)}
         </span>
-        {#if ctx.imageStore.imageCache[imgKey]}
+        {#if ctx.imageStore.stepDisplayUri[step.id]}
           <img
-            src={ctx.imageStore.imageCache[imgKey]}
+            src={ctx.imageStore.stepDisplayUri[step.id]}
             alt="Step {stepDisplayNum}"
             class="max-w-full rounded"
           />
@@ -62,9 +61,8 @@
       {/each}
     </div>
   {:else if ctx.ec.activeMonitorTab === 'primary'}
-    {@const imgKey = ctx.imageStore.imageCacheKey(step)}
     <div class="h-full w-full p-2">
-      {@render detailImg(ctx.imageStore.imageCache[imgKey], `Step ${stepDisplayNum}`)}
+      {@render detailImg(ctx.imageStore.stepDisplayUri[step.id], `Step ${stepDisplayNum}`)}
     </div>
   {:else}
     {@const extraIdx = extraTabIndex(ctx.ec.activeMonitorTab)}
