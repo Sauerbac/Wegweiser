@@ -173,6 +173,14 @@
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
+  // Pre-load images whenever the step list changes (new steps, undo/redo, session load).
+  // Owned here rather than in AppStore so that image caching stays decoupled from
+  // session state management.
+  $effect(() => {
+    const steps = store.session?.steps ?? [];
+    if (steps.length > 0) imageStore.preloadStepImages(steps);
+  });
+
   // Restore description and keystrokes drafts when the selected step changes.
   // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
@@ -347,6 +355,8 @@
           isActive={selectedStepId === step.id}
           isHighlighted={reviewUndo.highlightedStepIds.has(step.id)}
           isChecked={sel.selected.has(step.id)}
+          exportedKeys={ec.getExportedImageKeys(step)}
+          stepsLength={store.session?.steps.length ?? 0}
           onSelect={selectStep}
           onCheck={(id) => sel.toggleOne(id)}
         />

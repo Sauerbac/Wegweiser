@@ -6,12 +6,20 @@
   import { getReviewContext } from '$lib/review/context.svelte';
   import DragInsertBar from './DragInsertBar.svelte';
 
+  interface ExportedImageKey {
+    cacheKey: string;
+    isExtra: boolean;
+    extraIdx: number;
+  }
+
   interface Props {
     step: Step;
     idx: number;
     isActive: boolean;
     isHighlighted: boolean;
     isChecked: boolean;
+    exportedKeys: ExportedImageKey[];
+    stepsLength: number;
     onSelect: (stepId: number) => void;
     onCheck: (stepId: number) => void;
   }
@@ -22,6 +30,8 @@
     isActive,
     isHighlighted,
     isChecked,
+    exportedKeys,
+    stepsLength,
     onSelect,
     onCheck,
   }: Props = $props();
@@ -30,8 +40,6 @@
   const { drag } = ctx;
 
   const keystrokeCount = $derived(countKeystrokes(step.keystrokes));
-  const exportedKeys = $derived(ctx.ec.getExportedImageKeys(step));
-  const stepsLength = $derived(ctx.store.session?.steps.length ?? 0);
 
   let cardEl: HTMLDivElement | undefined = $state();
 

@@ -2,14 +2,6 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
-  import {
-    AlertDialog,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-  } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/stores/selectable.svelte';
   import { createConfirmAction } from '$lib/stores/confirm-action.svelte';
@@ -19,6 +11,7 @@
   import SelectableList from '$lib/components/SelectableList.svelte';
   import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
   import ExportStatusBar from '$lib/components/ExportStatusBar.svelte';
+  import DeleteSessionDialog from '$lib/components/DeleteSessionDialog.svelte';
 
   const deleteSessionAction = $state(createConfirmAction<string>());
   const bulkDeleteAction = $state(createConfirmAction());
@@ -206,37 +199,19 @@
   {/snippet}
 </PageLayout>
 
-<AlertDialog bind:open={deleteSessionAction.open}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Delete recording?</AlertDialogTitle>
-      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <Button variant="outline" onclick={() => { deleteSessionAction.open = false; }}>Cancel</Button>
-      <Button
-        variant="destructive"
-        onclick={() => {
-          if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
-          deleteSessionAction.reset();
-        }}
-      >Delete</Button>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<DeleteSessionDialog
+  count={1}
+  bind:open={deleteSessionAction.open}
+  onconfirm={() => {
+    if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
+    deleteSessionAction.reset();
+  }}
+  oncancel={() => deleteSessionAction.reset()}
+/>
 
-<AlertDialog bind:open={bulkDeleteAction.open}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Delete {sel.selected.size} recording{pluralS(sel.selected.size)}?</AlertDialogTitle>
-      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <Button variant="outline" onclick={() => { bulkDeleteAction.open = false; }}>Cancel</Button>
-      <Button
-        variant="destructive"
-        onclick={() => { bulkDeleteAction.reset(); deleteSelected(); }}
-      >Delete</Button>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<DeleteSessionDialog
+  count={sel.selected.size}
+  bind:open={bulkDeleteAction.open}
+  onconfirm={() => { bulkDeleteAction.reset(); deleteSelected(); }}
+  oncancel={() => bulkDeleteAction.reset()}
+/>

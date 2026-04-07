@@ -21,7 +21,6 @@
   } from "@lucide/svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
   import { getReviewContext } from "$lib/review/context.svelte";
-  import { store } from "$lib/stores/session.svelte";
 
   interface Props {
     onRequestBack: () => void;
@@ -37,7 +36,8 @@
     exportError,
   }: Props = $props();
 
-  const { reviewUndo, ec, exportActions } = getReviewContext();
+  const ctx = getReviewContext();
+  const { reviewUndo, ec, exportActions } = ctx;
 
   // ── Session name draft ─────────────────────────────────────────────────────
   // Draft value for the session name input. Synced from the store when the
@@ -50,7 +50,7 @@
   // in the input does not re-trigger this effect — only external name changes
   // (which update store.session?.name) cause a reset.
   $effect(() => {
-    const name = store.session?.name ?? "";
+    const name = ctx.store.session?.name ?? "";
     untrack(() => {
       if (name !== sessionNameDraft) sessionNameDraft = name;
     });
@@ -58,7 +58,7 @@
 
   async function saveSessionName() {
     const trimmed = sessionNameDraft.trim();
-    if (!trimmed || trimmed === store.session?.name) return;
+    if (!trimmed || trimmed === ctx.store.session?.name) return;
     try {
       await invoke("rename_session", { name: trimmed });
       reviewUndo.pushBackend();
@@ -112,7 +112,7 @@
       variant="outline"
       size="icon-sm"
       aria-label="Save"
-      onclick={() => store.markSaved()}
+      onclick={() => ctx.store.markSaved()}
       disabled={!isDirty}><Save /></Button
     >
     <DropdownMenu>
