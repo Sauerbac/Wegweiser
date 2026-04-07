@@ -109,7 +109,12 @@ src-tauri/                        ← Rust backend
     capture.rs                    ← xcap monitor listing + per-click capture thread
     annotate.rs                   ← draw_click_indicator() on RgbaImage
     session.rs                    ← save/load/list/delete session.json + SessionMeta
-    platform.rs                   ← Windows-specific: GetWindowPlacement, WDA_EXCLUDEFROMCAPTURE
+    platform/
+      mod.rs                      ← re-exports all platform functions
+      badge.rs                    ← create_monitor_badge_window (Tauri API, no FFI)
+      display_affinity.rs         ← set_window_exclude_from_capture (WDA_EXCLUDEFROMCAPTURE)
+      window_geometry.rs          ← get_window_restore_rect (GetWindowPlacement)
+      window_enumeration.rs       ← enumerate_visible_windows (EnumWindows + DWM occlusion)
     export/
       mod.rs
       markdown.rs
