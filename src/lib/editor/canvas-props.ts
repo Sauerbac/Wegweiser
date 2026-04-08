@@ -6,6 +6,7 @@
 export const CUSTOM_PROPS: string[] = [
   '_wegweiserType',
   '_calloutNumber',
+  '_calloutColor',
   '_wegweiserEffect',
   '_wegweiserBlurRadius',
   '_wegweiserBlockSize',

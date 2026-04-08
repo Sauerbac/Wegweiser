@@ -16,6 +16,7 @@ import {
   Circle,
   Ellipse,
   FabricImage,
+  FabricText,
   Group,
   IText,
   Line,
@@ -38,6 +39,7 @@ import {
   CropToolHandler,
   ClickIndicatorToolHandler,
 } from './editor/tools/index.js';
+import { contrastColor } from './editor/tools/callout.js';
 
 export type AnnotationTool =
   | 'select'
@@ -108,6 +110,9 @@ export class FabricCanvasWrapper {
 
   /** Whether the click indicator object is currently on the canvas. */
   clickIndicatorVisible = $state(false);
+
+  /** Distinct callout group colors currently on the canvas (for the group picker in properties). */
+  calloutGroups = $state<string[]>([]);
 
   /** Count of objects on canvas (excluding crop mask internals). */
   objectCount = $state(0);
@@ -238,7 +243,17 @@ export class FabricCanvasWrapper {
       }
       this.onCanvasModified();
     });
-    this.canvas.on('object:removed', () => this.onCanvasModified());
+    this.canvas.on('object:removed', (e) => {
+      if (!this.isRestoring) {
+        const obj = (e as any).target as any;
+        if (obj?._wegweiserType === 'callout' && typeof obj._calloutColor === 'string') {
+          // Recalculate from remaining canvas objects so the counter always
+          // reflects max-on-screen + 1 (handles cascading deletes like 5 then 6).
+          (this.registry.get('callout') as CalloutToolHandler).recalcColorCounter(this.canvas!, obj._calloutColor);
+        }
+      }
+      this.onCanvasModified();
+    });
 
     // Track selection changes. Arrow edit-mode transitions are delegated to ArrowToolHandler.
     const arrowHandler = this.registry.get('arrow') as ArrowToolHandler;
@@ -250,6 +265,11 @@ export class FabricCanvasWrapper {
       }
       if (target && (target as any)._wegweiserType === 'clickIndicator') {
         this.setTool('click-indicator');
+      }
+      // Sync color when a callout is selected while already in callout tool.
+      if (target && (target as any)._wegweiserType === 'callout' && this.tool === 'callout') {
+        const c = (target as any)._calloutColor;
+        if (typeof c === 'string') this.color = c;
       }
     });
     this.canvas.on('selection:updated', (e) => {
@@ -264,6 +284,11 @@ export class FabricCanvasWrapper {
       }
       if (newTarget && (newTarget as any)._wegweiserType === 'clickIndicator') {
         this.setTool('click-indicator');
+      }
+      // Sync color when switching between callouts while in callout tool.
+      if (newTarget && (newTarget as any)._wegweiserType === 'callout' && this.tool === 'callout') {
+        const c = (newTarget as any)._calloutColor;
+        if (typeof c === 'string') this.color = c;
       }
     });
     this.canvas.on('selection:cleared', () => {
@@ -344,6 +369,17 @@ export class FabricCanvasWrapper {
     const next = this.registry.get(t);
     if (next) {
       next.onActivate(this.ctx, (fn) => this.forEachAnnotation(fn));
+    }
+
+    // Callouts are always selectable regardless of the active tool so the user
+    // can click them to switch to the callout tool from any other tool.
+    if (t !== 'callout') {
+      this.canvas.getObjects().forEach((obj) => {
+        if ((obj as any)._wegweiserType === 'callout') {
+          obj.set({ selectable: true, evented: true });
+        }
+      });
+      this.canvas.renderAll();
     }
   }
 
@@ -749,6 +785,13 @@ export class FabricCanvasWrapper {
   private onMouseDown(e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.canvas || !e.viewportPoint) return;
     const pointer = this.canvas.getScenePoint(e.e);
+    // A direct click on a callout (e.target is set, meaning no rubber-band drag)
+    // switches to the callout tool and syncs its group color.
+    if (this.tool !== 'callout' && e.target && (e.target as any)._wegweiserType === 'callout') {
+      this.setTool('callout');
+      const c = (e.target as any)._calloutColor;
+      if (typeof c === 'string') this.color = c;
+    }
     this.registry.get(this.tool)?.onMouseDown(this.ctx, pointer, e);
   }
 
@@ -800,19 +843,43 @@ export class FabricCanvasWrapper {
     if (active instanceof IText) {
       active.set({ fill: this.color });
     } else if (active instanceof Group) {
-      // For groups (arrows, callouts), update child colors.
-      active.getObjects().forEach((child) => {
-        if (child instanceof Path) {
-          child.set({ stroke: this.color });
-        } else if (child instanceof Line || child instanceof Polygon) {
-          child.set({ stroke: this.color, fill: this.color });
-        } else if (child instanceof Circle) {
-          child.set({ fill: this.color });
+      const isCallout = (active as any)._wegweiserType === 'callout';
+      if (isCallout) {
+        const oldColor = (active as any)._calloutColor as string | undefined;
+        const oldNumber = (active as any)._calloutNumber as number | undefined;
+        const colorChanging = this.color !== oldColor;
+        const calloutHandler = this.registry.get('callout') as CalloutToolHandler;
+        if (colorChanging) {
+          // Assign the next number in the target group.
+          const newNum = calloutHandler.takeNextForColor(this.color);
+          // Update the stored color first so the canvas scan below excludes this object.
+          (active as any)._calloutColor = this.color;
+          (active as any)._calloutNumber = newNum;
+          // Recalculate the old group's counter from remaining canvas objects.
+          if (oldColor) calloutHandler.recalcColorCounter(this.canvas!, oldColor);
+          active.getObjects().forEach((child) => {
+            if (child instanceof Circle) {
+              child.set({ fill: this.color });
+            } else if (child instanceof FabricText) {
+              child.set({ text: String(newNum), fill: contrastColor(this.color) });
+            }
+          });
         }
-      });
-      // Also update stored arrowColor for polyline-arrows so rebuilds use the new color.
-      if ((active as any).customType === 'polyline-arrow') {
-        (active as any).arrowColor = this.color;
+      } else {
+        // For non-callout groups (arrows), update child colors.
+        active.getObjects().forEach((child) => {
+          if (child instanceof Path) {
+            child.set({ stroke: this.color });
+          } else if (child instanceof Line || child instanceof Polygon) {
+            child.set({ stroke: this.color, fill: this.color });
+          } else if (child instanceof Circle) {
+            child.set({ fill: this.color });
+          }
+        });
+        // Also update stored arrowColor for polyline-arrows so rebuilds use the new color.
+        if ((active as any).customType === 'polyline-arrow') {
+          (active as any).arrowColor = this.color;
+        }
       }
       active.set({ opacity: this.opacity });
     } else if (active instanceof Rect || active instanceof Ellipse) {
@@ -905,10 +972,12 @@ export class FabricCanvasWrapper {
       this.hasAnnotations = false;
       this.objectCount = 0;
       this.clickIndicatorVisible = false;
+      this.calloutGroups = [];
       return;
     }
     let count = 0;
     let hasIndicator = false;
+    const calloutColorsSeen = new Set<string>();
     this.canvas.getObjects().forEach((obj) => {
       const type = (obj as any)._wegweiserType;
       if (type !== 'cropOverlay') {
@@ -917,10 +986,15 @@ export class FabricCanvasWrapper {
       if (type === 'clickIndicator') {
         hasIndicator = true;
       }
+      if (type === 'callout') {
+        const c = (obj as any)._calloutColor;
+        if (typeof c === 'string') calloutColorsSeen.add(c);
+      }
     });
     this.objectCount = count;
     this.hasAnnotations = count > 0;
     this.clickIndicatorVisible = hasIndicator;
+    this.calloutGroups = Array.from(calloutColorsSeen);
   }
 
   /** Update the reactive selected object count. */

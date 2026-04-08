@@ -475,6 +475,7 @@
         pixelateBlockSize={fabricCanvas.pixelateBlockSize}
         hasWindowRects={visibleWindowRects.length > 0}
         indicatorVisible={fabricCanvas.clickIndicatorVisible}
+        calloutGroups={fabricCanvas.calloutGroups}
         oncolorChange={(c) => fabricCanvas.setColor(c)}
         onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
         onopacityChange={(o) => fabricCanvas.setOpacity(o)}

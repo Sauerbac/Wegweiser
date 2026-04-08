@@ -27,6 +27,7 @@
     pixelateBlockSize: number;
     hasWindowRects: boolean;
     indicatorVisible: boolean;
+    calloutGroups: string[];
     oncolorChange: (c: string) => void;
     onstrokeWidthChange: (w: number) => void;
     onopacityChange: (o: number) => void;
@@ -53,6 +54,7 @@
     pixelateBlockSize,
     hasWindowRects,
     indicatorVisible,
+    calloutGroups,
     oncolorChange,
     onstrokeWidthChange,
     onopacityChange,
@@ -130,6 +132,7 @@
       {color}
       {strokeWidth}
       {opacity}
+      {calloutGroups}
       {oncolorChange}
       {onstrokeWidthChange}
       {onopacityChange}
