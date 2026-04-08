@@ -19,6 +19,7 @@
     color: string;
     strokeWidth: number;
     opacity: number;
+    fontFamily: string;
     fillEnabled: boolean;
     fillColor: string;
     hasSelection: boolean;
@@ -31,6 +32,7 @@
     oncolorChange: (c: string) => void;
     onstrokeWidthChange: (w: number) => void;
     onopacityChange: (o: number) => void;
+    onfontFamilyChange: (f: string) => void;
     onfillEnabledChange: (enabled: boolean) => void;
     onfillColorChange: (c: string) => void;
     ondelete: () => void;
@@ -46,6 +48,7 @@
     color,
     strokeWidth,
     opacity,
+    fontFamily,
     fillEnabled,
     fillColor,
     hasSelection,
@@ -58,6 +61,7 @@
     oncolorChange,
     onstrokeWidthChange,
     onopacityChange,
+    onfontFamilyChange,
     onfillEnabledChange,
     onfillColorChange,
     ondelete,
@@ -112,9 +116,11 @@
       {color}
       {strokeWidth}
       {opacity}
+      {fontFamily}
       {oncolorChange}
-      onstrokeWidthChange={onstrokeWidthChange}
+      {onstrokeWidthChange}
       {onopacityChange}
+      {onfontFamilyChange}
     />
   {:else if tool === 'freehand'}
     <FreehandProperties

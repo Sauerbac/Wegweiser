@@ -9,6 +9,7 @@ import type { ObfuscationEffect } from '../obfuscation.js';
 export interface ToolContext {
   readonly canvas: Canvas;
   readonly color: string;
+  readonly fontFamily: string;
   readonly strokeWidth: number;
   readonly opacity: number;
   readonly fillEnabled: boolean;

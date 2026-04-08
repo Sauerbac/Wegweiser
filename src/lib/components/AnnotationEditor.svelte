@@ -467,6 +467,7 @@
         color={fabricCanvas.color}
         strokeWidth={fabricCanvas.strokeWidth}
         opacity={fabricCanvas.opacity}
+        fontFamily={fabricCanvas.fontFamily}
         fillEnabled={fabricCanvas.fillEnabled}
         fillColor={fabricCanvas.fillColor}
         hasSelection={fabricCanvas.selectedCount > 0}
@@ -479,6 +480,7 @@
         oncolorChange={(c) => fabricCanvas.setColor(c)}
         onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
         onopacityChange={(o) => fabricCanvas.setOpacity(o)}
+        onfontFamilyChange={(f) => fabricCanvas.setFontFamily(f)}
         onfillEnabledChange={(enabled) => fabricCanvas.setFillEnabled(enabled)}
         onfillColorChange={(c) => fabricCanvas.setFillColor(c)}
         ondelete={() => fabricCanvas.deleteSelected()}

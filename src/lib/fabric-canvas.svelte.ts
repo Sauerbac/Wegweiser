@@ -26,7 +26,7 @@ import {
   type TPointerEventInfo,
   type TPointerEvent,
 } from 'fabric';
-import { CUSTOM_PROPS } from './editor/canvas-props.js';
+import { CUSTOM_PROPS, strokeWidthToFontSize, fontSizeToStrokeWidth } from './editor/canvas-props.js';
 import type { ObfuscationEffect } from './editor/obfuscation.js';
 import {
   createToolRegistry,
@@ -68,6 +68,9 @@ export class FabricCanvasWrapper {
 
   /** Current annotation color. */
   color = $state('#ef4444');
+
+  /** Current font family for the text tool. */
+  fontFamily = $state('system-ui, -apple-system, sans-serif');
 
   /** Current stroke width. */
   strokeWidth = $state(4);
@@ -193,6 +196,7 @@ export class FabricCanvasWrapper {
     this.ctx = {
       get canvas() { return wrapper.canvas!; },
       get color() { return wrapper.color; },
+      get fontFamily() { return wrapper.fontFamily; },
       get strokeWidth() { return wrapper.strokeWidth; },
       get opacity() { return wrapper.opacity; },
       get fillEnabled() { return wrapper.fillEnabled; },
@@ -271,6 +275,10 @@ export class FabricCanvasWrapper {
         const c = (target as any)._calloutColor;
         if (typeof c === 'string') this.color = c;
       }
+      // Sync text properties when a textbox is selected while in text tool.
+      if (target instanceof IText && this.tool === 'text') {
+        this.syncTextProperties(target);
+      }
     });
     this.canvas.on('selection:updated', (e) => {
       this.updateSelectedCount();
@@ -289,6 +297,10 @@ export class FabricCanvasWrapper {
       if (newTarget && (newTarget as any)._wegweiserType === 'callout' && this.tool === 'callout') {
         const c = (newTarget as any)._calloutColor;
         if (typeof c === 'string') this.color = c;
+      }
+      // Sync text properties when a textbox is selected while in text tool.
+      if (newTarget instanceof IText && this.tool === 'text') {
+        this.syncTextProperties(newTarget);
       }
     });
     this.canvas.on('selection:cleared', () => {
@@ -393,6 +405,12 @@ export class FabricCanvasWrapper {
     this.updateSelectedObjectStyle();
   }
 
+  /** Update the font family for the text tool. Also updates the selected object if any. */
+  setFontFamily(f: string): void {
+    this.fontFamily = f;
+    this.updateSelectedObjectStyle();
+  }
+
   /** Update the stroke width. Also updates the selected object if any. */
   setStrokeWidth(w: number): void {
     this.strokeWidth = w;
@@ -454,6 +472,13 @@ export class FabricCanvasWrapper {
     if (active && (active as any)._wegweiserType === 'pixelateOverlay') {
       (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, active as FabricImage);
     }
+  }
+
+  /** Sync panel state from a selected IText/Textbox so properties reflect the object. */
+  private syncTextProperties(text: IText): void {
+    if (typeof text.fill === 'string') this.color = text.fill;
+    if (typeof text.fontFamily === 'string') this.fontFamily = text.fontFamily;
+    this.strokeWidth = fontSizeToStrokeWidth(text.fontSize ?? 24);
   }
 
   /** Delete the currently selected object(s). */
@@ -785,12 +810,24 @@ export class FabricCanvasWrapper {
   private onMouseDown(e: TPointerEventInfo<TPointerEvent>): void {
     if (!this.canvas || !e.viewportPoint) return;
     const pointer = this.canvas.getScenePoint(e.e);
-    // A direct click on a callout (e.target is set, meaning no rubber-band drag)
-    // switches to the callout tool and syncs its group color.
+    // A direct click on a callout switches to the callout tool and syncs its group color.
     if (this.tool !== 'callout' && e.target && (e.target as any)._wegweiserType === 'callout') {
       this.setTool('callout');
       const c = (e.target as any)._calloutColor;
       if (typeof c === 'string') this.color = c;
+    }
+    // A direct click on an IText/Textbox from any non-text tool auto-switches to the text tool.
+    if (this.tool !== 'text' && e.target instanceof IText) {
+      const clickedText = e.target;
+      this.syncTextProperties(clickedText);
+      this.setTool('text'); // onActivate calls discardActiveObject internally
+      // Re-select the textbox after onActivate discarded it.
+      requestAnimationFrame(() => {
+        if (!this.canvas) return;
+        this.canvas.setActiveObject(clickedText);
+        this.canvas.renderAll();
+      });
+      return;
     }
     this.registry.get(this.tool)?.onMouseDown(this.ctx, pointer, e);
   }
@@ -841,7 +878,8 @@ export class FabricCanvasWrapper {
     if (wegType === 'blurOverlay' || wegType === 'pixelateOverlay') return;
 
     if (active instanceof IText) {
-      active.set({ fill: this.color });
+      active.set({ fill: this.color, fontFamily: this.fontFamily, fontSize: strokeWidthToFontSize(this.strokeWidth), opacity: this.opacity });
+      (active as any).cursorColor = this.color;
     } else if (active instanceof Group) {
       const isCallout = (active as any)._wegweiserType === 'callout';
       if (isCallout) {
