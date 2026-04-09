@@ -1,9 +1,10 @@
 import { Rect } from 'fabric';
 import type { FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 export class HighlightToolHandler implements ToolHandler {
   readonly toolId = 'highlight';
+  readonly propertiesComponentId = 'highlight';
 
   private startX = 0;
   private startY = 0;
@@ -54,7 +55,8 @@ export class HighlightToolHandler implements ToolHandler {
       selectable: false,
       evented: false,
       lockUniScaling: false,
-    });
+      _wegweiserType: 'highlight',
+    } as any);
     ctx.canvas.add(rect);
     this.shape = rect;
   }
@@ -88,5 +90,21 @@ export class HighlightToolHandler implements ToolHandler {
     ctx.pushSnapshot();
     ctx.updateCounts();
     ctx.canvas.renderAll();
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    return obj instanceof Rect && (obj as any)._wegweiserType === 'highlight';
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    if (typeof obj.fill === 'string' && obj.fill) shared.color = obj.fill;
+    if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
+  }
+
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    obj.set({
+      fill: shared.color,
+      opacity: shared.opacity,
+    });
   }
 }

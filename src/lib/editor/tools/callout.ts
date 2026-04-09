@@ -1,6 +1,6 @@
 import { Circle, FabricText, Group } from 'fabric';
 import type { Canvas, FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 /**
  * Return '#000000' or '#ffffff' — whichever has higher contrast against the
@@ -19,6 +19,7 @@ export function contrastColor(hex: string): string {
 
 export class CalloutToolHandler implements ToolHandler {
   readonly toolId = 'callout';
+  readonly propertiesComponentId = 'callout';
 
   /** Per-color counter: color → next number to assign for that color group. */
   private colorCounters: Map<string, number> = new Map();
@@ -149,5 +150,36 @@ export class CalloutToolHandler implements ToolHandler {
 
     ctx.canvas.add(group);
     ctx.canvas.setActiveObject(group);
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    return (obj as any)._wegweiserType === 'callout';
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    const c = (obj as any)._calloutColor;
+    if (typeof c === 'string') shared.color = c;
+    if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
+  }
+
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    if (!(obj instanceof Group)) return;
+    const oldColor = (obj as any)._calloutColor as string | undefined;
+    const colorChanging = shared.color !== oldColor;
+
+    if (colorChanging) {
+      const newNum = this.takeNextForColor(shared.color);
+      (obj as any)._calloutColor = shared.color;
+      (obj as any)._calloutNumber = newNum;
+      if (oldColor) this.recalcColorCounter(ctx.canvas, oldColor);
+      obj.getObjects().forEach((child) => {
+        if (child instanceof Circle) {
+          child.set({ fill: shared.color });
+        } else if (child instanceof FabricText) {
+          child.set({ text: String(newNum), fill: contrastColor(shared.color) });
+        }
+      });
+    }
+    obj.set({ opacity: shared.opacity });
   }
 }

@@ -463,32 +463,9 @@
 
       <!-- Right properties panel -->
       <PropertiesPanel
-        tool={fabricCanvas.tool}
-        color={fabricCanvas.color}
-        strokeWidth={fabricCanvas.strokeWidth}
-        opacity={fabricCanvas.opacity}
-        fontFamily={fabricCanvas.fontFamily}
-        fillEnabled={fabricCanvas.fillEnabled}
-        fillColor={fabricCanvas.fillColor}
-        hasSelection={fabricCanvas.selectedCount > 0}
-        obfuscationEffect={fabricCanvas.obfuscationEffect}
-        blurRadius={fabricCanvas.blurRadius}
-        pixelateBlockSize={fabricCanvas.pixelateBlockSize}
+        {fabricCanvas}
         hasWindowRects={visibleWindowRects.length > 0}
-        indicatorVisible={fabricCanvas.clickIndicatorVisible}
-        calloutGroups={fabricCanvas.calloutGroups}
-        oncolorChange={(c) => fabricCanvas.setColor(c)}
-        onstrokeWidthChange={(w) => fabricCanvas.setStrokeWidth(w)}
-        onopacityChange={(o) => fabricCanvas.setOpacity(o)}
-        onfontFamilyChange={(f) => fabricCanvas.setFontFamily(f)}
-        onfillEnabledChange={(enabled) => fabricCanvas.setFillEnabled(enabled)}
-        onfillColorChange={(c) => fabricCanvas.setFillColor(c)}
-        ondelete={() => fabricCanvas.deleteSelected()}
-        onobfuscationEffectChange={(effect) => fabricCanvas.setObfuscationEffect(effect)}
-        onblurRadiusChange={(r) => fabricCanvas.setBlurRadius(r)}
-        onpixelateBlockSizeChange={(s) => fabricCanvas.setPixelateBlockSize(s)}
         onselectWindow={activateWindowSelect}
-        onindicatorToggle={() => fabricCanvas.toggleClickIndicator()}
       />
     </div>
 

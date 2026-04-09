@@ -1,10 +1,11 @@
-import { Rect, type TPointerEvent, type TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import { Rect, type FabricObject, type TPointerEvent, type TPointerEventInfo } from 'fabric';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 type DrawState = { startX: number; startY: number; shape: Rect | null };
 
 export class CropToolHandler implements ToolHandler {
   readonly toolId = 'crop';
+  readonly propertiesComponentId = 'crop';
 
   private cropRect: Rect | null = null;
   private cropOverlays: Rect[] = [];
@@ -274,4 +275,12 @@ export class CropToolHandler implements ToolHandler {
     }
     this.cropOverlays = [];
   }
+
+  identifiesObject(obj: FabricObject): boolean {
+    const type = (obj as any)._wegweiserType;
+    return type === 'cropMask' || type === 'cropOverlay';
+  }
+
+  syncFromObject(_obj: FabricObject, _shared: SharedDefaults): void {}
+  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults): void {}
 }

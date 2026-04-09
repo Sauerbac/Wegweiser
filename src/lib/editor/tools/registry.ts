@@ -1,3 +1,4 @@
+import type { FabricObject } from 'fabric';
 import type { ToolHandler } from './tool-handler.js';
 
 export class ToolRegistry {
@@ -14,5 +15,13 @@ export class ToolRegistry {
 
   getAll(): ToolHandler[] {
     return [...this.handlers.values()];
+  }
+
+  /** Find the tool handler that created/owns the given Fabric object. */
+  identifyTool(obj: FabricObject): ToolHandler | undefined {
+    for (const handler of this.handlers.values()) {
+      if (handler.identifiesObject(obj)) return handler;
+    }
+    return undefined;
   }
 }

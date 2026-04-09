@@ -1,6 +1,6 @@
 import { Circle, Group } from 'fabric';
 import type { FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 import { CLICK_INDICATOR_COLOR } from '../constants.js';
 
 /** Build an rgba() string from a 6-digit hex color + alpha (0–1). */
@@ -13,6 +13,7 @@ function hexAlpha(hex: string, alpha: number): string {
 
 export class ClickIndicatorToolHandler implements ToolHandler {
   readonly toolId = 'click-indicator';
+  readonly propertiesComponentId = 'click-indicator';
 
   private _x = 0;
   private _y = 0;
@@ -106,4 +107,11 @@ export class ClickIndicatorToolHandler implements ToolHandler {
   onMouseDown(_ctx: ToolContext, _p: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {}
   onMouseMove(_ctx: ToolContext, _p: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {}
   onMouseUp(_ctx: ToolContext, _p: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {}
+
+  identifiesObject(obj: FabricObject): boolean {
+    return (obj as any)._wegweiserType === 'clickIndicator';
+  }
+
+  syncFromObject(_obj: FabricObject, _shared: SharedDefaults): void {}
+  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults): void {}
 }

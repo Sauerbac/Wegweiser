@@ -1,9 +1,11 @@
 import { Rect } from 'fabric';
 import type { FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
+import { applyShapeProperties, syncShapeFromObject } from './shape-props.js';
 
 export class RectangleToolHandler implements ToolHandler {
   readonly toolId = 'rectangle';
+  readonly propertiesComponentId = 'shape';
 
   private startX = 0;
   private startY = 0;
@@ -94,5 +96,20 @@ export class RectangleToolHandler implements ToolHandler {
     ctx.pushSnapshot();
     ctx.updateCounts();
     ctx.canvas.renderAll();
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    if (!(obj instanceof Rect)) return false;
+    // Plain rectangles have no _wegweiserType marker; tagged rects (highlight,
+    // cropMask, cropOverlay, blur/pixelate overlays) belong to other tools.
+    return !(obj as any)._wegweiserType;
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    syncShapeFromObject(obj, shared);
+  }
+
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    applyShapeProperties(obj, shared);
   }
 }

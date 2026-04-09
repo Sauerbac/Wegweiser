@@ -1,8 +1,9 @@
 import type { FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 export class SelectToolHandler implements ToolHandler {
   readonly toolId = 'select';
+  readonly propertiesComponentId = 'select';
 
   onActivate(ctx: ToolContext, forEachAnnotation: (fn: (obj: FabricObject) => void) => void): void {
     ctx.canvas.isDrawingMode = false;
@@ -19,4 +20,8 @@ export class SelectToolHandler implements ToolHandler {
   onMouseDown(_ctx: ToolContext, _p: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {}
   onMouseMove(_ctx: ToolContext, _p: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {}
   onMouseUp(_ctx: ToolContext, _p: { x: number; y: number }, _e: TPointerEventInfo<TPointerEvent>): void {}
+
+  identifiesObject(_obj: FabricObject): boolean { return false; }
+  syncFromObject(_obj: FabricObject, _shared: SharedDefaults): void {}
+  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults): void {}
 }

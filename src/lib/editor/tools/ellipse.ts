@@ -1,9 +1,11 @@
 import { Ellipse } from 'fabric';
 import type { FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
+import { applyShapeProperties, syncShapeFromObject } from './shape-props.js';
 
 export class EllipseToolHandler implements ToolHandler {
   readonly toolId = 'ellipse';
+  readonly propertiesComponentId = 'shape';
 
   private startX = 0;
   private startY = 0;
@@ -94,5 +96,17 @@ export class EllipseToolHandler implements ToolHandler {
     ctx.pushSnapshot();
     ctx.updateCounts();
     ctx.canvas.renderAll();
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    return obj instanceof Ellipse;
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    syncShapeFromObject(obj, shared);
+  }
+
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    applyShapeProperties(obj, shared);
   }
 }

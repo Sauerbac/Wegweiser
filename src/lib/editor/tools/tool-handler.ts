@@ -2,6 +2,23 @@ import type { Canvas, FabricObject, TPointerEvent, TPointerEventInfo } from 'fab
 import type { ObfuscationEffect } from '../obfuscation.js';
 
 /**
+ * Shared property defaults that persist across tool switches.
+ * When the user sets color to red on rectangle, then switches to arrow, arrow also uses red.
+ * Backed by a reactive proxy over FabricCanvasWrapper's $state fields.
+ */
+export interface SharedDefaults {
+  color: string;
+  strokeWidth: number;
+  opacity: number;
+  fillEnabled: boolean;
+  fillColor: string;
+  fontFamily: string;
+  obfuscationEffect: ObfuscationEffect;
+  blurRadius: number;
+  pixelateBlockSize: number;
+}
+
+/**
  * Context object passed to every ToolHandler call.
  * Provides read access to reactive state and write-back callbacks into FabricCanvasWrapper.
  * Constructed once in init() using getter accessors so values are always current.
@@ -37,6 +54,13 @@ export interface ToolHandler {
   readonly toolId: string;
 
   /**
+   * String ID of the Svelte properties component to render for this tool.
+   * Multiple tools can share the same component (e.g. rectangle + ellipse → 'shape').
+   * null means no properties panel.
+   */
+  readonly propertiesComponentId: string | null;
+
+  /**
    * Called when this tool is activated via setTool().
    * Should configure canvas.isDrawingMode, canvas.selection, object evented/selectable flags.
    */
@@ -60,4 +84,22 @@ export interface ToolHandler {
   onMouseDown(ctx: ToolContext, pointer: { x: number; y: number }, e: TPointerEventInfo<TPointerEvent>): void;
   onMouseMove(ctx: ToolContext, pointer: { x: number; y: number }, e: TPointerEventInfo<TPointerEvent>): void;
   onMouseUp(ctx: ToolContext, pointer: { x: number; y: number }, e: TPointerEventInfo<TPointerEvent>): void;
+
+  /**
+   * Returns true if this handler created/owns the given Fabric object.
+   * Used to map selected objects back to their tool handler.
+   */
+  identifiesObject(obj: FabricObject): boolean;
+
+  /**
+   * Read properties from a selected Fabric object back into shared/tool state.
+   * Called when an object of this handler's type is selected.
+   */
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void;
+
+  /**
+   * Apply the current property state to a Fabric object of this handler's type.
+   * Called when the user changes a property in the properties panel while the object is selected.
+   */
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void;
 }

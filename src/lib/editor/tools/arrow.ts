@@ -1,4 +1,4 @@
-import { Group, Path, Polygon } from 'fabric';
+import { Circle, Group, Line, Path, Polygon } from 'fabric';
 import type { Canvas, FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
 import {
   attachWaypointControls,
@@ -7,7 +7,7 @@ import {
   syncWaypointDataWithGroupPosition,
   waypointsToSmoothPath,
 } from '../arrow-polyline.js';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 interface ArrowDrawState {
   startX: number;
@@ -24,6 +24,7 @@ interface ArrowPolylineState {
 
 export class ArrowToolHandler implements ToolHandler {
   readonly toolId = 'arrow';
+  readonly propertiesComponentId = 'arrow';
 
   private drawState: ArrowDrawState | null = null;
   private polylineState: ArrowPolylineState | null = null;
@@ -331,5 +332,44 @@ export class ArrowToolHandler implements ToolHandler {
       }
     });
     setArrowEditingId(null);
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    return (obj as any).customType === 'polyline-arrow';
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    const arrowColor = (obj as any).arrowColor;
+    if (typeof arrowColor === 'string') shared.color = arrowColor;
+    const sw = (obj as any).strokeWidth;
+    if (typeof sw === 'number') shared.strokeWidth = sw;
+    if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
+  }
+
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    if (!(obj instanceof Group)) return;
+    const oldStrokeWidth = (obj as any).strokeWidth as number | undefined;
+    const waypoints = (obj as any).waypointData as { x: number; y: number }[] | undefined;
+
+    // If stroke width changed, rebuild the group so the arrowhead geometry
+    // recomputes at the new scale. Otherwise just patch colors on children.
+    if (waypoints && typeof oldStrokeWidth === 'number' && oldStrokeWidth !== shared.strokeWidth) {
+      const old = obj.getObjects();
+      old.forEach((o) => obj.remove(o));
+      rebuildGroupContents(obj, waypoints, shared.color, shared.strokeWidth);
+      (obj as any).strokeWidth = shared.strokeWidth;
+    } else {
+      obj.getObjects().forEach((child) => {
+        if (child instanceof Path) {
+          child.set({ stroke: shared.color });
+        } else if (child instanceof Line || child instanceof Polygon) {
+          child.set({ stroke: shared.color, fill: shared.color });
+        } else if (child instanceof Circle) {
+          child.set({ fill: shared.color });
+        }
+      });
+    }
+    (obj as any).arrowColor = shared.color;
+    obj.set({ opacity: shared.opacity });
   }
 }

@@ -1,16 +1,17 @@
-import { FabricImage, Rect, type TPointerEvent, type TPointerEventInfo } from 'fabric';
+import { FabricImage, Rect, type FabricObject, type TPointerEvent, type TPointerEventInfo } from 'fabric';
 import {
   clampRegion,
   clampOverlayRegion,
   renderBlurRegion,
   renderPixelateRegion,
 } from '../obfuscation.js';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 type DrawState = { startX: number; startY: number; shape: Rect | null };
 
 export class ObfuscationToolHandler implements ToolHandler {
   readonly toolId = 'obfuscation';
+  readonly propertiesComponentId = 'obfuscation';
 
   private drawState: DrawState | null = null;
 
@@ -263,5 +264,26 @@ export class ObfuscationToolHandler implements ToolHandler {
       ctx.canvas.setActiveObject(pixelImg);
       ctx.canvas.renderAll();
     });
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    const type = (obj as any)._wegweiserType;
+    return type === 'blurOverlay' || type === 'pixelateOverlay';
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    const effect = (obj as any)._wegweiserEffect;
+    if (effect === 'blur' || effect === 'pixelate') shared.obfuscationEffect = effect;
+    const radius = (obj as any)._wegweiserBlurRadius;
+    if (typeof radius === 'number') shared.blurRadius = radius;
+    const block = (obj as any)._wegweiserBlockSize;
+    if (typeof block === 'number') shared.pixelateBlockSize = block;
+  }
+
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    if (!(obj instanceof FabricImage)) return;
+    (obj as any)._wegweiserType = shared.obfuscationEffect === 'blur' ? 'blurOverlay' : 'pixelateOverlay';
+    (obj as any)._wegweiserEffect = shared.obfuscationEffect;
+    this.reRenderOverlay(ctx, obj);
   }
 }

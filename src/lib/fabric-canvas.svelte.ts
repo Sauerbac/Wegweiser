@@ -13,25 +13,20 @@
 import {
   Canvas,
   ActiveSelection,
-  Circle,
-  Ellipse,
   FabricImage,
-  FabricText,
   Group,
   IText,
-  Line,
-  Path,
-  Polygon,
-  Rect,
   type TPointerEventInfo,
   type TPointerEvent,
 } from 'fabric';
-import { CUSTOM_PROPS, strokeWidthToFontSize, fontSizeToStrokeWidth } from './editor/canvas-props.js';
+import { CUSTOM_PROPS } from './editor/canvas-props.js';
 import type { ObfuscationEffect } from './editor/obfuscation.js';
 import {
   createToolRegistry,
   type ToolContext,
+  type ToolHandler,
   type ToolRegistry,
+  type SharedDefaults,
   ArrowToolHandler,
   TextToolHandler,
   CalloutToolHandler,
@@ -39,7 +34,6 @@ import {
   CropToolHandler,
   ClickIndicatorToolHandler,
 } from './editor/tools/index.js';
-import { contrastColor } from './editor/tools/callout.js';
 
 export type AnnotationTool =
   | 'select'
@@ -92,6 +86,63 @@ export class FabricCanvasWrapper {
 
   /** Block size for pixelate effect (px). */
   pixelateBlockSize = $state(10);
+
+  /**
+   * SharedDefaults proxy that delegates to this wrapper's $state fields.
+   * Passed to tool handlers in applyProperties() and syncFromObject() calls.
+   */
+  private _sharedDefaults: SharedDefaults | null = null;
+  get sharedDefaults(): SharedDefaults {
+    if (!this._sharedDefaults) {
+      const w = this;
+      this._sharedDefaults = {
+        get color() { return w.color; },
+        set color(v) { w.color = v; },
+        get strokeWidth() { return w.strokeWidth; },
+        set strokeWidth(v) { w.strokeWidth = v; },
+        get opacity() { return w.opacity; },
+        set opacity(v) { w.opacity = v; },
+        get fillEnabled() { return w.fillEnabled; },
+        set fillEnabled(v) { w.fillEnabled = v; },
+        get fillColor() { return w.fillColor; },
+        set fillColor(v) { w.fillColor = v; },
+        get fontFamily() { return w.fontFamily; },
+        set fontFamily(v) { w.fontFamily = v; },
+        get obfuscationEffect() { return w.obfuscationEffect; },
+        set obfuscationEffect(v) { w.obfuscationEffect = v; },
+        get blurRadius() { return w.blurRadius; },
+        set blurRadius(v) { w.blurRadius = v; },
+        get pixelateBlockSize() { return w.pixelateBlockSize; },
+        set pixelateBlockSize(v) { w.pixelateBlockSize = v; },
+      };
+    }
+    return this._sharedDefaults;
+  }
+
+  /** The currently active tool handler (derived from tool ID). */
+  get activeToolHandler(): ToolHandler | undefined {
+    return this.registry.get(this.tool);
+  }
+
+  /**
+   * Deduplicated tool handlers for all currently selected objects.
+   * Used by PropertiesPanel to render stacked panels for multi-select.
+   */
+  get selectedObjectHandlers(): ToolHandler[] {
+    if (!this.canvas) return [];
+    const objs = this.canvas.getActiveObjects();
+    if (objs.length === 0) return [];
+    const seen = new Set<string>();
+    const handlers: ToolHandler[] = [];
+    for (const obj of objs) {
+      const handler = this.registry.identifyTool(obj);
+      if (handler && !seen.has(handler.toolId)) {
+        seen.add(handler.toolId);
+        handlers.push(handler);
+      }
+    }
+    return handlers;
+  }
 
   /** Internal undo stack of JSON snapshots. */
   private undoStack: string[] = [];
@@ -270,14 +321,10 @@ export class FabricCanvasWrapper {
       if (target && (target as any)._wegweiserType === 'clickIndicator') {
         this.setTool('click-indicator');
       }
-      // Sync color when a callout is selected while already in callout tool.
-      if (target && (target as any)._wegweiserType === 'callout' && this.tool === 'callout') {
-        const c = (target as any)._calloutColor;
-        if (typeof c === 'string') this.color = c;
-      }
-      // Sync text properties when a textbox is selected while in text tool.
-      if (target instanceof IText && this.tool === 'text') {
-        this.syncTextProperties(target);
+      // Sync properties from the selected object back into shared/tool state.
+      if (target) {
+        const handler = this.registry.identifyTool(target);
+        if (handler) handler.syncFromObject(target, this.sharedDefaults);
       }
     });
     this.canvas.on('selection:updated', (e) => {
@@ -293,14 +340,10 @@ export class FabricCanvasWrapper {
       if (newTarget && (newTarget as any)._wegweiserType === 'clickIndicator') {
         this.setTool('click-indicator');
       }
-      // Sync color when switching between callouts while in callout tool.
-      if (newTarget && (newTarget as any)._wegweiserType === 'callout' && this.tool === 'callout') {
-        const c = (newTarget as any)._calloutColor;
-        if (typeof c === 'string') this.color = c;
-      }
-      // Sync text properties when a textbox is selected while in text tool.
-      if (newTarget instanceof IText && this.tool === 'text') {
-        this.syncTextProperties(newTarget);
+      // Sync properties from the newly selected object back into shared/tool state.
+      if (newTarget) {
+        const handler = this.registry.identifyTool(newTarget);
+        if (handler) handler.syncFromObject(newTarget, this.sharedDefaults);
       }
     });
     this.canvas.on('selection:cleared', () => {
@@ -472,13 +515,6 @@ export class FabricCanvasWrapper {
     if (active && (active as any)._wegweiserType === 'pixelateOverlay') {
       (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, active as FabricImage);
     }
-  }
-
-  /** Sync panel state from a selected IText/Textbox so properties reflect the object. */
-  private syncTextProperties(text: IText): void {
-    if (typeof text.fill === 'string') this.color = text.fill;
-    if (typeof text.fontFamily === 'string') this.fontFamily = text.fontFamily;
-    this.strokeWidth = fontSizeToStrokeWidth(text.fontSize ?? 24);
   }
 
   /** Delete the currently selected object(s). */
@@ -813,13 +849,14 @@ export class FabricCanvasWrapper {
     // A direct click on a callout switches to the callout tool and syncs its group color.
     if (this.tool !== 'callout' && e.target && (e.target as any)._wegweiserType === 'callout') {
       this.setTool('callout');
-      const c = (e.target as any)._calloutColor;
-      if (typeof c === 'string') this.color = c;
+      const handler = this.registry.identifyTool(e.target);
+      if (handler) handler.syncFromObject(e.target, this.sharedDefaults);
     }
     // A direct click on an IText/Textbox from any non-text tool auto-switches to the text tool.
     if (this.tool !== 'text' && e.target instanceof IText) {
       const clickedText = e.target;
-      this.syncTextProperties(clickedText);
+      const handler = this.registry.identifyTool(clickedText);
+      if (handler) handler.syncFromObject(clickedText, this.sharedDefaults);
       this.setTool('text'); // onActivate calls discardActiveObject internally
       // Re-select the textbox after onActivate discarded it.
       requestAnimationFrame(() => {
@@ -867,69 +904,19 @@ export class FabricCanvasWrapper {
     });
   }
 
-  /** Update style of the currently selected object. */
+  /** Update style of the currently selected object(s) via their tool handler. */
   private updateSelectedObjectStyle(): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
-    // Blur/pixelate overlays are FabricImages — color/stroke properties don't apply.
-    const wegType = (active as any)._wegweiserType as string | undefined;
-    if (wegType === 'blurOverlay' || wegType === 'pixelateOverlay') return;
-
-    if (active instanceof IText) {
-      active.set({ fill: this.color, fontFamily: this.fontFamily, fontSize: strokeWidthToFontSize(this.strokeWidth), opacity: this.opacity });
-      (active as any).cursorColor = this.color;
-    } else if (active instanceof Group) {
-      const isCallout = (active as any)._wegweiserType === 'callout';
-      if (isCallout) {
-        const oldColor = (active as any)._calloutColor as string | undefined;
-        const oldNumber = (active as any)._calloutNumber as number | undefined;
-        const colorChanging = this.color !== oldColor;
-        const calloutHandler = this.registry.get('callout') as CalloutToolHandler;
-        if (colorChanging) {
-          // Assign the next number in the target group.
-          const newNum = calloutHandler.takeNextForColor(this.color);
-          // Update the stored color first so the canvas scan below excludes this object.
-          (active as any)._calloutColor = this.color;
-          (active as any)._calloutNumber = newNum;
-          // Recalculate the old group's counter from remaining canvas objects.
-          if (oldColor) calloutHandler.recalcColorCounter(this.canvas!, oldColor);
-          active.getObjects().forEach((child) => {
-            if (child instanceof Circle) {
-              child.set({ fill: this.color });
-            } else if (child instanceof FabricText) {
-              child.set({ text: String(newNum), fill: contrastColor(this.color) });
-            }
-          });
-        }
-      } else {
-        // For non-callout groups (arrows), update child colors.
-        active.getObjects().forEach((child) => {
-          if (child instanceof Path) {
-            child.set({ stroke: this.color });
-          } else if (child instanceof Line || child instanceof Polygon) {
-            child.set({ stroke: this.color, fill: this.color });
-          } else if (child instanceof Circle) {
-            child.set({ fill: this.color });
-          }
-        });
-        // Also update stored arrowColor for polyline-arrows so rebuilds use the new color.
-        if ((active as any).customType === 'polyline-arrow') {
-          (active as any).arrowColor = this.color;
-        }
+    // For multi-select (ActiveSelection), apply to each object individually.
+    const objects = active instanceof ActiveSelection ? active.getObjects() : [active];
+    for (const obj of objects) {
+      const handler = this.registry.identifyTool(obj);
+      if (handler) {
+        handler.applyProperties(this.ctx, obj, this.sharedDefaults);
       }
-      active.set({ opacity: this.opacity });
-    } else if (active instanceof Rect || active instanceof Ellipse) {
-      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth, strokeUniform: true });
-      active.set({
-        fill: this.fillEnabled ? this.fillColor : 'transparent',
-        opacity: this.opacity,
-      });
-    } else {
-      if (active.stroke) active.set({ stroke: this.color, strokeWidth: this.strokeWidth, strokeUniform: true });
-      if (active.fill && active.fill !== 'transparent') active.set({ fill: this.color });
-      active.set({ opacity: this.opacity });
     }
 
     this.canvas.renderAll();

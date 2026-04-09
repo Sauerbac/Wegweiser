@@ -1,7 +1,7 @@
 import { IText, Textbox } from 'fabric';
 import type { FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
-import type { ToolContext, ToolHandler } from './tool-handler.js';
-import { strokeWidthToFontSize } from '../canvas-props.js';
+import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
+import { strokeWidthToFontSize, fontSizeToStrokeWidth } from '../canvas-props.js';
 
 /** Default wrap width (px in canvas coordinates) for new textboxes. */
 const DEFAULT_TEXTBOX_WIDTH = 200;
@@ -11,6 +11,7 @@ const HIDDEN_TEXTBOX_CONTROLS = { tl: false, tr: false, bl: false, br: false, mt
 
 export class TextToolHandler implements ToolHandler {
   readonly toolId = 'text';
+  readonly propertiesComponentId = 'text';
 
   /** Tracks which textbox is a candidate for entering editing on mouseUp. */
   private _pendingEditTarget: IText | null = null;
@@ -202,5 +203,28 @@ export class TextToolHandler implements ToolHandler {
       ctx.canvas.renderAll();
     };
     text.on('editing:exited', onEditingExited);
+  }
+
+  identifiesObject(obj: FabricObject): boolean {
+    return obj instanceof IText;
+  }
+
+  syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    if (!(obj instanceof IText)) return;
+    if (typeof obj.fill === 'string') shared.color = obj.fill;
+    if (typeof obj.fontFamily === 'string') shared.fontFamily = obj.fontFamily;
+    shared.strokeWidth = fontSizeToStrokeWidth(obj.fontSize ?? 24);
+    if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
+  }
+
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+    if (!(obj instanceof IText)) return;
+    obj.set({
+      fill: shared.color,
+      fontFamily: shared.fontFamily,
+      fontSize: strokeWidthToFontSize(shared.strokeWidth),
+      opacity: shared.opacity,
+    });
+    (obj as any).cursorColor = shared.color;
   }
 }
