@@ -150,6 +150,12 @@ export class FabricCanvasWrapper {
   private redoStack: string[] = [];
   /** Whether we're currently loading from undo/redo (suppress snapshot). */
   private isRestoring = false;
+  /**
+   * Reentry guard for `reRenderAllObfuscationOverlays`. Re-rendering an
+   * overlay eventually calls `pushSnapshot`/`updateCounts`, which must not
+   * trigger another refresh pass.
+   */
+  private _rerenderingObfuscation = false;
   /** Whether the user is currently dragging to create a shape (suppress intermediate snapshots). */
   isDrawing = $state(false);
   /** Debounce timer for coalescing rapid canvas-modification events (e.g. freehand path:created). */
@@ -286,16 +292,29 @@ export class FabricCanvasWrapper {
     this.canvas.on('mouse:up', (e) => this.onMouseUp(e));
 
     // Track modifications for undo.
-    this.canvas.on('object:added', () => this.onCanvasModified());
+    this.canvas.on('object:added', () => {
+      // A new shape/arrow/text may be sitting behind an existing obfuscation
+      // overlay — refresh any overlays so they pick up the new content.
+      if (!this.isRestoring && !this._rerenderingObfuscation) {
+        this.reRenderAllObfuscationOverlays();
+      }
+      this.onCanvasModified();
+    });
     this.canvas.on('object:modified', (e) => {
+      if (this._rerenderingObfuscation) return;
       // Re-render blur/pixelate overlays when they are moved or scaled.
       const obj = e.target as any;
       if (obj && (obj._wegweiserType === 'blurOverlay' || obj._wegweiserType === 'pixelateOverlay')) {
-        (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, obj as FabricImage);
+        // Refresh every overlay: the moved/resized overlay itself plus any
+        // overlays stacked on top of it (their composite-below changed).
+        this.reRenderAllObfuscationOverlays();
         // Don't call onCanvasModified here — reRenderOverlay will handle it
         // after the async image update completes.
         return;
       }
+      // A non-overlay shape was edited: refresh every overlay so any blur
+      // sitting above the edited shape re-samples the updated pixels.
+      this.reRenderAllObfuscationOverlays();
       this.onCanvasModified();
     });
     this.canvas.on('object:removed', (e) => {
@@ -305,6 +324,9 @@ export class FabricCanvasWrapper {
           // Recalculate from remaining canvas objects so the counter always
           // reflects max-on-screen + 1 (handles cascading deletes like 5 then 6).
           (this.registry.get('callout') as CalloutToolHandler).recalcColorCounter(this.canvas!, obj._calloutColor);
+        }
+        if (!this._rerenderingObfuscation) {
+          this.reRenderAllObfuscationOverlays();
         }
       }
       this.onCanvasModified();
@@ -516,6 +538,90 @@ export class FabricCanvasWrapper {
       (this.registry.get('obfuscation') as ObfuscationToolHandler).reRenderOverlay(this.ctx, active as FabricImage);
     }
   }
+
+  /**
+   * Re-render every blur/pixelate overlay on the canvas so they pick up
+   * changes to the objects beneath them (z-order change, shape edit, new
+   * object added below, etc.). Bottom-up so stacked overlays cascade
+   * correctly (an upper blur re-samples the already-refreshed lower blur).
+   */
+  reRenderAllObfuscationOverlays(): void {
+    if (!this.canvas || this._rerenderingObfuscation) return;
+    const overlays = this.canvas.getObjects().filter((obj) => {
+      const t = (obj as any)._wegweiserType;
+      return t === 'blurOverlay' || t === 'pixelateOverlay';
+    });
+    if (overlays.length === 0) return;
+    this._rerenderingObfuscation = true;
+    const handler = this.registry.get('obfuscation') as ObfuscationToolHandler;
+    try {
+      for (const overlay of overlays) {
+        handler.reRenderOverlay(this.ctx, overlay as FabricImage);
+      }
+    } finally {
+      this._rerenderingObfuscation = false;
+    }
+  }
+
+  /**
+   * Change the z-order of the currently selected objects.
+   * `direction` = 'front' | 'back' | 'forward' | 'backward'.
+   * Skips the background and the crop rect. Records an undo snapshot and
+   * refreshes obfuscation overlays whose stack below has changed.
+   */
+  private moveSelection(direction: 'front' | 'back' | 'forward' | 'backward'): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObjects();
+    if (active.length === 0) return;
+
+    const cropRect = (this.registry.get('crop') as CropToolHandler).getCropRect();
+    const movable = active.filter((obj) => {
+      if (obj === cropRect) return false;
+      const t = (obj as any)._wegweiserType;
+      return t !== 'cropOverlay' && t !== 'cropMask';
+    });
+    if (movable.length === 0) return;
+
+    // For 'front'/'forward', iterate back-to-front on canvas z-order so the
+    // relative order of the selection is preserved after the move. For
+    // 'back'/'backward', iterate front-to-back.
+    const all = this.canvas.getObjects();
+    const sorted = [...movable].sort((a, b) => all.indexOf(a) - all.indexOf(b));
+    const ordered = direction === 'front' || direction === 'forward' ? sorted.reverse() : sorted;
+
+    for (const obj of ordered) {
+      switch (direction) {
+        case 'front':
+          this.canvas.bringObjectToFront(obj);
+          break;
+        case 'back':
+          this.canvas.sendObjectToBack(obj);
+          break;
+        case 'forward':
+          this.canvas.bringObjectForward(obj);
+          break;
+        case 'backward':
+          this.canvas.sendObjectBackwards(obj);
+          break;
+      }
+    }
+
+    this.canvas.renderAll();
+    this.reRenderAllObfuscationOverlays();
+    this.onCanvasModified();
+  }
+
+  /** Bring the currently selected object(s) to the top of the z-stack. */
+  bringToFront(): void { this.moveSelection('front'); }
+
+  /** Send the currently selected object(s) to the bottom of the z-stack. */
+  sendToBack(): void { this.moveSelection('back'); }
+
+  /** Move the currently selected object(s) one step up in z-order. */
+  bringForward(): void { this.moveSelection('forward'); }
+
+  /** Move the currently selected object(s) one step down in z-order. */
+  sendBackwards(): void { this.moveSelection('backward'); }
 
   /** Delete the currently selected object(s). */
   deleteSelected(): void {

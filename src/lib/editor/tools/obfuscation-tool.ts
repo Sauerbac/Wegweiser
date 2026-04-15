@@ -7,6 +7,53 @@ import {
 } from '../obfuscation.js';
 import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
+/**
+ * Build a composite HTMLCanvasElement at natural pixel size that contains the
+ * background image plus every annotation object whose z-index is below the
+ * given target overlay. Used as the source for blur/pixelate rendering so
+ * obfuscation overlays correctly obscure any shapes/arrows/text that sit
+ * underneath them — not just the raw screenshot.
+ *
+ * If `target` is null, the composite contains the background plus every
+ * object on the canvas (used when a brand-new overlay is being drawn — it
+ * isn't on the canvas yet).
+ *
+ * Crop helper objects (`cropOverlay` and the crop rect itself) are always
+ * excluded so they never bleed into the composite.
+ */
+function buildCompositeBelow(ctx: ToolContext, target: FabricObject | null): HTMLCanvasElement {
+  const canvas = ctx.canvas;
+  const objects = canvas.getObjects();
+
+  // Determine the cut-off index: everything at `cutoff` or above is hidden.
+  // When target is null we don't hide anything (new overlay not yet added).
+  const cutoff = target ? objects.indexOf(target) : objects.length;
+
+  // Remember original visibility so we can restore it afterwards.
+  const toHide: FabricObject[] = [];
+  const prevVisible: boolean[] = [];
+  for (let i = 0; i < objects.length; i++) {
+    const obj = objects[i];
+    const wegType = (obj as any)._wegweiserType;
+    const isCropHelper = wegType === 'cropOverlay' || wegType === 'cropMask';
+    const isAboveOrTarget = cutoff !== -1 && i >= cutoff;
+    if (isAboveOrTarget || isCropHelper) {
+      toHide.push(obj);
+      prevVisible.push(obj.visible !== false);
+      obj.visible = false;
+    }
+  }
+
+  const composite = canvas.toCanvasElement(1);
+
+  // Restore visibility.
+  for (let i = 0; i < toHide.length; i++) {
+    toHide[i].visible = prevVisible[i];
+  }
+
+  return composite;
+}
+
 type DrawState = { startX: number; startY: number; shape: Rect | null };
 
 export class ObfuscationToolHandler implements ToolHandler {
@@ -126,9 +173,7 @@ export class ObfuscationToolHandler implements ToolHandler {
     const wegType = (obj as any)._wegweiserType as string;
     if (wegType !== 'blurOverlay' && wegType !== 'pixelateOverlay') return;
 
-    const bgImg = ctx.canvas.backgroundImage;
-    if (!bgImg) return;
-    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
+    if (!ctx.canvas.backgroundImage) return;
 
     const left = Math.round(obj.left ?? 0);
     const top = Math.round(obj.top ?? 0);
@@ -138,14 +183,18 @@ export class ObfuscationToolHandler implements ToolHandler {
     const region = clampOverlayRegion(left, top, width, height, ctx.imageWidth, ctx.imageHeight);
     if (!region) return;
 
+    // Build a composite of everything under this overlay so shapes/arrows/
+    // text beneath it get obscured too, not just the raw screenshot.
+    const source = buildCompositeBelow(ctx, obj);
+
     let dataUrl: string;
     if (wegType === 'blurOverlay') {
       const radius = ctx.blurRadius;
-      dataUrl = renderBlurRegion(bgEl, region, radius, ctx.imageWidth, ctx.imageHeight);
+      dataUrl = renderBlurRegion(source, region, radius, ctx.imageWidth, ctx.imageHeight);
       (obj as any)._wegweiserBlurRadius = radius;
     } else {
       const blockSize = ctx.pixelateBlockSize;
-      dataUrl = renderPixelateRegion(bgEl, region, blockSize);
+      dataUrl = renderPixelateRegion(source, region, blockSize);
       (obj as any)._wegweiserBlockSize = blockSize;
     }
 
@@ -182,14 +231,15 @@ export class ObfuscationToolHandler implements ToolHandler {
       return;
     }
 
-    const bgImg = ctx.canvas.backgroundImage;
-    if (!bgImg) {
+    if (!ctx.canvas.backgroundImage) {
       ctx.setDrawing(false);
       return;
     }
-    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
+    // Composite below includes all existing objects — the new overlay
+    // isn't on the canvas yet, so pass null as the target.
+    const source = buildCompositeBelow(ctx, null);
     const radius = ctx.blurRadius;
-    const dataUrl = renderBlurRegion(bgEl, region, radius, ctx.imageWidth, ctx.imageHeight);
+    const dataUrl = renderBlurRegion(source, region, radius, ctx.imageWidth, ctx.imageHeight);
 
     FabricImage.fromURL(dataUrl).then((blurImg) => {
       if (!ctx.canvas) {
@@ -232,14 +282,13 @@ export class ObfuscationToolHandler implements ToolHandler {
       return;
     }
 
-    const bgImg = ctx.canvas.backgroundImage;
-    if (!bgImg) {
+    if (!ctx.canvas.backgroundImage) {
       ctx.setDrawing(false);
       return;
     }
-    const bgEl = (bgImg as FabricImage).getElement() as HTMLImageElement;
+    const source = buildCompositeBelow(ctx, null);
     const blockSize = ctx.pixelateBlockSize;
-    const dataUrl = renderPixelateRegion(bgEl, region, blockSize);
+    const dataUrl = renderPixelateRegion(source, region, blockSize);
 
     FabricImage.fromURL(dataUrl).then((pixelImg) => {
       if (!ctx.canvas) {

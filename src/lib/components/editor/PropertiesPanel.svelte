@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Separator } from '$lib/components/ui/separator';
   import { Button } from '$lib/components/ui/button';
-  import { Trash2 } from '@lucide/svelte';
+  import { Trash2, BringToFront, SendToBack, ChevronUp, ChevronDown } from '@lucide/svelte';
   import type { FabricCanvasWrapper } from '$lib/fabric-canvas.svelte';
   import type { ToolHandler } from '$lib/editor/tools/tool-handler';
   import ColorPicker from './properties/ColorPicker.svelte';
@@ -62,6 +62,19 @@
 
   function handleDelete() {
     fabricCanvas.deleteSelected();
+  }
+
+  function handleBringToFront() {
+    fabricCanvas.bringToFront();
+  }
+  function handleBringForward() {
+    fabricCanvas.bringForward();
+  }
+  function handleSendBackwards() {
+    fabricCanvas.sendBackwards();
+  }
+  function handleSendToBack() {
+    fabricCanvas.sendToBack();
   }
 </script>
 
@@ -175,6 +188,52 @@
       />
     {/if}
   {/each}
+
+  <!-- Layer order controls — shown whenever at least one object is selected -->
+  {#if hasSelection}
+    <Separator />
+    <div class="space-y-1.5">
+      <p class="text-xs font-medium text-muted-foreground">Layer</p>
+      <div class="flex gap-1">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Bring to front"
+          title="Bring to front (Ctrl+Shift+])"
+          onclick={handleBringToFront}
+        >
+          <BringToFront />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Bring forward"
+          title="Bring forward (])"
+          onclick={handleBringForward}
+        >
+          <ChevronUp />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Send backward"
+          title="Send backward ([)"
+          onclick={handleSendBackwards}
+        >
+          <ChevronDown />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Send to back"
+          title="Send to back (Ctrl+Shift+[)"
+          onclick={handleSendToBack}
+        >
+          <SendToBack />
+        </Button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Show delete button for multi-select when not already shown by select tool -->
   {#if hasSelection && !panelHandlers.some((h) => h.propertiesComponentId === 'select')}

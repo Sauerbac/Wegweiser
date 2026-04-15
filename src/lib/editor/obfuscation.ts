@@ -57,11 +57,14 @@ export function clampOverlayRegion(
 }
 
 /**
- * Render a gaussian-blurred copy of a region from bgEl.
- * Returns a PNG data URL of the blurred region at natural pixel size.
+ * Render a gaussian-blurred copy of a region from a source image.
+ * The source may be an HTMLImageElement (the raw background) or an
+ * HTMLCanvasElement (a pre-rendered composite of the background + objects
+ * below the overlay). Returns a PNG data URL of the blurred region at
+ * natural pixel size.
  */
 export function renderBlurRegion(
-  bgEl: HTMLImageElement,
+  source: CanvasImageSource,
   region: ObfuscationRegion,
   radius: number,
   imageWidth: number,
@@ -84,7 +87,7 @@ export function renderBlurRegion(
   tempCanvas.height = padH;
   const tempCtx = tempCanvas.getContext('2d')!;
   tempCtx.filter = `blur(${radius}px)`;
-  tempCtx.drawImage(bgEl, padLeft, padTop, padW, padH, 0, 0, padW, padH);
+  tempCtx.drawImage(source, padLeft, padTop, padW, padH, 0, 0, padW, padH);
   tempCtx.filter = 'none';
 
   // Crop out just the requested region from the blurred padded canvas.
@@ -98,11 +101,13 @@ export function renderBlurRegion(
 }
 
 /**
- * Render a pixelated copy of a region from bgEl.
- * Returns a PNG data URL of the pixelated region at natural pixel size.
+ * Render a pixelated copy of a region from a source image.
+ * The source may be an HTMLImageElement or an HTMLCanvasElement (see
+ * `renderBlurRegion` for details). Returns a PNG data URL of the pixelated
+ * region at natural pixel size.
  */
 export function renderPixelateRegion(
-  bgEl: HTMLImageElement,
+  source: CanvasImageSource,
   region: ObfuscationRegion,
   blockSize: number,
 ): string {
@@ -112,7 +117,7 @@ export function renderPixelateRegion(
   offscreen.width = width;
   offscreen.height = height;
   const ctx = offscreen.getContext('2d')!;
-  ctx.drawImage(bgEl, left, top, width, height, 0, 0, width, height);
+  ctx.drawImage(source, left, top, width, height, 0, 0, width, height);
 
   // Downsample.
   const smallW = Math.max(1, Math.ceil(width / blockSize));

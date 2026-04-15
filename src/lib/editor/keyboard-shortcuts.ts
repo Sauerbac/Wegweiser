@@ -55,6 +55,12 @@ export async function handleEditorKeyDown(
   // ── Ctrl combos ──────────────────────────────────────────────────────────
 
   if (ctrl) {
+    // Ctrl+Shift+] / Ctrl+Shift+[ → bring to front / send to back.
+    if (e.shiftKey && (key === ']' || key === '[')) {
+      if (key === ']') canvas.bringToFront();
+      else canvas.sendToBack();
+      return true;
+    }
     switch (key.toLowerCase()) {
       case 'a':
         // Switch to select tool first if needed, then select all.
@@ -78,6 +84,20 @@ export async function handleEditorKeyDown(
       case 'z':
       case 'y':
         return false;
+    }
+  }
+
+  // ── Bracket keys: bring forward / send backward (no modifier) ────────────
+  // Only active when the select tool is active to avoid stealing [/] from
+  // future tools that might want them as a primary shortcut.
+  if (!ctrl && !e.altKey && !e.shiftKey && canvas.tool === 'select') {
+    if (key === ']') {
+      canvas.bringForward();
+      return true;
+    }
+    if (key === '[') {
+      canvas.sendBackwards();
+      return true;
     }
   }
 
