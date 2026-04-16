@@ -187,6 +187,10 @@ export class FabricCanvasWrapper {
   /** Current zoom/fit scale factor. */
   private fitScale = 1;
 
+  /** Last container dimensions for re-calling updateFit from setTool. */
+  private _lastContainerW = 0;
+  private _lastContainerH = 0;
+
   /**
    * True while the user is in arrow polyline mode (between the first click
    * that starts the polyline and the final Enter / double-click).
@@ -317,6 +321,18 @@ export class FabricCanvasWrapper {
       this.reRenderAllObfuscationOverlays();
       this.onCanvasModified();
     });
+    // Live crop overlay updates during interactive move/resize.
+    const onCropInteraction = (e: any) => {
+      const target = e.target as any;
+      if (!target || target._wegweiserType !== 'cropMask') return;
+      const ch = this.registry.get('crop') as CropToolHandler;
+      this.isRestoring = true;
+      ch.updateCropOverlays(this.ctx);
+      this.isRestoring = false;
+    };
+    this.canvas.on('object:moving', onCropInteraction);
+    this.canvas.on('object:scaling', onCropInteraction);
+
     this.canvas.on('object:removed', (e) => {
       if (!this.isRestoring) {
         const obj = (e as any).target as any;
@@ -387,10 +403,29 @@ export class FabricCanvasWrapper {
     if (!this.canvas || this.imageWidth === 0 || this.imageHeight === 0) return;
     if (containerW === 0 || containerH === 0) return;
 
-    const scale = Math.min(containerW / this.imageWidth, containerH / this.imageHeight);
-    this.fitScale = scale;
+    this._lastContainerW = containerW;
+    this._lastContainerH = containerH;
 
-    console.log('[FabricCanvas] updateFit: container', containerW, containerH, 'scale', scale);
+    // Check if we should fit to a crop area instead of the full image.
+    const cropHandler = this.registry.get('crop') as CropToolHandler;
+    const cropRect = cropHandler.getCropRect();
+    const fitToCrop = cropRect && this.tool !== 'crop';
+
+    let targetW = this.imageWidth;
+    let targetH = this.imageHeight;
+    let cropX = 0;
+    let cropY = 0;
+
+    if (fitToCrop) {
+      targetW = cropRect.width! * (cropRect.scaleX ?? 1);
+      targetH = cropRect.height! * (cropRect.scaleY ?? 1);
+      cropX = cropRect.left!;
+      cropY = cropRect.top!;
+    }
+
+    // Always compute CSS dimensions from the full image.
+    const normalScale = Math.min(containerW / this.imageWidth, containerH / this.imageHeight);
+    this.fitScale = normalScale;
 
     // Resize only the CSS display size; the backing pixel buffer stays at the
     // natural image dimensions (imageWidth × imageHeight) so that:
@@ -398,16 +433,30 @@ export class FabricCanvasWrapper {
     //   - all shape/mouse coordinates stay in natural image space (0..imageWidth, 0..imageHeight)
     //   - Fabric's getScenePoint auto-corrects for the CSS-to-buffer ratio
     this.canvas.setDimensions(
-      { width: Math.round(this.imageWidth * scale), height: Math.round(this.imageHeight * scale) },
+      { width: Math.round(this.imageWidth * normalScale), height: Math.round(this.imageHeight * normalScale) },
       { cssOnly: true },
     );
 
-    const el = this.canvas.getElement();
-    console.log('[FabricCanvas] updateFit after: el.width', el.width, 'el.height', el.height,
-      'css', el.style.width, el.style.height,
-      'vpt', this.canvas.viewportTransform);
+    // When fitting to crop, use Fabric's viewport transform to zoom/pan so the
+    // crop area fills the canvas. Fabric's getScenePoint automatically inverts
+    // the transform, so mouse interactions remain correct.
+    if (fitToCrop) {
+      const vptZoom = Math.min(this.imageWidth / targetW, this.imageHeight / targetH);
+      const panX = (this.imageWidth - targetW * vptZoom) / 2 - cropX * vptZoom;
+      const panY = (this.imageHeight - targetH * vptZoom) / 2 - cropY * vptZoom;
+      this.canvas.setViewportTransform([vptZoom, 0, 0, vptZoom, panX, panY]);
+    } else {
+      this.canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    }
 
     this.canvas.renderAll();
+  }
+
+  /** Re-run updateFit with last known container dimensions. */
+  private reFit(): void {
+    if (this._lastContainerW > 0 && this._lastContainerH > 0) {
+      this.updateFit(this._lastContainerW, this._lastContainerH);
+    }
   }
 
   /** Clean up the Fabric.js canvas. */
@@ -439,6 +488,7 @@ export class FabricCanvasWrapper {
       this.tool = t;
       return;
     }
+    const wasCrop = this.tool === 'crop';
     const prev = this.registry.get(this.tool);
     prev?.onDeactivate(this.ctx);
     this.tool = t;
@@ -457,6 +507,19 @@ export class FabricCanvasWrapper {
         }
       });
       this.canvas.renderAll();
+    }
+
+    // When switching to/from the crop tool, update overlay opacity and refit
+    // so the viewport zooms into/out of the crop area.
+    const isCrop = t === 'crop';
+    if ((wasCrop || isCrop) && wasCrop !== isCrop) {
+      const cropHandler = this.registry.get('crop') as CropToolHandler;
+      if (cropHandler.getCropRect()) {
+        this.isRestoring = true;
+        cropHandler.updateCropOverlays(this.ctx);
+        this.isRestoring = false;
+      }
+      this.reFit();
     }
   }
 
@@ -578,7 +641,7 @@ export class FabricCanvasWrapper {
     const movable = active.filter((obj) => {
       if (obj === cropRect) return false;
       const t = (obj as any)._wegweiserType;
-      return t !== 'cropOverlay' && t !== 'cropMask';
+      return t !== 'cropOverlay' && t !== 'cropMask' && t !== 'cropDrawOverlay';
     });
     if (movable.length === 0) return;
 
@@ -629,16 +692,19 @@ export class FabricCanvasWrapper {
     const active = this.canvas.getActiveObjects();
     if (active.length === 0) return;
     const cropHandler = this.registry.get('crop') as CropToolHandler;
+    let cropDeleted = false;
     for (const obj of active) {
       // If deleting the crop rect, clear crop state.
       if (obj === cropHandler.getCropRect()) {
         cropHandler.clearCrop(this.ctx);
+        cropDeleted = true;
         continue;
       }
       this.canvas.remove(obj);
     }
     this.canvas.discardActiveObject();
     this.canvas.renderAll();
+    if (cropDeleted) this.reFit();
   }
 
   /** Select all annotation objects on the canvas. */
@@ -646,7 +712,10 @@ export class FabricCanvasWrapper {
     if (!this.canvas || this.tool !== 'select') return;
     const cropRect = (this.registry.get('crop') as CropToolHandler).getCropRect();
     const objs = this.canvas.getObjects().filter(
-      (obj) => (obj as any)._wegweiserType !== 'cropOverlay' && obj !== cropRect,
+      (obj) => {
+        const t = (obj as any)._wegweiserType;
+        return t !== 'cropOverlay' && t !== 'cropDrawOverlay' && obj !== cropRect;
+      },
     );
     if (objs.length === 0) return;
     if (objs.length === 1) {
@@ -813,10 +882,12 @@ export class FabricCanvasWrapper {
     const json = this.canvas.toObject(CUSTOM_PROPS);
     // Remove the backgroundImage (it's the base screenshot, not an annotation).
     delete (json as Record<string, unknown>).backgroundImage;
+    // Strip viewportTransform — it's managed by updateFit/reFit, not by snapshots.
+    delete (json as Record<string, unknown>).viewportTransform;
     // Exclude crop overlays — they're purely visual and are always rebuilt from
     // the crop mask rect on deserialize, so including them causes duplicates.
     (json as any).objects = ((json as any).objects as any[]).filter(
-      (o: any) => o._wegweiserType !== 'cropOverlay',
+      (o: any) => o._wegweiserType !== 'cropOverlay' && o._wegweiserType !== 'cropDrawOverlay',
     );
     return JSON.stringify(json);
   }
@@ -870,6 +941,9 @@ export class FabricCanvasWrapper {
       );
     }
 
+    // Refit in case a crop rect was loaded.
+    this.reFit();
+
     // Reset undo stack to current state.
     this.undoStack = [this.serialize()];
     this.redoStack = [];
@@ -883,11 +957,12 @@ export class FabricCanvasWrapper {
   toDataURL(): string {
     if (!this.canvas) return '';
 
-    // The pixel buffer is always at natural image dimensions with identity VPT,
-    // so no viewport/dimension adjustments are needed before export.
-
     const cropHandler = this.registry.get('crop') as CropToolHandler;
     const cropRect = cropHandler.getCropRect();
+
+    // Reset VPT to identity for export (crop centering may have set a non-identity transform).
+    const savedVpt = [...this.canvas.viewportTransform] as [number, number, number, number, number, number];
+    this.canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
 
     // Temporarily hide crop visuals for export.
     cropHandler.hideCropVisuals();
@@ -911,6 +986,7 @@ export class FabricCanvasWrapper {
     }
 
     cropHandler.showCropVisuals();
+    this.canvas.setViewportTransform(savedVpt);
     this.canvas.renderAll();
 
     return dataUrl;
@@ -998,13 +1074,15 @@ export class FabricCanvasWrapper {
   clearCrop(): void {
     if (!this.canvas) return;
     (this.registry.get('crop') as CropToolHandler).clearCrop(this.ctx);
+    this.reFit();
   }
 
   /** Iterate over all annotation objects (excluding crop overlays). */
   private forEachAnnotation(fn: (obj: any) => void): void {
     if (!this.canvas) return;
     this.canvas.getObjects().forEach((obj) => {
-      if ((obj as any)._wegweiserType !== 'cropOverlay') {
+      const t = (obj as any)._wegweiserType;
+      if (t !== 'cropOverlay' && t !== 'cropDrawOverlay') {
         fn(obj);
       }
     });
@@ -1066,6 +1144,8 @@ export class FabricCanvasWrapper {
     this.isRestoring = false;
     this.updateUndoState();
     this.updateCounts();
+    // Refit in case the crop state changed (added/removed by undo/redo).
+    this.reFit();
   }
 
   /** Called when objects are added/modified/removed. */
@@ -1111,7 +1191,7 @@ export class FabricCanvasWrapper {
     const calloutColorsSeen = new Set<string>();
     this.canvas.getObjects().forEach((obj) => {
       const type = (obj as any)._wegweiserType;
-      if (type !== 'cropOverlay') {
+      if (type !== 'cropOverlay' && type !== 'cropDrawOverlay') {
         count++;
       }
       if (type === 'clickIndicator') {

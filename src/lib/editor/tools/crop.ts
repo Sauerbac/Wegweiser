@@ -9,6 +9,7 @@ export class CropToolHandler implements ToolHandler {
 
   private cropRect: Rect | null = null;
   private cropOverlays: Rect[] = [];
+  private drawOverlays: Rect[] = [];
   private drawState: DrawState | null = null;
 
   isDrawing(): boolean {
@@ -23,6 +24,11 @@ export class CropToolHandler implements ToolHandler {
     ctx.canvas.selection = false;
     ctx.canvas.discardActiveObject();
     forEachAnnotation((obj) => obj.set({ selectable: false, evented: false }));
+    // Keep the crop rect selectable so the user can resize/move/delete it.
+    if (this.cropRect) {
+      this.cropRect.set({ selectable: true, evented: true });
+      ctx.canvas.setActiveObject(this.cropRect);
+    }
     ctx.canvas.renderAll();
   }
 
@@ -32,6 +38,7 @@ export class CropToolHandler implements ToolHandler {
 
   cancel(ctx: ToolContext): boolean {
     if (!this.drawState) return false;
+    this.removeDrawOverlays(ctx);
     if (this.drawState.shape) {
       ctx.canvas.remove(this.drawState.shape);
       ctx.canvas.renderAll();
@@ -67,6 +74,10 @@ export class CropToolHandler implements ToolHandler {
     });
     ctx.canvas.add(rect);
     this.drawState = { startX: pointer.x, startY: pointer.y, shape: rect };
+
+    // Create 4 dim overlay rects for immediate visual feedback.
+    this.createDrawOverlays(ctx);
+    this.updateDrawOverlays(ctx, pointer.x, pointer.y, 0, 0);
   }
 
   onMouseMove(
@@ -81,6 +92,7 @@ export class CropToolHandler implements ToolHandler {
     const width = Math.abs(pointer.x - startX);
     const height = Math.abs(pointer.y - startY);
     shape.set({ left, top, width, height });
+    this.updateDrawOverlays(ctx, left, top, width, height);
     ctx.canvas.renderAll();
   }
 
@@ -90,6 +102,10 @@ export class CropToolHandler implements ToolHandler {
     _e: TPointerEventInfo<TPointerEvent>,
   ): void {
     if (!this.drawState) return;
+
+    // Remove draw overlays before any finalization or snapshots.
+    this.removeDrawOverlays(ctx);
+
     const { startX, startY, shape } = this.drawState;
     const dx = Math.abs(pointer.x - startX);
     const dy = Math.abs(pointer.y - startY);
@@ -169,8 +185,11 @@ export class CropToolHandler implements ToolHandler {
    * any deserialized crop rect.
    */
   updateCropOverlays(ctx: ToolContext): void {
+    // Remove old overlays from the canvas before clearing references.
+    // (When called after loadFromJSON the objects are already gone, but during
+    // live resize the old overlay rects are still on the canvas.)
+    this.removeCropOverlays(ctx);
     this.cropRect = null;
-    this.cropOverlays = [];
     ctx.canvas.getObjects().forEach((obj) => {
       if ((obj as any)._wegweiserType === 'cropMask') {
         this.cropRect = obj as Rect;
@@ -185,6 +204,7 @@ export class CropToolHandler implements ToolHandler {
   resetState(): void {
     this.cropRect = null;
     this.cropOverlays = [];
+    this.drawOverlays = [];
     this.drawState = null;
   }
 
@@ -231,6 +251,16 @@ export class CropToolHandler implements ToolHandler {
     if (!this.cropRect) return;
     this.removeCropOverlays(ctx);
 
+    const inCropTool = ctx.getCurrentTool() === 'crop';
+
+    // Hide and lock the crop rect when not in the crop tool.
+    this.cropRect.set({
+      visible: inCropTool,
+      opacity: inCropTool ? 1 : 0,
+      selectable: inCropTool,
+      evented: inCropTool,
+    });
+
     const cx = this.cropRect.left!;
     const cy = this.cropRect.top!;
     const cw = this.cropRect.width! * (this.cropRect.scaleX ?? 1);
@@ -238,7 +268,10 @@ export class CropToolHandler implements ToolHandler {
     const iw = ctx.imageWidth;
     const ih = ctx.imageHeight;
 
-    const dimColor = 'rgba(0, 0, 0, 0.5)';
+    // Fully opaque when not in crop tool (hides cropped-out areas).
+    const dimColor = inCropTool
+      ? 'rgba(0, 0, 0, 0.5)'
+      : 'rgba(0, 0, 0, 1)';
     const common = {
       fill: dimColor,
       originX: 'left',
@@ -266,7 +299,11 @@ export class CropToolHandler implements ToolHandler {
       ctx.canvas.add(overlay);
     }
 
-    ctx.canvas.bringObjectToFront(this.cropRect);
+    // Only bring crop rect to front when visible (in crop tool).
+    // When hidden, keep overlays on top so they fully cover the outside area.
+    if (inCropTool) {
+      ctx.canvas.bringObjectToFront(this.cropRect);
+    }
   }
 
   private removeCropOverlays(ctx: ToolContext): void {
@@ -276,9 +313,56 @@ export class CropToolHandler implements ToolHandler {
     this.cropOverlays = [];
   }
 
+  /** Create 4 draw-time dim overlay rects (initially invisible). */
+  private createDrawOverlays(ctx: ToolContext): void {
+    this.removeDrawOverlays(ctx);
+    const dimColor = 'rgba(0, 0, 0, 0.5)';
+    const common = {
+      fill: dimColor,
+      originX: 'left',
+      originY: 'top',
+      selectable: false,
+      evented: false,
+      excludeFromExport: true,
+      _wegweiserType: 'cropDrawOverlay',
+    } as any;
+    for (let i = 0; i < 4; i++) {
+      const r = new Rect({ left: 0, top: 0, width: 0, height: 0, ...common });
+      this.drawOverlays.push(r);
+      ctx.canvas.add(r);
+    }
+  }
+
+  /** Update draw-time dim overlay positions to surround the given crop bounds. */
+  private updateDrawOverlays(
+    ctx: ToolContext,
+    cx: number, cy: number, cw: number, ch: number,
+  ): void {
+    if (this.drawOverlays.length !== 4) return;
+    const iw = ctx.imageWidth;
+    const ih = ctx.imageHeight;
+    const [top, bottom, left, right] = this.drawOverlays;
+    // Top: full width, from y=0 to crop top
+    top.set({ left: 0, top: 0, width: iw, height: Math.max(0, cy) });
+    // Bottom: full width, from crop bottom to image bottom
+    bottom.set({ left: 0, top: cy + ch, width: iw, height: Math.max(0, ih - cy - ch) });
+    // Left: crop height, from x=0 to crop left
+    left.set({ left: 0, top: cy, width: Math.max(0, cx), height: Math.max(0, ch) });
+    // Right: crop height, from crop right to image right
+    right.set({ left: cx + cw, top: cy, width: Math.max(0, iw - cx - cw), height: Math.max(0, ch) });
+  }
+
+  /** Remove draw-time dim overlays from the canvas. */
+  private removeDrawOverlays(ctx: ToolContext): void {
+    for (const overlay of this.drawOverlays) {
+      ctx.canvas.remove(overlay);
+    }
+    this.drawOverlays = [];
+  }
+
   identifiesObject(obj: FabricObject): boolean {
     const type = (obj as any)._wegweiserType;
-    return type === 'cropMask' || type === 'cropOverlay';
+    return type === 'cropMask' || type === 'cropOverlay' || type === 'cropDrawOverlay';
   }
 
   syncFromObject(_obj: FabricObject, _shared: SharedDefaults): void {}
