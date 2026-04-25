@@ -57,7 +57,23 @@ export function rebuildGroupContents(
   const color = (group as any).arrowColor ?? fallbackColor;
   const strokeW = (group as any).strokeWidth ?? fallbackStrokeWidth;
 
-  const d = waypointsToSmoothPath(pts);
+  // Arrowhead direction: last segment tangent (P[N-2] → P[N-1]).
+  // For the Catmull-Rom → cubic bezier conversion used here, the mathematical
+  // tangent at the endpoint is always in the direction (last - prev).
+  const last = pts[pts.length - 1];
+  const prev = pts[pts.length - 2];
+  const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
+  const headLen = Math.max(strokeW * 4, 16);
+  const headAngle = Math.PI / 6;
+
+  // Trim the shaft so it ends at the arrowhead base, preventing the stroke
+  // from bleeding through the filled triangle near the tip.
+  const headDepth = headLen * Math.cos(headAngle);
+  const pathEnd = {
+    x: last.x - headDepth * Math.cos(angle),
+    y: last.y - headDepth * Math.sin(angle),
+  };
+  const d = waypointsToSmoothPath([...pts.slice(0, -1), pathEnd]);
 
   const pathObj = new Path(d, {
     stroke: color,
@@ -67,13 +83,6 @@ export function rebuildGroupContents(
     selectable: false,
     evented: false,
   });
-
-  // Arrowhead direction: last segment tangent (P[N-2] → P[N-1]).
-  const last = pts[pts.length - 1];
-  const prev = pts[pts.length - 2];
-  const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
-  const headLen = Math.max(strokeW * 4, 16);
-  const headAngle = Math.PI / 6;
 
   const arrowHead = new Polygon(
     [

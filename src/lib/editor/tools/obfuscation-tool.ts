@@ -169,7 +169,7 @@ export class ObfuscationToolHandler implements ToolHandler {
    * Re-render a blur or pixelate overlay in place.
    * Called by setObfuscationEffect / setBlurRadius / setPixelateBlockSize in the main wrapper.
    */
-  reRenderOverlay(ctx: ToolContext, obj: FabricImage): void {
+  reRenderOverlay(ctx: ToolContext, obj: FabricImage, live = false): void {
     const wegType = (obj as any)._wegweiserType as string;
     if (wegType !== 'blurOverlay' && wegType !== 'pixelateOverlay') return;
 
@@ -210,8 +210,10 @@ export class ObfuscationToolHandler implements ToolHandler {
       });
       obj.setCoords();
       ctx.canvas.renderAll();
-      ctx.pushSnapshot();
-      ctx.updateCounts();
+      if (!live) {
+        ctx.pushSnapshot();
+        ctx.updateCounts();
+      }
     });
   }
 

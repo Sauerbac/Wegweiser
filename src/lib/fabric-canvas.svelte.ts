@@ -333,6 +333,15 @@ export class FabricCanvasWrapper {
     this.canvas.on('object:moving', onCropInteraction);
     this.canvas.on('object:scaling', onCropInteraction);
 
+    // Live obfuscation re-render while dragging or resizing an overlay.
+    const onObfuscationInteraction = (e: any) => {
+      const target = e.target as any;
+      if (!target || (target._wegweiserType !== 'blurOverlay' && target._wegweiserType !== 'pixelateOverlay')) return;
+      this.reRenderAllObfuscationOverlays(true);
+    };
+    this.canvas.on('object:moving', onObfuscationInteraction);
+    this.canvas.on('object:scaling', onObfuscationInteraction);
+
     this.canvas.on('object:removed', (e) => {
       if (!this.isRestoring) {
         const obj = (e as any).target as any;
@@ -608,7 +617,7 @@ export class FabricCanvasWrapper {
    * object added below, etc.). Bottom-up so stacked overlays cascade
    * correctly (an upper blur re-samples the already-refreshed lower blur).
    */
-  reRenderAllObfuscationOverlays(): void {
+  reRenderAllObfuscationOverlays(live = false): void {
     if (!this.canvas || this._rerenderingObfuscation) return;
     const overlays = this.canvas.getObjects().filter((obj) => {
       const t = (obj as any)._wegweiserType;
@@ -619,7 +628,7 @@ export class FabricCanvasWrapper {
     const handler = this.registry.get('obfuscation') as ObfuscationToolHandler;
     try {
       for (const overlay of overlays) {
-        handler.reRenderOverlay(this.ctx, overlay as FabricImage);
+        handler.reRenderOverlay(this.ctx, overlay as FabricImage, live);
       }
     } finally {
       this._rerenderingObfuscation = false;
