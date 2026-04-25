@@ -4,7 +4,7 @@ import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js
 
 export class HighlightToolHandler implements ToolHandler {
   readonly toolId = 'highlight';
-  readonly propertiesComponentId = 'highlight';
+  readonly propertySections = ['stroke-color', 'opacity'] as const;
 
   private startX = 0;
   private startY = 0;

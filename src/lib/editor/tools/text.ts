@@ -11,7 +11,7 @@ const HIDDEN_TEXTBOX_CONTROLS = { tl: false, tr: false, bl: false, br: false, mt
 
 export class TextToolHandler implements ToolHandler {
   readonly toolId = 'text';
-  readonly propertiesComponentId = 'text';
+  readonly propertySections = ['stroke-color', 'font-family', 'font-size', 'opacity'] as const;
 
   /** Tracks which textbox is a candidate for entering editing on mouseUp. */
   private _pendingEditTarget: IText | null = null;

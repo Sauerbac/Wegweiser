@@ -4,15 +4,18 @@
   import { Trash2, BringToFront, SendToBack, ChevronUp, ChevronDown } from '@lucide/svelte';
   import type { FabricCanvasWrapper } from '$lib/fabric-canvas.svelte';
   import type { ToolHandler } from '$lib/editor/tools/tool-handler';
-  import ColorPicker from './properties/ColorPicker.svelte';
-  import StrokeWidthPicker from './properties/StrokeWidthPicker.svelte';
-  import OpacitySlider from './properties/OpacitySlider.svelte';
-  import FillColorPicker from './properties/FillColorPicker.svelte';
-  import TextProperties from './properties/TextProperties.svelte';
-  import CalloutProperties from './properties/CalloutProperties.svelte';
-  import ObfuscationProperties from './properties/ObfuscationProperties.svelte';
-  import CropProperties from './properties/CropProperties.svelte';
-  import ClickIndicatorProperties from './properties/ClickIndicatorProperties.svelte';
+  import type { PropertySection } from '$lib/editor/tools/tool-handler';
+  import { SECTION_ORDER } from '$lib/editor/property-sections';
+  import StrokeColorSection from './properties/StrokeColorSection.svelte';
+  import FillColorSection from './properties/FillColorSection.svelte';
+  import StrokeWidthSection from './properties/StrokeWidthSection.svelte';
+  import FontFamilySection from './properties/FontFamilySection.svelte';
+  import FontSizeSection from './properties/FontSizeSection.svelte';
+  import OpacitySection from './properties/OpacitySection.svelte';
+  import CalloutGroupsSection from './properties/CalloutGroupsSection.svelte';
+  import ObfuscationSection from './properties/ObfuscationSection.svelte';
+  import CropSection from './properties/CropSection.svelte';
+  import ClickIndicatorSection from './properties/ClickIndicatorSection.svelte';
 
   interface Props {
     fabricCanvas: FabricCanvasWrapper;
@@ -27,219 +30,167 @@
   }: Props = $props();
 
   /**
-   * Determine which tool handlers should show their property panels.
-   * - When objects are selected: show panels for each distinct selected object type.
-   * - When nothing is selected: show the active tool's panel (for "next new object" defaults).
+   * Determine which tool handlers should drive the property sections.
+   * - When objects are selected: handlers for each distinct selected object type.
+   * - When nothing selected: the active tool's handler (for "next new object" defaults).
    */
   let panelHandlers = $derived.by<ToolHandler[]>(() => {
+    // selectedObjectHandlers is a plain getter with no $state reads, so reading
+    // selectedCount here forces re-derivation whenever the selection changes.
+    void fabricCanvas.selectedCount;
     const selected = fabricCanvas.selectedObjectHandlers;
     if (selected.length > 0) return selected;
     const active = fabricCanvas.activeToolHandler;
     return active ? [active] : [];
   });
 
+  /**
+   * Active sections: union of all handlers' declared sections.
+   * Each handler's applyProperties only touches its own properties, so
+   * sections irrelevant to a given selected object are silently ignored.
+   */
+  let activeSections = $derived.by<Set<PropertySection>>(() => {
+    const handlers = panelHandlers;
+    if (handlers.length === 0) return new Set<PropertySection>();
+    const union = new Set<PropertySection>();
+    for (const h of handlers) {
+      for (const s of h.propertySections) union.add(s);
+    }
+    return union;
+  });
+
+  /** Sections that will actually render (in order). */
+  let visibleSections = $derived(SECTION_ORDER.filter((s) => activeSections.has(s)));
+
   let hasSelection = $derived(fabricCanvas.selectedCount > 0);
 
-  function handleColorChange(c: string) {
-    fabricCanvas.setColor(c);
+  let isEmpty = $derived(
+    panelHandlers.length === 0 ||
+    (panelHandlers.length === 1 && panelHandlers[0].propertySections.length === 0 && !hasSelection),
+  );
+
+  // --- Scroll shadow state ---
+  let scrollEl = $state<HTMLDivElement | undefined>(undefined);
+  let atTop = $state(true);
+  let atBottom = $state(false);
+
+  function checkScroll() {
+    if (!scrollEl) return;
+    atTop = scrollEl.scrollTop <= 0;
+    atBottom = scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 1;
   }
 
-  function handleStrokeWidthChange(w: number) {
-    fabricCanvas.setStrokeWidth(w);
-  }
-
-  function handleOpacityChange(o: number) {
-    fabricCanvas.setOpacity(o);
-  }
-
-  function handleFillEnabledChange(enabled: boolean) {
-    fabricCanvas.setFillEnabled(enabled);
-  }
-
-  function handleFillColorChange(c: string) {
-    fabricCanvas.setFillColor(c);
-  }
-
-  function handleDelete() {
-    fabricCanvas.deleteSelected();
-  }
-
-  function handleBringToFront() {
-    fabricCanvas.bringToFront();
-  }
-  function handleBringForward() {
-    fabricCanvas.bringForward();
-  }
-  function handleSendBackwards() {
-    fabricCanvas.sendBackwards();
-  }
-  function handleSendToBack() {
-    fabricCanvas.sendToBack();
-  }
+  $effect(() => {
+    // Re-check when the visible sections change (content size may change)
+    visibleSections;
+    hasSelection;
+    checkScroll();
+  });
 </script>
 
-<div class="flex w-40 shrink-0 flex-col gap-3 border-l bg-muted/30 p-3">
-  {#each panelHandlers as handler (handler.toolId)}
-    {@const componentId = handler.propertiesComponentId}
-
-    {#if componentId === 'select'}
-      <!-- Select tool: show properties of selected object, or placeholder when nothing selected -->
-      {#if hasSelection}
-        <ColorPicker label="Color" value={fabricCanvas.color} allowTransparent onchange={handleColorChange} />
-        <Separator />
-        <FillColorPicker
-          fillEnabled={fabricCanvas.fillEnabled}
-          fillColor={fabricCanvas.fillColor}
-          onfillEnabledChange={handleFillEnabledChange}
-          onfillColorChange={handleFillColorChange}
-        />
-        <Separator />
-        <StrokeWidthPicker value={fabricCanvas.strokeWidth} onchange={handleStrokeWidthChange} />
-        <Separator />
-        <OpacitySlider value={fabricCanvas.opacity} onchange={handleOpacityChange} />
-        <Separator />
-        <Button variant="destructive" size="sm" onclick={handleDelete}>
-          <Trash2 />Delete
-        </Button>
-      {:else}
+<div class="flex w-40 shrink-0 flex-col border-l bg-muted/30">
+  <div class="relative min-h-0 flex-1">
+    <!-- Scrollable content -->
+    <div
+      bind:this={scrollEl}
+      class="h-full overflow-y-auto p-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+      onscroll={checkScroll}
+    >
+      {#if isEmpty}
         <p class="text-xs text-muted-foreground">Select an object to edit its properties.</p>
-        <Separator />
-        <Button variant="destructive" size="sm" disabled onclick={handleDelete}>
-          <Trash2 />Delete
-        </Button>
+      {:else}
+        <div class="flex flex-col gap-3">
+          {#each visibleSections as sectionId, idx}
+            {#if idx > 0}
+              <Separator />
+            {/if}
+
+            {#if sectionId === 'stroke-color'}
+              <StrokeColorSection {fabricCanvas} />
+            {:else if sectionId === 'fill-color'}
+              <FillColorSection {fabricCanvas} />
+            {:else if sectionId === 'stroke-width'}
+              <StrokeWidthSection {fabricCanvas} />
+            {:else if sectionId === 'font-family'}
+              <FontFamilySection {fabricCanvas} />
+            {:else if sectionId === 'font-size'}
+              <FontSizeSection {fabricCanvas} />
+            {:else if sectionId === 'callout-groups'}
+              <CalloutGroupsSection {fabricCanvas} />
+            {:else if sectionId === 'obfuscation'}
+              <ObfuscationSection {fabricCanvas} />
+            {:else if sectionId === 'crop'}
+              <CropSection {hasWindowRects} {onselectWindow} />
+            {:else if sectionId === 'click-indicator'}
+              <ClickIndicatorSection {fabricCanvas} />
+            {:else if sectionId === 'opacity'}
+              <OpacitySection {fabricCanvas} />
+            {/if}
+          {/each}
+
+          <!-- Layer order controls — shown whenever at least one object is selected -->
+          {#if hasSelection}
+            <Separator />
+            <div class="space-y-1.5">
+              <p class="text-xs font-medium text-muted-foreground">Layers</p>
+              <div class="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Bring to front"
+                  title="Bring to front (Ctrl+Shift+])"
+                  onclick={() => fabricCanvas.bringToFront()}
+                >
+                  <BringToFront />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Bring forward"
+                  title="Bring forward (])"
+                  onclick={() => fabricCanvas.bringForward()}
+                >
+                  <ChevronUp />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Send backward"
+                  title="Send backward ([)"
+                  onclick={() => fabricCanvas.sendBackwards()}
+                >
+                  <ChevronDown />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Send to back"
+                  title="Send to back (Ctrl+Shift+[)"
+                  onclick={() => fabricCanvas.sendToBack()}
+                >
+                  <SendToBack />
+                </Button>
+              </div>
+            </div>
+
+            <Separator />
+            <Button variant="destructive" size="sm" onclick={() => fabricCanvas.deleteSelected()}>
+              <Trash2 />Delete
+            </Button>
+          {/if}
+        </div>
       {/if}
-
-    {:else if componentId === 'shape'}
-      <ColorPicker label="Color" value={fabricCanvas.color} onchange={handleColorChange} />
-      <Separator />
-      <FillColorPicker
-        fillEnabled={fabricCanvas.fillEnabled}
-        fillColor={fabricCanvas.fillColor}
-        onfillEnabledChange={handleFillEnabledChange}
-        onfillColorChange={handleFillColorChange}
-      />
-      <Separator />
-      <StrokeWidthPicker value={fabricCanvas.strokeWidth} onchange={handleStrokeWidthChange} />
-      <Separator />
-      <OpacitySlider value={fabricCanvas.opacity} onchange={handleOpacityChange} />
-
-    {:else if componentId === 'arrow'}
-      <ColorPicker label="Color" value={fabricCanvas.color} onchange={handleColorChange} />
-      <Separator />
-      <StrokeWidthPicker value={fabricCanvas.strokeWidth} onchange={handleStrokeWidthChange} />
-      <Separator />
-      <OpacitySlider value={fabricCanvas.opacity} onchange={handleOpacityChange} />
-
-    {:else if componentId === 'text'}
-      <TextProperties
-        color={fabricCanvas.color}
-        strokeWidth={fabricCanvas.strokeWidth}
-        opacity={fabricCanvas.opacity}
-        fontFamily={fabricCanvas.fontFamily}
-        oncolorChange={handleColorChange}
-        onstrokeWidthChange={handleStrokeWidthChange}
-        onopacityChange={handleOpacityChange}
-        onfontFamilyChange={(f) => fabricCanvas.setFontFamily(f)}
-      />
-
-    {:else if componentId === 'freehand'}
-      <ColorPicker label="Color" value={fabricCanvas.color} onchange={handleColorChange} />
-      <Separator />
-      <StrokeWidthPicker value={fabricCanvas.strokeWidth} onchange={handleStrokeWidthChange} />
-      <Separator />
-      <OpacitySlider value={fabricCanvas.opacity} onchange={handleOpacityChange} />
-
-    {:else if componentId === 'highlight'}
-      <ColorPicker label="Color" value={fabricCanvas.color} onchange={handleColorChange} />
-      <Separator />
-      <OpacitySlider value={fabricCanvas.opacity} onchange={handleOpacityChange} />
-
-    {:else if componentId === 'callout'}
-      <CalloutProperties
-        color={fabricCanvas.color}
-        strokeWidth={fabricCanvas.strokeWidth}
-        opacity={fabricCanvas.opacity}
-        calloutGroups={fabricCanvas.calloutGroups}
-        oncolorChange={handleColorChange}
-        onstrokeWidthChange={handleStrokeWidthChange}
-        onopacityChange={handleOpacityChange}
-      />
-
-    {:else if componentId === 'obfuscation'}
-      <ObfuscationProperties
-        obfuscationEffect={fabricCanvas.obfuscationEffect}
-        blurRadius={fabricCanvas.blurRadius}
-        pixelateBlockSize={fabricCanvas.pixelateBlockSize}
-        onobfuscationEffectChange={(effect) => fabricCanvas.setObfuscationEffect(effect)}
-        onblurRadiusChange={(r) => fabricCanvas.setBlurRadius(r)}
-        onpixelateBlockSizeChange={(s) => fabricCanvas.setPixelateBlockSize(s)}
-      />
-
-    {:else if componentId === 'crop'}
-      <CropProperties
-        {hasWindowRects}
-        {onselectWindow}
-      />
-
-    {:else if componentId === 'click-indicator'}
-      <ClickIndicatorProperties
-        visible={fabricCanvas.clickIndicatorVisible}
-        ontoggle={() => fabricCanvas.toggleClickIndicator()}
-      />
-    {/if}
-  {/each}
-
-  <!-- Layer order controls — shown whenever at least one object is selected -->
-  {#if hasSelection}
-    <Separator />
-    <div class="space-y-1.5">
-      <p class="text-xs font-medium text-muted-foreground">Layer</p>
-      <div class="flex gap-1">
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Bring to front"
-          title="Bring to front (Ctrl+Shift+])"
-          onclick={handleBringToFront}
-        >
-          <BringToFront />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Bring forward"
-          title="Bring forward (])"
-          onclick={handleBringForward}
-        >
-          <ChevronUp />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Send backward"
-          title="Send backward ([)"
-          onclick={handleSendBackwards}
-        >
-          <ChevronDown />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Send to back"
-          title="Send to back (Ctrl+Shift+[)"
-          onclick={handleSendToBack}
-        >
-          <SendToBack />
-        </Button>
-      </div>
     </div>
-  {/if}
 
-  <!-- Show delete button for multi-select when not already shown by select tool -->
-  {#if hasSelection && !panelHandlers.some((h) => h.propertiesComponentId === 'select')}
-    <Separator />
-    <Button variant="destructive" size="sm" onclick={handleDelete}>
-      <Trash2 />Delete
-    </Button>
-  {/if}
+    <!-- Top scroll shadow -->
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-linear-to-b from-muted/30 to-transparent transition-opacity duration-150"
+      class:opacity-0={atTop}
+    ></div>
+    <!-- Bottom scroll shadow -->
+    <div
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t from-muted/30 to-transparent transition-opacity duration-150"
+      class:opacity-0={atBottom}
+    ></div>
+  </div>
 </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { PRESET_COLORS } from '$lib/editor/constants';
+  import { Pipette } from '@lucide/svelte';
 
   interface Props {
     label: string;
@@ -11,6 +12,8 @@
   let { label, value, allowTransparent = false, onchange }: Props = $props();
 
   const isTransparent = $derived(value === 'transparent');
+
+  let colorInputRef = $state<HTMLInputElement | null>(null);
 </script>
 
 <div class="space-y-1.5">
@@ -18,23 +21,19 @@
   <div class="flex flex-wrap gap-1">
     {#if allowTransparent}
       <button
-        class="relative size-6 overflow-hidden rounded-full border-2 transition-transform hover:scale-110"
+        class="color-swatch relative overflow-hidden border-2 transition-transform hover:scale-110"
         class:border-foreground={isTransparent}
-        class:border-muted-foreground={!isTransparent}
+        class:border-transparent={!isTransparent}
         onclick={() => onchange('transparent')}
         aria-label="No color"
         title="No color"
       >
-        <span class="absolute inset-0 bg-white"></span>
-        <span
-          class="absolute inset-0"
-          style="background: linear-gradient(to bottom right, transparent calc(50% - 1px), #ef4444 calc(50% - 1px), #ef4444 calc(50% + 1px), transparent calc(50% + 1px));"
-        ></span>
+        <span class="checker absolute inset-0"></span>
       </button>
     {/if}
     {#each PRESET_COLORS as c}
       <button
-        class="size-6 rounded-full border-2 transition-transform hover:scale-110"
+        class="color-swatch border-2 transition-transform hover:scale-110"
         class:border-foreground={value === c}
         class:border-transparent={value !== c}
         style="background: {c};"
@@ -42,11 +41,41 @@
         aria-label="Color {c}"
       ></button>
     {/each}
+    <button
+      class="color-swatch flex items-center justify-center border-2 border-muted-foreground/40 bg-muted transition-transform hover:scale-110"
+      onclick={() => colorInputRef?.click()}
+      aria-label="Custom color"
+      title="Custom color"
+    >
+      <Pipette class="size-3 text-muted-foreground" />
+    </button>
+    <input
+      bind:this={colorInputRef}
+      type="color"
+      value={isTransparent ? '#ef4444' : value}
+      onchange={(e) => onchange(e.currentTarget.value)}
+      class="invisible absolute size-0"
+    />
   </div>
-  <input
-    type="color"
-    value={isTransparent ? '#ef4444' : value}
-    onchange={(e) => onchange(e.currentTarget.value)}
-    class="h-7 w-full cursor-pointer rounded border bg-transparent"
-  />
 </div>
+
+<style>
+  .color-swatch {
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  /* Checkerboard pattern for "no color" / transparent swatch */
+  .checker {
+    background-image:
+      linear-gradient(45deg, #ccc 25%, transparent 25%),
+      linear-gradient(-45deg, #ccc 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #ccc 75%),
+      linear-gradient(-45deg, transparent 75%, #ccc 75%);
+    background-size: 6px 6px;
+    background-position: 0 0, 0 3px, 3px -3px, -3px 0px;
+    background-color: white;
+  }
+</style>

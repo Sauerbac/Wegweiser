@@ -4,7 +4,7 @@ import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js
 
 export class FreehandToolHandler implements ToolHandler {
   readonly toolId = 'freehand';
-  readonly propertiesComponentId = 'freehand';
+  readonly propertySections = ['stroke-color', 'stroke-width', 'opacity'] as const;
 
   /** Listener tagging brush-created paths so identifiesObject() can find them positively. */
   private _onPathCreated: ((e: { path: FabricObject }) => void) | null = null;

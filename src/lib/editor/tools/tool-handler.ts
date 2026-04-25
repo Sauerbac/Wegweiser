@@ -2,6 +2,23 @@ import type { Canvas, FabricObject, TPointerEvent, TPointerEventInfo } from 'fab
 import type { ObfuscationEffect } from '../obfuscation.js';
 
 /**
+ * Property sections that can appear in the properties panel.
+ * Each tool handler declares which sections it supports via propertySections.
+ * The panel renders only those sections in a fixed canonical order.
+ */
+export type PropertySection =
+  | 'stroke-color'
+  | 'fill-color'
+  | 'stroke-width'
+  | 'font-family'
+  | 'font-size'
+  | 'opacity'
+  | 'obfuscation'
+  | 'crop'
+  | 'click-indicator'
+  | 'callout-groups';
+
+/**
  * Shared property defaults that persist across tool switches.
  * When the user sets color to red on rectangle, then switches to arrow, arrow also uses red.
  * Backed by a reactive proxy over FabricCanvasWrapper's $state fields.
@@ -54,11 +71,11 @@ export interface ToolHandler {
   readonly toolId: string;
 
   /**
-   * String ID of the Svelte properties component to render for this tool.
-   * Multiple tools can share the same component (e.g. rectangle + ellipse → 'shape').
-   * null means no properties panel.
+   * Property sections this tool supports, rendered in the canonical order
+   * defined by SECTION_ORDER. The panel shows only sections declared here.
+   * Empty array means no properties (e.g. select tool delegates to selected objects).
    */
-  readonly propertiesComponentId: string | null;
+  readonly propertySections: readonly PropertySection[];
 
   /**
    * Called when this tool is activated via setTool().

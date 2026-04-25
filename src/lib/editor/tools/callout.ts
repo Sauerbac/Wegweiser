@@ -19,7 +19,7 @@ export function contrastColor(hex: string): string {
 
 export class CalloutToolHandler implements ToolHandler {
   readonly toolId = 'callout';
-  readonly propertiesComponentId = 'callout';
+  readonly propertySections = ['stroke-color', 'callout-groups', 'stroke-width', 'opacity'] as const;
 
   /** Per-color counter: color → next number to assign for that color group. */
   private colorCounters: Map<string, number> = new Map();

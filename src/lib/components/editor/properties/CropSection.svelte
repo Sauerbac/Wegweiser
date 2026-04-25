@@ -11,7 +11,7 @@
 </script>
 
 {#if hasWindowRects}
-  <Button variant="outline" onclick={onselectWindow}>
+  <Button variant="outline" size="sm" onclick={onselectWindow}>
     <AppWindow />
     Select Window
   </Button>

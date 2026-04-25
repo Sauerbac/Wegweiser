@@ -3,7 +3,7 @@ import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js
 
 export class SelectToolHandler implements ToolHandler {
   readonly toolId = 'select';
-  readonly propertiesComponentId = 'select';
+  readonly propertySections = [] as const;
 
   onActivate(ctx: ToolContext, forEachAnnotation: (fn: (obj: FabricObject) => void) => void): void {
     ctx.canvas.isDrawingMode = false;

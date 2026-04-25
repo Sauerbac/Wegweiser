@@ -24,7 +24,7 @@ interface ArrowPolylineState {
 
 export class ArrowToolHandler implements ToolHandler {
   readonly toolId = 'arrow';
-  readonly propertiesComponentId = 'arrow';
+  readonly propertySections = ['stroke-color', 'stroke-width', 'opacity'] as const;
 
   private drawState: ArrowDrawState | null = null;
   private polylineState: ArrowPolylineState | null = null;

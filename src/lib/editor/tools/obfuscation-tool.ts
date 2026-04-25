@@ -58,7 +58,7 @@ type DrawState = { startX: number; startY: number; shape: Rect | null };
 
 export class ObfuscationToolHandler implements ToolHandler {
   readonly toolId = 'obfuscation';
-  readonly propertiesComponentId = 'obfuscation';
+  readonly propertySections = ['obfuscation'] as const;
 
   private drawState: DrawState | null = null;
 

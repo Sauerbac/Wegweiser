@@ -5,7 +5,7 @@ type DrawState = { startX: number; startY: number; shape: Rect | null };
 
 export class CropToolHandler implements ToolHandler {
   readonly toolId = 'crop';
-  readonly propertiesComponentId = 'crop';
+  readonly propertySections = ['crop'] as const;
 
   private cropRect: Rect | null = null;
   private cropOverlays: Rect[] = [];

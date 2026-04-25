@@ -5,7 +5,7 @@ import { applyShapeProperties, syncShapeFromObject } from './shape-props.js';
 
 export class RectangleToolHandler implements ToolHandler {
   readonly toolId = 'rectangle';
-  readonly propertiesComponentId = 'shape';
+  readonly propertySections = ['stroke-color', 'fill-color', 'stroke-width', 'opacity'] as const;
 
   private startX = 0;
   private startY = 0;

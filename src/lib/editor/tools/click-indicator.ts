@@ -13,7 +13,7 @@ function hexAlpha(hex: string, alpha: number): string {
 
 export class ClickIndicatorToolHandler implements ToolHandler {
   readonly toolId = 'click-indicator';
-  readonly propertiesComponentId = 'click-indicator';
+  readonly propertySections = ['click-indicator'] as const;
 
   private _x = 0;
   private _y = 0;
