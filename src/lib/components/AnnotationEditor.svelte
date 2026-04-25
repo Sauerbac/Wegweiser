@@ -5,6 +5,7 @@
   import type { Step, WindowRect } from '$lib/types';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
+  import * as Tooltip from '$lib/components/ui/tooltip';
   import { Undo2, Redo2, X } from '@lucide/svelte';
   import AnnotationToolbar from '$lib/components/AnnotationToolbar.svelte';
   import PropertiesPanel from '$lib/components/editor/PropertiesPanel.svelte';
@@ -391,24 +392,36 @@
         Edit Image — Step {step.order}
       </Dialog.Title>
       <div class="flex items-center gap-1">
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Undo"
-          onclick={() => fabricCanvas.undo()}
-          disabled={!fabricCanvas.canUndo || saving}
-        >
-          <Undo2 />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          aria-label="Redo"
-          onclick={() => fabricCanvas.redo()}
-          disabled={!fabricCanvas.canRedo || saving}
-        >
-          <Redo2 />
-        </Button>
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="outline"
+                size="icon-sm"
+                aria-label="Undo"
+                onclick={() => fabricCanvas.undo()}
+                disabled={!fabricCanvas.canUndo || saving}
+              ><Undo2 /></Button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>Undo<span data-slot="kbd">Ctrl+Z</span></Tooltip.Content>
+        </Tooltip.Root>
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="outline"
+                size="icon-sm"
+                aria-label="Redo"
+                onclick={() => fabricCanvas.redo()}
+                disabled={!fabricCanvas.canRedo || saving}
+              ><Redo2 /></Button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>Redo<span data-slot="kbd">Ctrl+Y</span></Tooltip.Content>
+        </Tooltip.Root>
         <Dialog.Close>
           {#snippet child({ props })}
             <Button

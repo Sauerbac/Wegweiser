@@ -20,6 +20,7 @@
     Undo2,
   } from "@lucide/svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
+  import * as Tooltip from "$lib/components/ui/tooltip";
   import { getReviewContext } from "$lib/review/context.svelte";
 
   interface Props {
@@ -94,27 +95,51 @@
 
   <!-- Right: undo/redo + export buttons + theme toggle -->
   <div class="flex items-center justify-end gap-2">
-    <Button
-      variant="outline"
-      size="icon-sm"
-      aria-label="Undo"
-      onclick={() => reviewUndo.undo()}
-      disabled={editorSessionOpen || !reviewUndo.canUndo}><Undo2 /></Button
-    >
-    <Button
-      variant="outline"
-      size="icon-sm"
-      aria-label="Redo"
-      onclick={() => reviewUndo.redo()}
-      disabled={editorSessionOpen || !reviewUndo.canRedo}><Redo2 /></Button
-    >
-    <Button
-      variant="outline"
-      size="icon-sm"
-      aria-label="Save"
-      onclick={() => ctx.store.markSaved()}
-      disabled={!isDirty}><Save /></Button
-    >
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="icon-sm"
+            aria-label="Undo"
+            onclick={() => reviewUndo.undo()}
+            disabled={editorSessionOpen || !reviewUndo.canUndo}
+          ><Undo2 /></Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Undo<span data-slot="kbd">Ctrl+Z</span></Tooltip.Content>
+    </Tooltip.Root>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="icon-sm"
+            aria-label="Redo"
+            onclick={() => reviewUndo.redo()}
+            disabled={editorSessionOpen || !reviewUndo.canRedo}
+          ><Redo2 /></Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Redo<span data-slot="kbd">Ctrl+Y</span></Tooltip.Content>
+    </Tooltip.Root>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="icon-sm"
+            aria-label="Save"
+            onclick={() => ctx.store.markSaved()}
+            disabled={!isDirty}
+          ><Save /></Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Save</Tooltip.Content>
+    </Tooltip.Root>
     <DropdownMenu>
       <DropdownMenuTrigger>
         {#snippet child({ props })}
