@@ -346,19 +346,19 @@ export class ArrowToolHandler implements ToolHandler {
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
-  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
     if (!(obj instanceof Group)) return;
-    const oldStrokeWidth = (obj as any).strokeWidth as number | undefined;
     const waypoints = (obj as any).waypointData as { x: number; y: number }[] | undefined;
 
-    // If stroke width changed, rebuild the group so the arrowhead geometry
-    // recomputes at the new scale. Otherwise just patch colors on children.
-    if (waypoints && typeof oldStrokeWidth === 'number' && oldStrokeWidth !== shared.strokeWidth) {
-      const old = obj.getObjects();
-      old.forEach((o) => obj.remove(o));
-      rebuildGroupContents(obj, waypoints, shared.color, shared.strokeWidth);
-      (obj as any).strokeWidth = shared.strokeWidth;
-    } else {
+    if (changedProperty === 'strokeWidth') {
+      const oldStrokeWidth = (obj as any).strokeWidth as number | undefined;
+      if (waypoints && typeof oldStrokeWidth === 'number' && oldStrokeWidth !== shared.strokeWidth) {
+        const old = obj.getObjects();
+        old.forEach((o) => obj.remove(o));
+        rebuildGroupContents(obj, waypoints, shared.color, shared.strokeWidth);
+        (obj as any).strokeWidth = shared.strokeWidth;
+      }
+    } else if (changedProperty === 'color') {
       obj.getObjects().forEach((child) => {
         if (child instanceof Path) {
           child.set({ stroke: shared.color });
@@ -368,8 +368,9 @@ export class ArrowToolHandler implements ToolHandler {
           child.set({ fill: shared.color });
         }
       });
+      (obj as any).arrowColor = shared.color;
+    } else if (changedProperty === 'opacity') {
+      obj.set({ opacity: shared.opacity });
     }
-    (obj as any).arrowColor = shared.color;
-    obj.set({ opacity: shared.opacity });
   }
 }

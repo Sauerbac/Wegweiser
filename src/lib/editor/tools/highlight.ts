@@ -101,10 +101,11 @@ export class HighlightToolHandler implements ToolHandler {
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
-  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
-    obj.set({
-      fill: shared.color,
-      opacity: shared.opacity,
-    });
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
+    if (changedProperty === 'color') {
+      obj.set({ fill: shared.color });
+    } else if (changedProperty === 'opacity') {
+      obj.set({ opacity: shared.opacity });
+    }
   }
 }

@@ -20,12 +20,20 @@ export function syncShapeFromObject(obj: FabricObject, shared: SharedDefaults): 
   }
 }
 
-export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults): void {
-  obj.set({
-    stroke: shared.color,
-    strokeWidth: shared.strokeWidth,
-    strokeUniform: true,
-    fill: shared.fillEnabled ? shared.fillColor : 'transparent',
-    opacity: shared.opacity,
-  });
+export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
+  switch (changedProperty) {
+    case 'color':
+      obj.set({ stroke: shared.color, strokeUniform: true });
+      break;
+    case 'strokeWidth':
+      obj.set({ strokeWidth: shared.strokeWidth, strokeUniform: true });
+      break;
+    case 'fillEnabled':
+    case 'fillColor':
+      obj.set({ fill: shared.fillEnabled ? shared.fillColor : 'transparent' });
+      break;
+    case 'opacity':
+      obj.set({ opacity: shared.opacity });
+      break;
+  }
 }

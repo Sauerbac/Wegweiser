@@ -50,17 +50,23 @@ export class FreehandToolHandler implements ToolHandler {
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
-  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
-    obj.set({
-      stroke: shared.color,
-      strokeWidth: shared.strokeWidth,
-      strokeUniform: true,
-      opacity: shared.opacity,
-    });
-    // Also update the freehand brush for the next stroke.
-    if (ctx.canvas.isDrawingMode && ctx.canvas.freeDrawingBrush) {
-      ctx.canvas.freeDrawingBrush.color = shared.color;
-      ctx.canvas.freeDrawingBrush.width = shared.strokeWidth;
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
+    switch (changedProperty) {
+      case 'color':
+        obj.set({ stroke: shared.color, strokeUniform: true });
+        if (ctx.canvas.isDrawingMode && ctx.canvas.freeDrawingBrush) {
+          ctx.canvas.freeDrawingBrush.color = shared.color;
+        }
+        break;
+      case 'strokeWidth':
+        obj.set({ strokeWidth: shared.strokeWidth, strokeUniform: true });
+        if (ctx.canvas.isDrawingMode && ctx.canvas.freeDrawingBrush) {
+          ctx.canvas.freeDrawingBrush.width = shared.strokeWidth;
+        }
+        break;
+      case 'opacity':
+        obj.set({ opacity: shared.opacity });
+        break;
     }
   }
 }

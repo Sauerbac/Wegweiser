@@ -109,7 +109,7 @@ export class RectangleToolHandler implements ToolHandler {
     syncShapeFromObject(obj, shared);
   }
 
-  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
-    applyShapeProperties(obj, shared);
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
+    applyShapeProperties(obj, shared, changedProperty);
   }
 }

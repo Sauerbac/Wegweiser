@@ -162,24 +162,25 @@ export class CalloutToolHandler implements ToolHandler {
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
-  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
     if (!(obj instanceof Group)) return;
-    const oldColor = (obj as any)._calloutColor as string | undefined;
-    const colorChanging = shared.color !== oldColor;
-
-    if (colorChanging) {
-      const newNum = this.takeNextForColor(shared.color);
-      (obj as any)._calloutColor = shared.color;
-      (obj as any)._calloutNumber = newNum;
-      if (oldColor) this.recalcColorCounter(ctx.canvas, oldColor);
-      obj.getObjects().forEach((child) => {
-        if (child instanceof Circle) {
-          child.set({ fill: shared.color });
-        } else if (child instanceof FabricText) {
-          child.set({ text: String(newNum), fill: contrastColor(shared.color) });
-        }
-      });
+    if (changedProperty === 'color') {
+      const oldColor = (obj as any)._calloutColor as string | undefined;
+      if (shared.color !== oldColor) {
+        const newNum = this.takeNextForColor(shared.color);
+        (obj as any)._calloutColor = shared.color;
+        (obj as any)._calloutNumber = newNum;
+        if (oldColor) this.recalcColorCounter(ctx.canvas, oldColor);
+        obj.getObjects().forEach((child) => {
+          if (child instanceof Circle) {
+            child.set({ fill: shared.color });
+          } else if (child instanceof FabricText) {
+            child.set({ text: String(newNum), fill: contrastColor(shared.color) });
+          }
+        });
+      }
+    } else if (changedProperty === 'opacity') {
+      obj.set({ opacity: shared.opacity });
     }
-    obj.set({ opacity: shared.opacity });
   }
 }

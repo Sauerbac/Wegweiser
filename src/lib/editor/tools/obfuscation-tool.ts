@@ -329,7 +329,7 @@ export class ObfuscationToolHandler implements ToolHandler {
     if (typeof block === 'number') shared.pixelateBlockSize = block;
   }
 
-  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, _changedProperty: keyof SharedDefaults): void {
     if (!(obj instanceof FabricImage)) return;
     (obj as any)._wegweiserType = shared.obfuscationEffect === 'blur' ? 'blurOverlay' : 'pixelateOverlay';
     (obj as any)._wegweiserEffect = shared.obfuscationEffect;

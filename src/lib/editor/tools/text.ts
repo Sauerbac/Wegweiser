@@ -217,14 +217,22 @@ export class TextToolHandler implements ToolHandler {
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
-  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void {
+  applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
     if (!(obj instanceof IText)) return;
-    obj.set({
-      fill: shared.color,
-      fontFamily: shared.fontFamily,
-      fontSize: strokeWidthToFontSize(shared.strokeWidth),
-      opacity: shared.opacity,
-    });
-    (obj as any).cursorColor = shared.color;
+    switch (changedProperty) {
+      case 'color':
+        obj.set({ fill: shared.color });
+        (obj as any).cursorColor = shared.color;
+        break;
+      case 'fontFamily':
+        obj.set({ fontFamily: shared.fontFamily });
+        break;
+      case 'strokeWidth':
+        obj.set({ fontSize: strokeWidthToFontSize(shared.strokeWidth) });
+        break;
+      case 'opacity':
+        obj.set({ opacity: shared.opacity });
+        break;
+    }
   }
 }

@@ -117,6 +117,8 @@ export interface ToolHandler {
   /**
    * Apply the current property state to a Fabric object of this handler's type.
    * Called when the user changes a property in the properties panel while the object is selected.
+   * `changedProperty` names exactly which SharedDefaults field was modified — handlers must
+   * only update the matching object property and leave everything else untouched.
    */
-  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults): void;
+  applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void;
 }

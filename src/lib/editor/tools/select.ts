@@ -23,5 +23,5 @@ export class SelectToolHandler implements ToolHandler {
 
   identifiesObject(_obj: FabricObject): boolean { return false; }
   syncFromObject(_obj: FabricObject, _shared: SharedDefaults): void {}
-  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults): void {}
+  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults, _changedProperty: keyof SharedDefaults): void {}
 }

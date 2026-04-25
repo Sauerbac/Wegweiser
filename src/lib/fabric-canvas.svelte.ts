@@ -530,13 +530,13 @@ export class FabricCanvasWrapper {
     if (this.canvas.isDrawingMode && this.canvas.freeDrawingBrush) {
       this.canvas.freeDrawingBrush.color = c;
     }
-    this.updateSelectedObjectStyle();
+    this.updateSelectedObjectStyle('color');
   }
 
   /** Update the font family for the text tool. Also updates the selected object if any. */
   setFontFamily(f: string): void {
     this.fontFamily = f;
-    this.updateSelectedObjectStyle();
+    this.updateSelectedObjectStyle('fontFamily');
   }
 
   /** Update the stroke width. Also updates the selected object if any. */
@@ -546,25 +546,25 @@ export class FabricCanvasWrapper {
     if (this.canvas.isDrawingMode && this.canvas.freeDrawingBrush) {
       this.canvas.freeDrawingBrush.width = w;
     }
-    this.updateSelectedObjectStyle();
+    this.updateSelectedObjectStyle('strokeWidth');
   }
 
   /** Update the opacity. Also updates the selected object if any. */
   setOpacity(o: number): void {
     this.opacity = o;
-    this.updateSelectedObjectStyle();
+    this.updateSelectedObjectStyle('opacity');
   }
 
   /** Toggle fill on/off for shapes. Also updates the selected object if any. */
   setFillEnabled(enabled: boolean): void {
     this.fillEnabled = enabled;
-    this.updateSelectedObjectStyle();
+    this.updateSelectedObjectStyle('fillEnabled');
   }
 
   /** Update the fill color. Also updates the selected object if any. */
   setFillColor(c: string): void {
     this.fillColor = c;
-    this.updateSelectedObjectStyle();
+    this.updateSelectedObjectStyle('fillColor');
   }
 
   /** Set the obfuscation effect mode. */
@@ -1089,17 +1089,21 @@ export class FabricCanvasWrapper {
   }
 
   /** Update style of the currently selected object(s) via their tool handler. */
-  private updateSelectedObjectStyle(): void {
+  private updateSelectedObjectStyle(changedProperty: keyof SharedDefaults): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
     // For multi-select (ActiveSelection), apply to each object individually.
-    const objects = active instanceof ActiveSelection ? active.getObjects() : [active];
+    const isMultiSelect = active instanceof ActiveSelection;
+    const objects = isMultiSelect ? active.getObjects() : [active];
     for (const obj of objects) {
+      // Callouts have a special color/group numbering system — skip them in
+      // multi-selection to prevent accidental group mutations. Edit callouts alone.
+      if (isMultiSelect && (obj as any)._wegweiserType === 'callout') continue;
       const handler = this.registry.identifyTool(obj);
       if (handler) {
-        handler.applyProperties(this.ctx, obj, this.sharedDefaults);
+        handler.applyProperties(this.ctx, obj, this.sharedDefaults, changedProperty);
       }
     }
 

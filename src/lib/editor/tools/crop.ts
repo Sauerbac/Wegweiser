@@ -366,5 +366,5 @@ export class CropToolHandler implements ToolHandler {
   }
 
   syncFromObject(_obj: FabricObject, _shared: SharedDefaults): void {}
-  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults): void {}
+  applyProperties(_ctx: ToolContext, _obj: FabricObject, _shared: SharedDefaults, _changedProperty: keyof SharedDefaults): void {}
 }
