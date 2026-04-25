@@ -444,7 +444,7 @@
       <div
         bind:this={canvasContainer}
         role="presentation"
-        class="relative min-h-0 flex-1 overflow-clip bg-muted/20 outline-none"
+        class="relative min-h-0 min-w-0 flex-1 overflow-clip bg-muted/20 outline-none"
         tabindex="-1"
         onmousedown={(e) => {
           // Move focus to the canvas container so the dialog content div does
