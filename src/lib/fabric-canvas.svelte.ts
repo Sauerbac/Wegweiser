@@ -69,6 +69,9 @@ export class FabricCanvasWrapper {
   /** Current stroke width. */
   strokeWidth = $state(4);
 
+  /** Current stroke dash array. null = solid, [8,4] = dashed, [2,4] = dotted. */
+  strokeDashArray = $state<number[] | null>(null);
+
   /** Current opacity (0–1). */
   opacity = $state(1);
 
@@ -105,6 +108,8 @@ export class FabricCanvasWrapper {
         set color(v) { w.color = v; },
         get strokeWidth() { return w.strokeWidth; },
         set strokeWidth(v) { w.strokeWidth = v; },
+        get strokeDashArray() { return w.strokeDashArray; },
+        set strokeDashArray(v) { w.strokeDashArray = v; },
         get opacity() { return w.opacity; },
         set opacity(v) { w.opacity = v; },
         get fillEnabled() { return w.fillEnabled; },
@@ -268,6 +273,7 @@ export class FabricCanvasWrapper {
       get color() { return wrapper.color; },
       get fontFamily() { return wrapper.fontFamily; },
       get strokeWidth() { return wrapper.strokeWidth; },
+      get strokeDashArray() { return wrapper.strokeDashArray; },
       get opacity() { return wrapper.opacity; },
       get fillEnabled() { return wrapper.fillEnabled; },
       get fillColor() { return wrapper.fillColor; },
@@ -583,6 +589,18 @@ export class FabricCanvasWrapper {
     // would be a no-op. Skip it to avoid any stale selection leaking through.
     if (!this.canvas.isDrawingMode) {
       this.updateSelectedObjectStyle('strokeWidth');
+    }
+  }
+
+  /** Update the stroke dash array. Also updates the selected object if any. */
+  setStrokeDashArray(v: number[] | null): void {
+    this.strokeDashArray = v;
+    if (this.canvas?.isDrawingMode && this.canvas.freeDrawingBrush) {
+      (this.canvas.freeDrawingBrush as any).strokeDashArray = v ? [...v] : null;
+      this.canvas.freeDrawingBrush.strokeLineCap = v ? 'butt' : 'round';
+    }
+    if (!this.canvas?.isDrawingMode) {
+      this.updateSelectedObjectStyle('strokeDashArray');
     }
   }
 

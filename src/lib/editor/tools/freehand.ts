@@ -4,7 +4,7 @@ import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js
 
 export class FreehandToolHandler implements ToolHandler {
   readonly toolId = 'freehand';
-  readonly propertySections = ['stroke-color', 'stroke-width', 'opacity'] as const;
+  readonly propertySections = ['stroke-color', 'stroke-width', 'stroke-style', 'opacity'] as const;
 
   /** Listener tagging brush-created paths so identifiesObject() can find them positively. */
   private _onPathCreated: ((e: { path: FabricObject }) => void) | null = null;
@@ -21,12 +21,22 @@ export class FreehandToolHandler implements ToolHandler {
     const brush = new PencilBrush(ctx.canvas);
     brush.color = ctx.color;
     brush.width = ctx.strokeWidth;
+    brush.strokeDashArray = ctx.strokeDashArray ? [...ctx.strokeDashArray] : null;
+    brush.strokeLineCap = ctx.strokeDashArray ? 'butt' : 'round';
     ctx.canvas.freeDrawingBrush = brush;
     ctx.canvas.selection = false;
 
     // Tag every freshly drawn path so identifiesObject() can match positively.
+    // Also apply the current stroke dash style (PencilBrush doesn't support it natively).
     this._onPathCreated = (e) => {
-      if (e.path) (e.path as any)._wegweiserType = 'freehand';
+      if (e.path) {
+        (e.path as any)._wegweiserType = 'freehand';
+        const dashArray = ctx.strokeDashArray;
+        e.path.set({
+          strokeDashArray: dashArray ?? undefined,
+          strokeLineCap: dashArray ? 'butt' : 'round',
+        });
+      }
     };
     ctx.canvas.on('path:created', this._onPathCreated as any);
   }
@@ -54,6 +64,7 @@ export class FreehandToolHandler implements ToolHandler {
   syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
     if (typeof obj.stroke === 'string' && obj.stroke) shared.color = obj.stroke;
     if (typeof obj.strokeWidth === 'number') shared.strokeWidth = obj.strokeWidth;
+    shared.strokeDashArray = obj.strokeDashArray ?? null;
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
@@ -70,6 +81,12 @@ export class FreehandToolHandler implements ToolHandler {
         if (ctx.canvas.isDrawingMode && ctx.canvas.freeDrawingBrush) {
           ctx.canvas.freeDrawingBrush.width = shared.strokeWidth;
         }
+        break;
+      case 'strokeDashArray':
+        obj.set({
+          strokeDashArray: shared.strokeDashArray ?? undefined,
+          strokeLineCap: shared.strokeDashArray ? 'butt' : 'round',
+        });
         break;
       case 'opacity':
         obj.set({ opacity: shared.opacity });

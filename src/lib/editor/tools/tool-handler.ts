@@ -10,6 +10,7 @@ export type PropertySection =
   | 'stroke-color'
   | 'fill-color'
   | 'stroke-width'
+  | 'stroke-style'
   | 'font-family'
   | 'font-size'
   | 'opacity'
@@ -28,6 +29,7 @@ export type PropertySection =
 export interface SharedDefaults {
   color: string;
   strokeWidth: number;
+  strokeDashArray: number[] | null;
   opacity: number;
   fillEnabled: boolean;
   fillColor: string;
@@ -51,6 +53,7 @@ export interface ToolContext {
   readonly color: string;
   readonly fontFamily: string;
   readonly strokeWidth: number;
+  readonly strokeDashArray: number[] | null;
   readonly opacity: number;
   readonly fillEnabled: boolean;
   readonly fillColor: string;

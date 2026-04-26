@@ -10,6 +10,7 @@ import type { SharedDefaults } from './tool-handler.js';
 export function syncShapeFromObject(obj: FabricObject, shared: SharedDefaults): void {
   if (typeof obj.stroke === 'string' && obj.stroke) shared.color = obj.stroke;
   if (typeof obj.strokeWidth === 'number') shared.strokeWidth = obj.strokeWidth;
+  shared.strokeDashArray = obj.strokeDashArray ?? null;
   if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   const fill = obj.fill;
   if (fill && fill !== 'transparent') {
@@ -27,6 +28,9 @@ export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, 
       break;
     case 'strokeWidth':
       obj.set({ strokeWidth: shared.strokeWidth, strokeUniform: true });
+      break;
+    case 'strokeDashArray':
+      obj.set({ strokeDashArray: shared.strokeDashArray ?? undefined });
       break;
     case 'fillEnabled':
     case 'fillColor':

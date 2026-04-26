@@ -5,7 +5,7 @@ import { applyShapeProperties, syncShapeFromObject } from './shape-props.js';
 
 export class EllipseToolHandler implements ToolHandler {
   readonly toolId = 'ellipse';
-  readonly propertySections = ['stroke-color', 'fill-color', 'stroke-width', 'opacity'] as const;
+  readonly propertySections = ['stroke-color', 'fill-color', 'stroke-width', 'stroke-style', 'opacity'] as const;
 
   private startX = 0;
   private startY = 0;
@@ -53,6 +53,7 @@ export class EllipseToolHandler implements ToolHandler {
       stroke: ctx.color,
       strokeWidth: ctx.strokeWidth,
       strokeUniform: true,
+      strokeDashArray: ctx.strokeDashArray ?? undefined,
       opacity: ctx.opacity,
       selectable: false,
       evented: false,

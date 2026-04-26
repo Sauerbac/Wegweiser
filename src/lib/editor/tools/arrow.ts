@@ -20,11 +20,12 @@ interface ArrowPolylineState {
   previewPath: Path | null;
   color: string;
   strokeWidth: number;
+  strokeDashArray: number[] | null;
 }
 
 export class ArrowToolHandler implements ToolHandler {
   readonly toolId = 'arrow';
-  readonly propertySections = ['stroke-color', 'stroke-width', 'opacity'] as const;
+  readonly propertySections = ['stroke-color', 'stroke-width', 'stroke-style', 'opacity'] as const;
 
   private drawState: ArrowDrawState | null = null;
   private polylineState: ArrowPolylineState | null = null;
@@ -90,6 +91,7 @@ export class ArrowToolHandler implements ToolHandler {
         strokeUniform: true,
         fill: '',
         opacity: ctx.opacity,
+        strokeDashArray: ctx.strokeDashArray ?? undefined,
         selectable: false,
         evented: false,
       },
@@ -111,6 +113,7 @@ export class ArrowToolHandler implements ToolHandler {
         strokeUniform: true,
         fill: '',
         opacity: ctx.opacity,
+        strokeDashArray: state.strokeDashArray ?? undefined,
         selectable: false,
         evented: false,
       });
@@ -130,6 +133,7 @@ export class ArrowToolHandler implements ToolHandler {
       strokeUniform: true,
       fill: '',
       opacity: previewPath.opacity,
+      strokeDashArray: previewPath.strokeDashArray ?? undefined,
       selectable: false,
       evented: false,
     });
@@ -178,6 +182,7 @@ export class ArrowToolHandler implements ToolHandler {
       previewPath: null,
       color: ctx.color,
       strokeWidth: ctx.strokeWidth,
+      strokeDashArray: ctx.strokeDashArray ? [...ctx.strokeDashArray] : null,
     };
     ctx.setArrowPolylineMode(true);
     this._isDrawing = true;
@@ -247,6 +252,13 @@ export class ArrowToolHandler implements ToolHandler {
 
     (group as any).waypointData = pts.map((p) => ({ ...p }));
     rebuildGroupContents(group, pts, ctx.color, ctx.strokeWidth);
+    if (ctx.strokeDashArray) {
+      group.getObjects().forEach((child) => {
+        if (child instanceof Path || child instanceof Line) {
+          child.set({ strokeDashArray: ctx.strokeDashArray ?? undefined });
+        }
+      });
+    }
     (group as any)._waypointOriginLeft = group.left ?? 0;
     (group as any)._waypointOriginTop = group.top ?? 0;
     detachWaypointControls(group);
@@ -257,6 +269,13 @@ export class ArrowToolHandler implements ToolHandler {
     const old = group.getObjects();
     old.forEach((o) => group.remove(o));
     rebuildGroupContents(group, newPoints, ctx.color, ctx.strokeWidth);
+    if (ctx.strokeDashArray) {
+      group.getObjects().forEach((child) => {
+        if (child instanceof Path || child instanceof Line) {
+          child.set({ strokeDashArray: ctx.strokeDashArray ?? undefined });
+        }
+      });
+    }
     (group as any).waypointData = newPoints.map((p) => ({ ...p }));
     (group as any)._waypointOriginLeft = group.left ?? 0;
     (group as any)._waypointOriginTop = group.top ?? 0;
@@ -344,6 +363,10 @@ export class ArrowToolHandler implements ToolHandler {
     const sw = (obj as any).strokeWidth;
     if (typeof sw === 'number') shared.strokeWidth = sw;
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
+    if (obj instanceof Group) {
+      const pathChild = obj.getObjects().find((c) => c instanceof Path);
+      shared.strokeDashArray = pathChild?.strokeDashArray ?? null;
+    }
   }
 
   applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
@@ -357,7 +380,21 @@ export class ArrowToolHandler implements ToolHandler {
         old.forEach((o) => obj.remove(o));
         rebuildGroupContents(obj, waypoints, shared.color, shared.strokeWidth);
         (obj as any).strokeWidth = shared.strokeWidth;
+        // Re-apply dash after rebuild (rebuildGroupContents creates fresh objects).
+        if (shared.strokeDashArray) {
+          obj.getObjects().forEach((child) => {
+            if (child instanceof Path || child instanceof Line) {
+              child.set({ strokeDashArray: shared.strokeDashArray ?? undefined });
+            }
+          });
+        }
       }
+    } else if (changedProperty === 'strokeDashArray') {
+      obj.getObjects().forEach((child) => {
+        if (child instanceof Path || child instanceof Line) {
+          child.set({ strokeDashArray: shared.strokeDashArray ?? undefined });
+        }
+      });
     } else if (changedProperty === 'color') {
       obj.getObjects().forEach((child) => {
         if (child instanceof Path) {
