@@ -35,6 +35,7 @@ export class FreehandToolHandler implements ToolHandler {
         e.path.set({
           strokeDashArray: dashArray ?? undefined,
           strokeLineCap: dashArray ? 'butt' : 'round',
+          perPixelTargetFind: true,
         });
       }
     };
@@ -66,6 +67,7 @@ export class FreehandToolHandler implements ToolHandler {
     if (typeof obj.strokeWidth === 'number') shared.strokeWidth = obj.strokeWidth;
     shared.strokeDashArray = obj.strokeDashArray ?? null;
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
+    obj.set({ perPixelTargetFind: true });
   }
 
   applyProperties(ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {

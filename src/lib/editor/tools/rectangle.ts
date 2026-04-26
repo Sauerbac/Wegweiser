@@ -57,6 +57,7 @@ export class RectangleToolHandler implements ToolHandler {
       rx: ctx.cornerRadius,
       ry: ctx.cornerRadius,
       opacity: ctx.opacity,
+      perPixelTargetFind: !ctx.fillEnabled,
       selectable: false,
       evented: false,
       lockUniScaling: false,

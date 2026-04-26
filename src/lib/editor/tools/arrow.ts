@@ -244,6 +244,7 @@ export class ArrowToolHandler implements ToolHandler {
       selectable: true,
       evented: true,
       opacity: ctx.opacity,
+      perPixelTargetFind: true,
       customType: 'polyline-arrow',
       arrowColor: ctx.color,
       strokeWidth: ctx.strokeWidth,
@@ -360,6 +361,7 @@ export class ArrowToolHandler implements ToolHandler {
   }
 
   syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    obj.set({ perPixelTargetFind: true });
     const arrowColor = (obj as any).arrowColor;
     if (typeof arrowColor === 'string') shared.color = arrowColor;
     const sw = (obj as any).strokeWidth;

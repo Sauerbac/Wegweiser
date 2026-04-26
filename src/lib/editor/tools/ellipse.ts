@@ -55,6 +55,7 @@ export class EllipseToolHandler implements ToolHandler {
       strokeUniform: true,
       strokeDashArray: ctx.strokeDashArray ?? undefined,
       opacity: ctx.opacity,
+      perPixelTargetFind: !ctx.fillEnabled,
       selectable: false,
       evented: false,
       lockUniScaling: false,

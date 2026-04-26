@@ -51,6 +51,7 @@ export class HighlightToolHandler implements ToolHandler {
   }
 
   syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
+    obj.set({ perPixelTargetFind: true });
     const color = (obj as any)._highlightColor;
     const opacity = (obj as any)._highlightOpacity;
     const width = (obj as any)._highlightWidth;

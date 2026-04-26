@@ -13,12 +13,14 @@ export function syncShapeFromObject(obj: FabricObject, shared: SharedDefaults): 
   shared.strokeDashArray = obj.strokeDashArray ?? null;
   if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   const fill = obj.fill;
-  if (fill && fill !== 'transparent') {
+  const fillEnabled = !!(fill && fill !== 'transparent');
+  if (fillEnabled) {
     shared.fillEnabled = true;
     if (typeof fill === 'string') shared.fillColor = fill;
   } else {
     shared.fillEnabled = false;
   }
+  obj.set({ perPixelTargetFind: !fillEnabled });
   const rx = (obj as any).rx;
   if (typeof rx === 'number') shared.cornerRadius = rx;
 }
@@ -36,7 +38,7 @@ export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, 
       break;
     case 'fillEnabled':
     case 'fillColor':
-      obj.set({ fill: shared.fillEnabled ? shared.fillColor : 'transparent' });
+      obj.set({ fill: shared.fillEnabled ? shared.fillColor : 'transparent', perPixelTargetFind: !shared.fillEnabled });
       break;
     case 'opacity':
       obj.set({ opacity: shared.opacity });

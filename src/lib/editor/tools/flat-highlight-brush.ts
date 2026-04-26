@@ -58,6 +58,7 @@ export function buildHighlightGroup(
     selectable: true,
     evented: true,
     objectCaching: true,
+    perPixelTargetFind: true,
   });
 }
 
