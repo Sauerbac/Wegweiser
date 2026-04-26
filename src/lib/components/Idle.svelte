@@ -5,7 +5,7 @@
   import { store } from '$lib/stores/session.svelte';
   import { createSelectableList } from '$lib/utils/selectable.svelte';
   import { createConfirmAction } from '$lib/utils/confirm-action.svelte';
-  import { monitorLabel, pluralS } from '$lib/utils';
+  import { pluralS } from '$lib/utils';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
@@ -121,7 +121,8 @@
               checked={store.selectedMonitor === idx}
               onchange={() => (store.selectedMonitor = idx)}
             />
-            <span class="text-sm">{monitorLabel(store.monitors, idx)}</span>
+            <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">{idx + 1}</span>
+            <span class="text-sm">{store.monitors[idx]?.name ?? `Monitor ${idx + 1}`}</span>
           </label>
         {/each}
       </div>
