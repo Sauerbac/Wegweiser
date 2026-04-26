@@ -16,6 +16,8 @@
   import ObfuscationSection from './properties/ObfuscationSection.svelte';
   import CropSection from './properties/CropSection.svelte';
   import ClickIndicatorSection from './properties/ClickIndicatorSection.svelte';
+  import HighlightWidthSection from './properties/HighlightWidthSection.svelte';
+  import HighlightOpacitySection from './properties/HighlightOpacitySection.svelte';
 
   interface Props {
     fabricCanvas: FabricCanvasWrapper;
@@ -123,6 +125,10 @@
               <CropSection {hasWindowRects} {onselectWindow} />
             {:else if sectionId === 'click-indicator'}
               <ClickIndicatorSection {fabricCanvas} />
+            {:else if sectionId === 'highlight-width'}
+              <HighlightWidthSection {fabricCanvas} />
+            {:else if sectionId === 'highlight-opacity'}
+              <HighlightOpacitySection {fabricCanvas} />
             {:else if sectionId === 'opacity'}
               <OpacitySection {fabricCanvas} />
             {/if}

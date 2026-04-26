@@ -16,7 +16,9 @@ export type PropertySection =
   | 'obfuscation'
   | 'crop'
   | 'click-indicator'
-  | 'callout-groups';
+  | 'callout-groups'
+  | 'highlight-width'
+  | 'highlight-opacity';
 
 /**
  * Shared property defaults that persist across tool switches.
@@ -33,6 +35,10 @@ export interface SharedDefaults {
   obfuscationEffect: ObfuscationEffect;
   blurRadius: number;
   pixelateBlockSize: number;
+  /** Highlight-tool-exclusive opacity — never read or written by other tools. */
+  highlightOpacity: number;
+  /** Highlight-tool-exclusive stroke width — never read or written by other tools. */
+  highlightWidth: number;
 }
 
 /**
@@ -51,6 +57,8 @@ export interface ToolContext {
   readonly blurRadius: number;
   readonly pixelateBlockSize: number;
   readonly obfuscationEffect: ObfuscationEffect;
+  readonly highlightOpacity: number;
+  readonly highlightWidth: number;
   readonly imageWidth: number;
   readonly imageHeight: number;
   pushSnapshot(): void;
@@ -60,6 +68,12 @@ export interface ToolContext {
   setArrowEditingId(id: string | null): void;
   getArrowEditingId(): string | null;
   getCurrentTool(): string;
+  /** Directly set the shared color (no selected-object side effects). Used by tools that maintain per-tool color memory. */
+  overrideColor(c: string): void;
+  /** Directly set the shared opacity (no selected-object side effects). */
+  overrideOpacity(o: number): void;
+  /** Directly set the shared strokeWidth (no selected-object side effects). */
+  overrideStrokeWidth(w: number): void;
 }
 
 /**

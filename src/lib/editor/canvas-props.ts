@@ -34,4 +34,8 @@ export const CUSTOM_PROPS: string[] = [
   '_arrowUid',
   '_waypointOriginLeft',
   '_waypointOriginTop',
+  '_highlightColor',
+  '_highlightOpacity',
+  '_highlightWidth',
+  '_highlightPoints',
 ];

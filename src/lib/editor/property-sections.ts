@@ -9,6 +9,8 @@ export const SECTION_ORDER: PropertySection[] = [
   'stroke-color',
   'fill-color',
   'stroke-width',
+  'highlight-width',
+  'highlight-opacity',
   'font-family',
   'font-size',
   'callout-groups',

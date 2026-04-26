@@ -100,7 +100,7 @@
     ellipse: 'Click and drag to draw an ellipse.',
     freehand: 'Draw freely with the mouse.',
     text: 'Click to place a text label.',
-    highlight: 'Click and drag to draw a highlight area.',
+    highlight: 'Draw freehand highlight strokes.',
     callout: 'Click to place a numbered callout.',
     obfuscation: 'Click and drag to apply blur or pixelate to a region.',
     crop: 'Click and drag to set the crop region.',

@@ -78,6 +78,11 @@ export class FabricCanvasWrapper {
   /** Fill color for shapes (rectangle/ellipse). */
   fillColor = $state('#ef4444');
 
+  /** Highlight-tool-exclusive opacity (0–1). Completely separate from `opacity`. */
+  highlightOpacity = $state(0.4);
+  /** Highlight-tool-exclusive stroke width (px). Completely separate from `strokeWidth`. */
+  highlightWidth = $state(24);
+
   /** Active effect mode for the Obfuscation tool. */
   obfuscationEffect = $state<ObfuscationEffect>('blur');
 
@@ -114,6 +119,10 @@ export class FabricCanvasWrapper {
         set blurRadius(v) { w.blurRadius = v; },
         get pixelateBlockSize() { return w.pixelateBlockSize; },
         set pixelateBlockSize(v) { w.pixelateBlockSize = v; },
+        get highlightOpacity() { return w.highlightOpacity; },
+        set highlightOpacity(v) { w.highlightOpacity = v; },
+        get highlightWidth() { return w.highlightWidth; },
+        set highlightWidth(v) { w.highlightWidth = v; },
       };
     }
     return this._sharedDefaults;
@@ -265,6 +274,8 @@ export class FabricCanvasWrapper {
       get blurRadius() { return wrapper.blurRadius; },
       get pixelateBlockSize() { return wrapper.pixelateBlockSize; },
       get obfuscationEffect() { return wrapper.obfuscationEffect; },
+      get highlightOpacity() { return wrapper.highlightOpacity; },
+      get highlightWidth() { return wrapper.highlightWidth; },
       get imageWidth() { return wrapper.imageWidth; },
       get imageHeight() { return wrapper.imageHeight; },
       pushSnapshot: () => wrapper.pushSnapshot(),
@@ -274,6 +285,19 @@ export class FabricCanvasWrapper {
       setArrowEditingId: (id) => { wrapper.arrowEditingId = id; },
       getArrowEditingId: () => wrapper.arrowEditingId,
       getCurrentTool: () => wrapper.tool,
+      overrideColor: (c) => {
+        wrapper.color = c;
+        if (wrapper.canvas?.isDrawingMode && wrapper.canvas.freeDrawingBrush) {
+          wrapper.canvas.freeDrawingBrush.color = c;
+        }
+      },
+      overrideOpacity: (o) => { wrapper.opacity = o; },
+      overrideStrokeWidth: (w) => {
+        wrapper.strokeWidth = w;
+        if (wrapper.canvas?.isDrawingMode && wrapper.canvas.freeDrawingBrush) {
+          wrapper.canvas.freeDrawingBrush.width = w;
+        }
+      },
     };
 
     // When Shift is pressed mid-drag, re-anchor the transform's original state to the
@@ -555,13 +579,35 @@ export class FabricCanvasWrapper {
     if (this.canvas.isDrawingMode && this.canvas.freeDrawingBrush) {
       this.canvas.freeDrawingBrush.width = w;
     }
-    this.updateSelectedObjectStyle('strokeWidth');
+    // Objects cannot be selected while isDrawingMode = true, so the call
+    // would be a no-op. Skip it to avoid any stale selection leaking through.
+    if (!this.canvas.isDrawingMode) {
+      this.updateSelectedObjectStyle('strokeWidth');
+    }
   }
 
   /** Update the opacity. Also updates the selected object if any. */
   setOpacity(o: number): void {
     this.opacity = o;
-    this.updateSelectedObjectStyle('opacity');
+    if (!this.canvas?.isDrawingMode) {
+      this.updateSelectedObjectStyle('opacity');
+    }
+  }
+
+  /** Update highlight-tool opacity. Only affects highlight objects. */
+  setHighlightOpacity(o: number): void {
+    this.highlightOpacity = o;
+    // The active FlatHighlightBrush reads highlightOpacity via a getter callback
+    // bound at creation time, so no brush property update needed here.
+    this.updateSelectedObjectStyle('highlightOpacity');
+  }
+
+  /** Update highlight-tool stroke width. Only affects highlight objects. */
+  setHighlightWidth(w: number): void {
+    this.highlightWidth = w;
+    // The active FlatHighlightBrush reads highlightWidth via a getter callback
+    // bound at creation time, so no brush property update needed here.
+    this.updateSelectedObjectStyle('highlightWidth');
   }
 
   /** Toggle fill on/off for shapes. Also updates the selected object if any. */

@@ -10,6 +10,13 @@ export class FreehandToolHandler implements ToolHandler {
   private _onPathCreated: ((e: { path: FabricObject }) => void) | null = null;
 
   onActivate(ctx: ToolContext, _forEachAnnotation: (fn: (obj: FabricObject) => void) => void): void {
+    // Reset Fabric's internal drawing-start flag before entering drawing mode.
+    // Without this, switching from another drawing-mode tool (e.g. highlight)
+    // while the mouse button is held causes Fabric to fire a synthetic mousedown
+    // on the new brush, producing a ghost stroke from the previous cursor position.
+    (ctx.canvas as any)._isCurrentlyDrawing = false;
+    ctx.canvas.clearContext(ctx.canvas.contextTop);
+
     ctx.canvas.isDrawingMode = true;
     const brush = new PencilBrush(ctx.canvas);
     brush.color = ctx.color;
