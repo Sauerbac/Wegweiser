@@ -1,6 +1,8 @@
 import type { Canvas, FabricObject, TPointerEvent, TPointerEventInfo } from 'fabric';
 import type { ObfuscationEffect } from '../obfuscation.js';
 
+export type ArrowHeadType = 'none' | 'arrow' | 'triangle' | 'circle' | 'bar';
+
 /**
  * Property sections that can appear in the properties panel.
  * Each tool handler declares which sections it supports via propertySections.
@@ -11,6 +13,7 @@ export type PropertySection =
   | 'fill-color'
   | 'stroke-width'
   | 'stroke-style'
+  | 'arrow-heads'
   | 'corner-radius'
   | 'font-family'
   | 'font-size'
@@ -44,6 +47,10 @@ export interface SharedDefaults {
   highlightWidth: number;
   /** Corner radius for rectangles (0 = sharp, 12 = rounded). */
   cornerRadius: number;
+  /** Arrow-tool-exclusive start-point head shape. */
+  arrowStartHead: ArrowHeadType;
+  /** Arrow-tool-exclusive end-point head shape. */
+  arrowEndHead: ArrowHeadType;
 }
 
 /**
@@ -66,6 +73,8 @@ export interface ToolContext {
   readonly highlightOpacity: number;
   readonly highlightWidth: number;
   readonly cornerRadius: number;
+  readonly arrowStartHead: ArrowHeadType;
+  readonly arrowEndHead: ArrowHeadType;
   readonly imageWidth: number;
   readonly imageHeight: number;
   pushSnapshot(): void;

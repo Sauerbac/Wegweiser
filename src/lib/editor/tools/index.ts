@@ -12,7 +12,7 @@ import { CropToolHandler } from './crop.js';
 import { ClickIndicatorToolHandler } from './click-indicator.js';
 
 export { ToolRegistry } from './registry.js';
-export type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
+export type { ArrowHeadType, ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 export { ArrowToolHandler } from './arrow.js';
 export { TextToolHandler } from './text.js';
 export { CalloutToolHandler } from './callout.js';

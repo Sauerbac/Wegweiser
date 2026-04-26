@@ -7,7 +7,7 @@ import {
   syncWaypointDataWithGroupPosition,
   waypointsToSmoothPath,
 } from '../arrow-polyline.js';
-import type { ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
+import type { ArrowHeadType, ToolContext, ToolHandler, SharedDefaults } from './tool-handler.js';
 
 interface ArrowDrawState {
   startX: number;
@@ -25,7 +25,7 @@ interface ArrowPolylineState {
 
 export class ArrowToolHandler implements ToolHandler {
   readonly toolId = 'arrow';
-  readonly propertySections = ['stroke-color', 'stroke-width', 'stroke-style', 'opacity'] as const;
+  readonly propertySections = ['stroke-color', 'stroke-width', 'stroke-style', 'arrow-heads', 'opacity'] as const;
 
   private drawState: ArrowDrawState | null = null;
   private polylineState: ArrowPolylineState | null = null;
@@ -247,6 +247,8 @@ export class ArrowToolHandler implements ToolHandler {
       customType: 'polyline-arrow',
       arrowColor: ctx.color,
       strokeWidth: ctx.strokeWidth,
+      arrowStartHead: ctx.arrowStartHead,
+      arrowEndHead: ctx.arrowEndHead,
       _arrowUid: Math.random().toString(36).slice(2, 10),
     } as any);
 
@@ -367,6 +369,10 @@ export class ArrowToolHandler implements ToolHandler {
       const pathChild = obj.getObjects().find((c) => c instanceof Path);
       shared.strokeDashArray = pathChild?.strokeDashArray ?? null;
     }
+    const sh = (obj as any).arrowStartHead;
+    if (sh) shared.arrowStartHead = sh as ArrowHeadType;
+    const eh = (obj as any).arrowEndHead;
+    if (eh) shared.arrowEndHead = eh as ArrowHeadType;
   }
 
   applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
@@ -408,6 +414,21 @@ export class ArrowToolHandler implements ToolHandler {
       (obj as any).arrowColor = shared.color;
     } else if (changedProperty === 'opacity') {
       obj.set({ opacity: shared.opacity });
+    } else if (changedProperty === 'arrowStartHead' || changedProperty === 'arrowEndHead') {
+      if (waypoints) {
+        (obj as any).arrowStartHead = shared.arrowStartHead;
+        (obj as any).arrowEndHead = shared.arrowEndHead;
+        const old = obj.getObjects();
+        old.forEach((o) => obj.remove(o));
+        rebuildGroupContents(obj, waypoints, shared.color, shared.strokeWidth);
+        if (shared.strokeDashArray) {
+          obj.getObjects().forEach((child) => {
+            if (child instanceof Path || child instanceof Line) {
+              child.set({ strokeDashArray: shared.strokeDashArray ?? undefined });
+            }
+          });
+        }
+      }
     }
   }
 }

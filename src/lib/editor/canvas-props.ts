@@ -30,6 +30,8 @@ export const CUSTOM_PROPS: string[] = [
   '_wegweiserBlockSize',
   'customType',
   'arrowColor',
+  'arrowStartHead',
+  'arrowEndHead',
   'waypointData',
   '_arrowUid',
   '_waypointOriginLeft',

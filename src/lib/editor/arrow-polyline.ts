@@ -7,13 +7,16 @@
 
 import {
   Canvas,
+  Circle,
   Group,
+  Line,
   Path,
   Polygon,
   Control,
   Point,
   util,
 } from 'fabric';
+import type { ArrowHeadType } from './tools/tool-handler.js';
 
 // ─── Path geometry ─────────────────────────────────────────────────────────
 
@@ -45,7 +48,8 @@ export function waypointsToSmoothPath(points: { x: number; y: number }[]): strin
 // ─── Group construction ────────────────────────────────────────────────────
 
 /**
- * Create the Path and Polygon children and add them to an existing group.
+ * Create the Path and head-shape children and add them to an existing group.
+ * Reads arrowStartHead / arrowEndHead from the group's custom properties.
  * Does NOT update waypointData or controls — callers do that.
  */
 export function rebuildGroupContents(
@@ -56,55 +60,116 @@ export function rebuildGroupContents(
 ): void {
   const color = (group as any).arrowColor ?? fallbackColor;
   const strokeW = (group as any).strokeWidth ?? fallbackStrokeWidth;
+  const startHead: ArrowHeadType = (group as any).arrowStartHead ?? 'none';
+  const endHead: ArrowHeadType = (group as any).arrowEndHead ?? 'triangle';
 
-  // Arrowhead direction: last segment tangent (P[N-2] → P[N-1]).
-  // For the Catmull-Rom → cubic bezier conversion used here, the mathematical
-  // tangent at the endpoint is always in the direction (last - prev).
   const last = pts[pts.length - 1];
   const prev = pts[pts.length - 2];
-  const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
+  const endAngle = Math.atan2(last.y - prev.y, last.x - prev.x);
+
+  const first = pts[0];
+  const second = pts[1];
+  const startAngle = Math.atan2(first.y - second.y, first.x - second.x);
+
   const headLen = Math.max(strokeW * 4, 16);
   const headAngle = Math.PI / 6;
+  const triDepth = headLen * Math.cos(headAngle);
+  const circleRadius = Math.max(strokeW * 2, 8);
 
-  // Trim the shaft so it ends at the arrowhead base, preventing the stroke
-  // from bleeding through the filled triangle near the tip.
-  const headDepth = headLen * Math.cos(headAngle);
-  const pathEnd = {
-    x: last.x - headDepth * Math.cos(angle),
-    y: last.y - headDepth * Math.sin(angle),
-  };
-  const d = waypointsToSmoothPath([...pts.slice(0, -1), pathEnd]);
+  function trimDepth(t: ArrowHeadType): number {
+    if (t === 'none' || t === 'bar') return 0;
+    if (t === 'circle') return circleRadius;
+    return triDepth;
+  }
 
-  const pathObj = new Path(d, {
+  const endTrim = trimDepth(endHead);
+  const startTrim = trimDepth(startHead);
+
+  const pathEnd = endTrim > 0
+    ? { x: last.x - endTrim * Math.cos(endAngle), y: last.y - endTrim * Math.sin(endAngle) }
+    : last;
+  // startAngle points outward from pts[0]; moving in -startAngle direction trims toward pts[1]
+  const pathStart = startTrim > 0
+    ? { x: first.x - startTrim * Math.cos(startAngle), y: first.y - startTrim * Math.sin(startAngle) }
+    : first;
+
+  const pathPts = [pathStart, ...pts.slice(1, -1), pathEnd];
+  group.add(new Path(waypointsToSmoothPath(pathPts), {
     stroke: color,
     strokeWidth: strokeW,
     fill: '',
     strokeUniform: true,
     selectable: false,
     evented: false,
-  });
+  }));
 
-  const arrowHead = new Polygon(
-    [
-      { x: last.x, y: last.y },
-      {
-        x: last.x - headLen * Math.cos(angle - headAngle),
-        y: last.y - headLen * Math.sin(angle - headAngle),
-      },
-      {
-        x: last.x - headLen * Math.cos(angle + headAngle),
-        y: last.y - headLen * Math.sin(angle + headAngle),
-      },
-    ],
-    {
-      fill: color,
-      stroke: '',
-      selectable: false,
-      evented: false,
-    },
-  );
+  function buildHead(
+    tip: { x: number; y: number },
+    angle: number,
+    type: ArrowHeadType,
+  ): Path | Polygon | Circle | Line | null {
+    if (type === 'none') return null;
+    if (type === 'triangle') {
+      return new Polygon(
+        [
+          { x: tip.x, y: tip.y },
+          { x: tip.x - headLen * Math.cos(angle - headAngle), y: tip.y - headLen * Math.sin(angle - headAngle) },
+          { x: tip.x - headLen * Math.cos(angle + headAngle), y: tip.y - headLen * Math.sin(angle + headAngle) },
+        ],
+        { fill: color, stroke: '', selectable: false, evented: false },
+      );
+    }
+    if (type === 'arrow') {
+      return new Path(
+        `M ${tip.x - headLen * Math.cos(angle - headAngle)},${tip.y - headLen * Math.sin(angle - headAngle)}` +
+        ` L ${tip.x},${tip.y}` +
+        ` L ${tip.x - headLen * Math.cos(angle + headAngle)},${tip.y - headLen * Math.sin(angle + headAngle)}`,
+        {
+          stroke: color,
+          strokeWidth: strokeW,
+          fill: '',
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          strokeUniform: true,
+          selectable: false,
+          evented: false,
+        },
+      );
+    }
+    if (type === 'circle') {
+      return new Circle({
+        left: tip.x,
+        top: tip.y,
+        originX: 'center',
+        originY: 'center',
+        radius: circleRadius,
+        fill: color,
+        stroke: '',
+        selectable: false,
+        evented: false,
+      });
+    }
+    if (type === 'bar') {
+      const perpAngle = angle + Math.PI / 2;
+      const barHalf = headLen / 2;
+      return new Line(
+        [
+          tip.x - barHalf * Math.cos(perpAngle),
+          tip.y - barHalf * Math.sin(perpAngle),
+          tip.x + barHalf * Math.cos(perpAngle),
+          tip.y + barHalf * Math.sin(perpAngle),
+        ],
+        { stroke: color, strokeWidth: strokeW, strokeUniform: true, selectable: false, evented: false },
+      );
+    }
+    return null;
+  }
 
-  group.add(pathObj, arrowHead);
+  const endHeadObj = buildHead(last, endAngle, endHead);
+  if (endHeadObj) group.add(endHeadObj);
+
+  const startHeadObj = buildHead(first, startAngle, startHead);
+  if (startHeadObj) group.add(startHeadObj);
 }
 
 // ─── Controls ─────────────────────────────────────────────────────────────

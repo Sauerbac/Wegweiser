@@ -18,6 +18,7 @@
   import ObfuscationSection from './properties/ObfuscationSection.svelte';
   import CropSection from './properties/CropSection.svelte';
   import ClickIndicatorSection from './properties/ClickIndicatorSection.svelte';
+  import ArrowHeadsSection from './properties/ArrowHeadsSection.svelte';
   import HighlightWidthSection from './properties/HighlightWidthSection.svelte';
   import HighlightOpacitySection from './properties/HighlightOpacitySection.svelte';
 
@@ -39,9 +40,10 @@
    * - When nothing selected: the active tool's handler (for "next new object" defaults).
    */
   let panelHandlers = $derived.by<ToolHandler[]>(() => {
-    // selectedObjectHandlers is a plain getter with no $state reads, so reading
-    // selectedCount here forces re-derivation whenever the selection changes.
+    // Both getters below are plain getters with no $state reads of their own, so
+    // reading the two backing state fields here forces re-derivation on any change.
     void fabricCanvas.selectedCount;
+    void fabricCanvas.tool;
     const selected = fabricCanvas.selectedObjectHandlers;
     if (selected.length > 0) return selected;
     const active = fabricCanvas.activeToolHandler;
@@ -117,6 +119,8 @@
               <StrokeWidthSection {fabricCanvas} />
             {:else if sectionId === 'stroke-style'}
               <StrokeStyleSection {fabricCanvas} />
+            {:else if sectionId === 'arrow-heads'}
+              <ArrowHeadsSection {fabricCanvas} />
             {:else if sectionId === 'corner-radius'}
               <CornerRadiusSection {fabricCanvas} />
             {:else if sectionId === 'font-family'}

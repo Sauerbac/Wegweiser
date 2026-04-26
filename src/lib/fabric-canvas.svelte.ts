@@ -23,6 +23,7 @@ import { CUSTOM_PROPS } from './editor/canvas-props.js';
 import type { ObfuscationEffect } from './editor/obfuscation.js';
 import {
   createToolRegistry,
+  type ArrowHeadType,
   type ToolContext,
   type ToolHandler,
   type ToolRegistry,
@@ -71,6 +72,12 @@ export class FabricCanvasWrapper {
 
   /** Current stroke dash array. null = solid, [8,4] = dashed, [2,4] = dotted. */
   strokeDashArray = $state<number[] | null>(null);
+
+  /** Arrow-tool-exclusive start-point head shape. */
+  arrowStartHead = $state<ArrowHeadType>('none');
+
+  /** Arrow-tool-exclusive end-point head shape. */
+  arrowEndHead = $state<ArrowHeadType>('triangle');
 
   /** Current opacity (0–1). */
   opacity = $state(1);
@@ -133,6 +140,10 @@ export class FabricCanvasWrapper {
         set highlightWidth(v) { w.highlightWidth = v; },
         get cornerRadius() { return w.cornerRadius; },
         set cornerRadius(v) { w.cornerRadius = v; },
+        get arrowStartHead() { return w.arrowStartHead; },
+        set arrowStartHead(v) { w.arrowStartHead = v; },
+        get arrowEndHead() { return w.arrowEndHead; },
+        set arrowEndHead(v) { w.arrowEndHead = v; },
       };
     }
     return this._sharedDefaults;
@@ -288,6 +299,8 @@ export class FabricCanvasWrapper {
       get highlightOpacity() { return wrapper.highlightOpacity; },
       get highlightWidth() { return wrapper.highlightWidth; },
       get cornerRadius() { return wrapper.cornerRadius; },
+      get arrowStartHead() { return wrapper.arrowStartHead; },
+      get arrowEndHead() { return wrapper.arrowEndHead; },
       get imageWidth() { return wrapper.imageWidth; },
       get imageHeight() { return wrapper.imageHeight; },
       pushSnapshot: () => wrapper.pushSnapshot(),
@@ -650,6 +663,18 @@ export class FabricCanvasWrapper {
   setCornerRadius(r: number): void {
     this.cornerRadius = r;
     this.updateSelectedObjectStyle('cornerRadius');
+  }
+
+  /** Update the arrow start-point head shape. Also updates the selected arrow if any. */
+  setArrowStartHead(t: ArrowHeadType): void {
+    this.arrowStartHead = t;
+    this.updateSelectedObjectStyle('arrowStartHead');
+  }
+
+  /** Update the arrow end-point head shape. Also updates the selected arrow if any. */
+  setArrowEndHead(t: ArrowHeadType): void {
+    this.arrowEndHead = t;
+    this.updateSelectedObjectStyle('arrowEndHead');
   }
 
   /** Set the obfuscation effect mode. */
