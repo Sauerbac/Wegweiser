@@ -10,6 +10,7 @@
   import FillColorSection from './properties/FillColorSection.svelte';
   import StrokeWidthSection from './properties/StrokeWidthSection.svelte';
   import StrokeStyleSection from './properties/StrokeStyleSection.svelte';
+  import CornerRadiusSection from './properties/CornerRadiusSection.svelte';
   import FontFamilySection from './properties/FontFamilySection.svelte';
   import FontSizeSection from './properties/FontSizeSection.svelte';
   import OpacitySection from './properties/OpacitySection.svelte';
@@ -116,6 +117,8 @@
               <StrokeWidthSection {fabricCanvas} />
             {:else if sectionId === 'stroke-style'}
               <StrokeStyleSection {fabricCanvas} />
+            {:else if sectionId === 'corner-radius'}
+              <CornerRadiusSection {fabricCanvas} />
             {:else if sectionId === 'font-family'}
               <FontFamilySection {fabricCanvas} />
             {:else if sectionId === 'font-size'}

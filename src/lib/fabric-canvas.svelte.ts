@@ -75,6 +75,9 @@ export class FabricCanvasWrapper {
   /** Current opacity (0–1). */
   opacity = $state(1);
 
+  /** Corner radius for new rectangles (0 = sharp, 12 = rounded). */
+  cornerRadius = $state(0);
+
   /** Whether shapes (rectangle/ellipse) should have a fill. */
   fillEnabled = $state(false);
 
@@ -128,6 +131,8 @@ export class FabricCanvasWrapper {
         set highlightOpacity(v) { w.highlightOpacity = v; },
         get highlightWidth() { return w.highlightWidth; },
         set highlightWidth(v) { w.highlightWidth = v; },
+        get cornerRadius() { return w.cornerRadius; },
+        set cornerRadius(v) { w.cornerRadius = v; },
       };
     }
     return this._sharedDefaults;
@@ -282,6 +287,7 @@ export class FabricCanvasWrapper {
       get obfuscationEffect() { return wrapper.obfuscationEffect; },
       get highlightOpacity() { return wrapper.highlightOpacity; },
       get highlightWidth() { return wrapper.highlightWidth; },
+      get cornerRadius() { return wrapper.cornerRadius; },
       get imageWidth() { return wrapper.imageWidth; },
       get imageHeight() { return wrapper.imageHeight; },
       pushSnapshot: () => wrapper.pushSnapshot(),
@@ -638,6 +644,12 @@ export class FabricCanvasWrapper {
   setFillColor(c: string): void {
     this.fillColor = c;
     this.updateSelectedObjectStyle('fillColor');
+  }
+
+  /** Update the corner radius for rectangles. Also updates the selected object if any. */
+  setCornerRadius(r: number): void {
+    this.cornerRadius = r;
+    this.updateSelectedObjectStyle('cornerRadius');
   }
 
   /** Set the obfuscation effect mode. */

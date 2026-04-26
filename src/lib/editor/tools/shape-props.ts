@@ -19,6 +19,8 @@ export function syncShapeFromObject(obj: FabricObject, shared: SharedDefaults): 
   } else {
     shared.fillEnabled = false;
   }
+  const rx = (obj as any).rx;
+  if (typeof rx === 'number') shared.cornerRadius = rx;
 }
 
 export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
@@ -38,6 +40,9 @@ export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, 
       break;
     case 'opacity':
       obj.set({ opacity: shared.opacity });
+      break;
+    case 'cornerRadius':
+      obj.set({ rx: shared.cornerRadius, ry: shared.cornerRadius });
       break;
   }
 }

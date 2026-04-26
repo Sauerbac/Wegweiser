@@ -11,6 +11,7 @@ export type PropertySection =
   | 'fill-color'
   | 'stroke-width'
   | 'stroke-style'
+  | 'corner-radius'
   | 'font-family'
   | 'font-size'
   | 'opacity'
@@ -41,6 +42,8 @@ export interface SharedDefaults {
   highlightOpacity: number;
   /** Highlight-tool-exclusive stroke width — never read or written by other tools. */
   highlightWidth: number;
+  /** Corner radius for rectangles (0 = sharp, 12 = rounded). */
+  cornerRadius: number;
 }
 
 /**
@@ -62,6 +65,7 @@ export interface ToolContext {
   readonly obfuscationEffect: ObfuscationEffect;
   readonly highlightOpacity: number;
   readonly highlightWidth: number;
+  readonly cornerRadius: number;
   readonly imageWidth: number;
   readonly imageHeight: number;
   pushSnapshot(): void;
