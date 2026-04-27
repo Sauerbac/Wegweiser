@@ -79,6 +79,15 @@ export class FabricCanvasWrapper {
   /** Arrow-tool-exclusive end-point head shape. */
   arrowEndHead = $state<ArrowHeadType>('triangle');
 
+  /** Text alignment for the text tool. */
+  textAlign = $state<'left' | 'center' | 'right'>('left');
+  /** Bold for the text tool. */
+  fontBold = $state(false);
+  /** Italic for the text tool. */
+  fontItalic = $state(false);
+  /** Underline for the text tool. */
+  fontUnderline = $state(false);
+
   /** Current opacity (0–1). */
   opacity = $state(1);
 
@@ -144,6 +153,14 @@ export class FabricCanvasWrapper {
         set arrowStartHead(v) { w.arrowStartHead = v; },
         get arrowEndHead() { return w.arrowEndHead; },
         set arrowEndHead(v) { w.arrowEndHead = v; },
+        get textAlign() { return w.textAlign; },
+        set textAlign(v) { w.textAlign = v; },
+        get fontBold() { return w.fontBold; },
+        set fontBold(v) { w.fontBold = v; },
+        get fontItalic() { return w.fontItalic; },
+        set fontItalic(v) { w.fontItalic = v; },
+        get fontUnderline() { return w.fontUnderline; },
+        set fontUnderline(v) { w.fontUnderline = v; },
       };
     }
     return this._sharedDefaults;
@@ -301,6 +318,10 @@ export class FabricCanvasWrapper {
       get cornerRadius() { return wrapper.cornerRadius; },
       get arrowStartHead() { return wrapper.arrowStartHead; },
       get arrowEndHead() { return wrapper.arrowEndHead; },
+      get textAlign() { return wrapper.textAlign; },
+      get fontBold() { return wrapper.fontBold; },
+      get fontItalic() { return wrapper.fontItalic; },
+      get fontUnderline() { return wrapper.fontUnderline; },
       get imageWidth() { return wrapper.imageWidth; },
       get imageHeight() { return wrapper.imageHeight; },
       pushSnapshot: () => wrapper.pushSnapshot(),
@@ -675,6 +696,27 @@ export class FabricCanvasWrapper {
   setArrowEndHead(t: ArrowHeadType): void {
     this.arrowEndHead = t;
     this.updateSelectedObjectStyle('arrowEndHead');
+  }
+
+  /** Update text alignment. Also updates the selected text object if any. */
+  setTextAlign(v: 'left' | 'center' | 'right'): void {
+    this.textAlign = v;
+    this.updateSelectedObjectStyle('textAlign');
+  }
+
+  setFontBold(v: boolean): void {
+    this.fontBold = v;
+    this.updateSelectedObjectStyle('fontBold');
+  }
+
+  setFontItalic(v: boolean): void {
+    this.fontItalic = v;
+    this.updateSelectedObjectStyle('fontItalic');
+  }
+
+  setFontUnderline(v: boolean): void {
+    this.fontUnderline = v;
+    this.updateSelectedObjectStyle('fontUnderline');
   }
 
   /** Set the obfuscation effect mode. */

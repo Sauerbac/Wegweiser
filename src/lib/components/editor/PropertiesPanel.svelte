@@ -19,6 +19,8 @@
   import CropSection from './properties/CropSection.svelte';
   import ClickIndicatorSection from './properties/ClickIndicatorSection.svelte';
   import ArrowHeadsSection from './properties/ArrowHeadsSection.svelte';
+  import TextAlignSection from './properties/TextAlignSection.svelte';
+  import TextStyleSection from './properties/TextStyleSection.svelte';
   import HighlightWidthSection from './properties/HighlightWidthSection.svelte';
   import HighlightOpacitySection from './properties/HighlightOpacitySection.svelte';
 
@@ -125,8 +127,12 @@
               <CornerRadiusSection {fabricCanvas} />
             {:else if sectionId === 'font-family'}
               <FontFamilySection {fabricCanvas} />
+            {:else if sectionId === 'text-style'}
+              <TextStyleSection {fabricCanvas} />
             {:else if sectionId === 'font-size'}
               <FontSizeSection {fabricCanvas} />
+            {:else if sectionId === 'text-align'}
+              <TextAlignSection {fabricCanvas} />
             {:else if sectionId === 'callout-groups'}
               <CalloutGroupsSection {fabricCanvas} />
             {:else if sectionId === 'obfuscation'}

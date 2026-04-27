@@ -16,7 +16,9 @@ export type PropertySection =
   | 'arrow-heads'
   | 'corner-radius'
   | 'font-family'
+  | 'text-style'
   | 'font-size'
+  | 'text-align'
   | 'opacity'
   | 'obfuscation'
   | 'crop'
@@ -51,6 +53,14 @@ export interface SharedDefaults {
   arrowStartHead: ArrowHeadType;
   /** Arrow-tool-exclusive end-point head shape. */
   arrowEndHead: ArrowHeadType;
+  /** Text alignment for text annotations. */
+  textAlign: 'left' | 'center' | 'right';
+  /** Bold text. */
+  fontBold: boolean;
+  /** Italic text. */
+  fontItalic: boolean;
+  /** Underline text. */
+  fontUnderline: boolean;
 }
 
 /**
@@ -75,6 +85,10 @@ export interface ToolContext {
   readonly cornerRadius: number;
   readonly arrowStartHead: ArrowHeadType;
   readonly arrowEndHead: ArrowHeadType;
+  readonly textAlign: 'left' | 'center' | 'right';
+  readonly fontBold: boolean;
+  readonly fontItalic: boolean;
+  readonly fontUnderline: boolean;
   readonly imageWidth: number;
   readonly imageHeight: number;
   pushSnapshot(): void;

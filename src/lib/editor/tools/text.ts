@@ -11,7 +11,7 @@ const HIDDEN_TEXTBOX_CONTROLS = { tl: false, tr: false, bl: false, br: false, mt
 
 export class TextToolHandler implements ToolHandler {
   readonly toolId = 'text';
-  readonly propertySections = ['stroke-color', 'font-family', 'font-size', 'opacity'] as const;
+  readonly propertySections = ['stroke-color', 'font-family', 'text-style', 'font-size', 'text-align', 'opacity'] as const;
 
   /** Tracks which textbox is a candidate for entering editing on mouseUp. */
   private _pendingEditTarget: IText | null = null;
@@ -108,6 +108,10 @@ export class TextToolHandler implements ToolHandler {
       fill: ctx.color,
       fontSize,
       fontFamily: ctx.fontFamily,
+      fontWeight: ctx.fontBold ? 'bold' : 'normal',
+      fontStyle: ctx.fontItalic ? 'italic' : 'normal',
+      underline: ctx.fontUnderline,
+      textAlign: ctx.textAlign,
       opacity: ctx.opacity,
       selectable: true,
       evented: true,
@@ -213,7 +217,13 @@ export class TextToolHandler implements ToolHandler {
     if (!(obj instanceof IText)) return;
     if (typeof obj.fill === 'string') shared.color = obj.fill;
     if (typeof obj.fontFamily === 'string') shared.fontFamily = obj.fontFamily;
+    shared.fontBold = obj.fontWeight === 'bold';
+    shared.fontItalic = obj.fontStyle === 'italic';
+    shared.fontUnderline = obj.underline === true;
     shared.strokeWidth = fontSizeToStrokeWidth(obj.fontSize ?? 24);
+    if (obj.textAlign === 'left' || obj.textAlign === 'center' || obj.textAlign === 'right') {
+      shared.textAlign = obj.textAlign;
+    }
     if (typeof obj.opacity === 'number') shared.opacity = obj.opacity;
   }
 
@@ -229,6 +239,18 @@ export class TextToolHandler implements ToolHandler {
         break;
       case 'strokeWidth':
         obj.set({ fontSize: strokeWidthToFontSize(shared.strokeWidth) });
+        break;
+      case 'fontBold':
+        obj.set({ fontWeight: shared.fontBold ? 'bold' : 'normal' });
+        break;
+      case 'fontItalic':
+        obj.set({ fontStyle: shared.fontItalic ? 'italic' : 'normal' });
+        break;
+      case 'fontUnderline':
+        obj.set({ underline: shared.fontUnderline });
+        break;
+      case 'textAlign':
+        obj.set({ textAlign: shared.textAlign });
         break;
       case 'opacity':
         obj.set({ opacity: shared.opacity });
