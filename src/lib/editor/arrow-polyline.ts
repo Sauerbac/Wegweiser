@@ -210,10 +210,9 @@ export function attachWaypointControls(
         const waypoints: { x: number; y: number }[] = [
           ...((obj as any).waypointData as { x: number; y: number }[]),
         ];
-        const vpt = canvas.viewportTransform;
-        const invVpt = vpt ? util.invertTransform(vpt) : ([1, 0, 0, 1, 0, 0] as any);
-        const scene = util.transformPoint(new Point(x, y), invVpt);
-        waypoints[idx] = { x: scene.x, y: scene.y };
+        // Fabric.js 7 passes scene coordinates to actionHandler (via getScenePoint).
+        // Do NOT apply invVpt here — x, y are already in scene space.
+        waypoints[idx] = { x, y };
         onWaypointDrag(obj, waypoints);
         return true;
       },

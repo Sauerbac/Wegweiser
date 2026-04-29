@@ -44,7 +44,13 @@ function buildCompositeBelow(ctx: ToolContext, target: FabricObject | null): HTM
     }
   }
 
+  // toCanvasElement renders with the current VPT applied. Reset to identity so the
+  // composite is at natural image resolution and region pixel coords (scene space)
+  // map correctly. Same pattern as FabricCanvasWrapper.toDataURL().
+  const savedVpt = canvas.viewportTransform;
+  canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
   const composite = canvas.toCanvasElement(1);
+  canvas.setViewportTransform(savedVpt);
 
   // Restore visibility.
   for (let i = 0; i < toHide.length; i++) {
