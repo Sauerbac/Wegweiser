@@ -432,10 +432,11 @@ export class FabricCanvasWrapper {
     this.canvas.on('selection:created', (e) => {
       this.updateSelectedCount();
       const target = (e as any).selected?.[0];
-      if (target && (target as any).customType === 'polyline-arrow') {
+      const singleSelected = this.canvas!.getActiveObjects().length === 1;
+      if (singleSelected && target && (target as any).customType === 'polyline-arrow') {
         arrowHandler.enterEditMode(this.ctx, target as Group);
       }
-      if (target && (target as any)._wegweiserType === 'clickIndicator') {
+      if (singleSelected && target && (target as any)._wegweiserType === 'clickIndicator') {
         this.setTool('click-indicator');
       }
       // Sync properties from the selected object back into shared/tool state.
@@ -447,14 +448,15 @@ export class FabricCanvasWrapper {
     this.canvas.on('selection:updated', (e) => {
       this.updateSelectedCount();
       const newTarget = (e as any).selected?.[0];
+      const singleSelected = this.canvas!.getActiveObjects().length === 1;
       if (newTarget && this.arrowEditingId !== null && (newTarget as any)._arrowUid !== this.arrowEditingId) {
         arrowHandler.exitEditMode(this.ctx, this.tool);
       }
-      if (newTarget && (newTarget as any).customType === 'polyline-arrow' &&
+      if (singleSelected && newTarget && (newTarget as any).customType === 'polyline-arrow' &&
           (newTarget as any)._arrowUid !== this.arrowEditingId) {
         arrowHandler.enterEditMode(this.ctx, newTarget as Group);
       }
-      if (newTarget && (newTarget as any)._wegweiserType === 'clickIndicator') {
+      if (singleSelected && newTarget && (newTarget as any)._wegweiserType === 'clickIndicator') {
         this.setTool('click-indicator');
       }
       // Sync properties from the newly selected object back into shared/tool state.
