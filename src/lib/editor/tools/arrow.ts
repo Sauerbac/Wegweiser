@@ -313,6 +313,10 @@ export class ArrowToolHandler implements ToolHandler {
       (g, pts) => this.updateArrow(ctx, g, pts),
       (g) => syncWaypointDataWithGroupPosition(g),
     );
+    // Recompute oCoords so drawControls can position wp_0/wp_1 correctly.
+    // Fabric calls setCoords() before firing selection:created (with the old
+    // default controls), so oCoords lacks waypoint entries until we refresh it.
+    group.setCoords();
     if (ctx.canvas.getActiveObject() !== group) {
       ctx.canvas.setActiveObject(group);
     }
