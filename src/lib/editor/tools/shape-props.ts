@@ -21,8 +21,6 @@ export function syncShapeFromObject(obj: FabricObject, shared: SharedDefaults): 
     shared.fillEnabled = false;
   }
   obj.set({ perPixelTargetFind: !fillEnabled });
-  const rx = (obj as any).rx;
-  if (typeof rx === 'number') shared.cornerRadius = rx;
 }
 
 export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {

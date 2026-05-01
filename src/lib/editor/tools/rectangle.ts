@@ -112,6 +112,8 @@ export class RectangleToolHandler implements ToolHandler {
 
   syncFromObject(obj: FabricObject, shared: SharedDefaults): void {
     syncShapeFromObject(obj, shared);
+    const rx = (obj as any).rx;
+    if (typeof rx === 'number') shared.cornerRadius = rx;
   }
 
   applyProperties(_ctx: ToolContext, obj: FabricObject, shared: SharedDefaults, changedProperty: keyof SharedDefaults): void {
