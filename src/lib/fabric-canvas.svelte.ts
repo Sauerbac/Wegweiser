@@ -197,6 +197,8 @@ export class FabricCanvasWrapper {
   private redoStack: string[] = [];
   /** Whether we're currently loading from undo/redo (suppress snapshot). */
   private isRestoring = false;
+  /** True once the canvas has been modified since init (or since last restore of undo stacks). */
+  private _dirty = false;
   /**
    * Reentry guard for `reRenderAllObfuscationOverlays`. Re-rendering an
    * overlay eventually calls `pushSnapshot`/`updateCounts`, which must not
@@ -211,6 +213,9 @@ export class FabricCanvasWrapper {
   /** Reactive undo/redo availability. */
   canUndo = $state(false);
   canRedo = $state(false);
+
+  /** Whether the canvas has been modified since it was last initialized (or stacks restored). */
+  get dirty(): boolean { return this._dirty; }
 
   /** Whether the canvas has any annotation objects. */
   hasAnnotations = $state(false);
@@ -472,8 +477,8 @@ export class FabricCanvasWrapper {
       }
     });
 
-    // Push initial empty state.
-    this.pushSnapshot();
+    // Push initial empty state without marking the canvas dirty.
+    this.pushSnapshot(true);
   }
 
   /**
@@ -982,6 +987,7 @@ export class FabricCanvasWrapper {
   /** Undo the last annotation change. */
   undo(): void {
     if (this.undoStack.length <= 1) return; // keep at least the initial state
+    this._dirty = true;
     const current = this.undoStack.pop()!;
     this.redoStack.push(current);
     const prev = this.undoStack[this.undoStack.length - 1];
@@ -991,6 +997,7 @@ export class FabricCanvasWrapper {
   /** Redo a previously undone change. */
   redo(): void {
     if (this.redoStack.length === 0) return;
+    this._dirty = true;
     const next = this.redoStack.pop()!;
     this.undoStack.push(next);
     this.restoreSnapshot(next);
@@ -1266,14 +1273,15 @@ export class FabricCanvasWrapper {
     this.canvas.fire('object:modified', { target: active });
   }
 
-  /** Push a JSON snapshot onto the undo stack. */
-  private pushSnapshot(): void {
+  /** Push a JSON snapshot onto the undo stack. Pass fromInit=true for the initial snapshot so it does not mark the canvas dirty. */
+  private pushSnapshot(fromInit = false): void {
     const json = this.serialize();
     if (this.undoStack.length >= UNDO_CAP) {
       this.undoStack.shift();
     }
     this.undoStack.push(json);
     this.redoStack = [];
+    if (!fromInit) this._dirty = true;
     this.updateUndoState();
   }
 

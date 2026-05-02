@@ -102,11 +102,15 @@ export class ImageCacheStore {
       if (!this.imageCache[displayKey] || lastPath !== displayPath) {
         this._loadedDisplayPath.set(step.id, displayPath);
         const stepId = step.id;
+        const targetPath = displayPath;
         invoke<string>('get_step_image', { imagePath: displayPath }).then((uri) => {
           this.imageCache[displayKey] = uri;
-          // Atomically promote to the stable display URI so the swap is
-          // instantaneous and never passes through a blank/placeholder frame.
-          this.stepDisplayUri[stepId] = uri;
+          // Only promote to the stable display URI if this fetch is still current.
+          // A stale fetch (started before a undo/redo changed the target path) must
+          // not overwrite the result of the newer fetch that completed first.
+          if (this._loadedDisplayPath.get(stepId) === targetPath) {
+            this.stepDisplayUri[stepId] = uri;
+          }
         }).catch(err => console.error('Failed to load image:', err));
       } else if (!this.stepDisplayUri[step.id]) {
         // Cache hit but stepDisplayUri not yet populated (e.g. first render after

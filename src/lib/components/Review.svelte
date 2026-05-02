@@ -229,6 +229,7 @@
 
   async function saveDescription() {
     if (!selectedStep) return;
+    if (descriptionDraft === (selectedStep.description ?? '')) return;
     try {
       await invoke("update_step_description", {
         stepId: selectedStep.id,
@@ -245,6 +246,7 @@
     if (!selectedStep) return;
     // Normalise: treat empty/whitespace-only string as null (no keystrokes).
     const value = keystrokesDraft.trim() || null;
+    if (value === (selectedStep.keystrokes ?? null)) return;
     try {
       await invoke("update_step_keystrokes", {
         stepId: selectedStep.id,

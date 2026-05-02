@@ -185,43 +185,47 @@
 
     try {
       if (initialized) {
-        saving = true;
-        errorMsg = null;
+        if (fabricCanvas.dirty) {
+          saving = true;
+          errorMsg = null;
 
-        try {
-          const json = fabricCanvas.serialize();
-          const hasContent = fabricCanvas.hasAnnotations;
+          try {
+            const json = fabricCanvas.serialize();
+            const hasContent = fabricCanvas.hasAnnotations;
 
-          let previewBase64: string | null = null;
-          if (hasContent) {
-            const dataUrl = fabricCanvas.toDataURL();
-            // Strip data:image/png;base64, prefix.
-            previewBase64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+            let previewBase64: string | null = null;
+            if (hasContent) {
+              const dataUrl = fabricCanvas.toDataURL();
+              // Strip data:image/png;base64, prefix.
+              previewBase64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+            }
+
+            // Clear cache so the new preview loads.
+            imageStore.clearStepImageCache(step.id);
+
+            await invoke('save_annotations', {
+              stepId: step.id,
+              annotationsJson: hasContent ? json : null,
+              previewPngBase64: previewBase64,
+              extraIndex: extraIndex ?? null,
+            });
+
+            // Increment depth so Review-level undo covers this save.
+            depth += 1;
+            redoDepth = 0;
+          } catch (err) {
+            console.error('Failed to save annotations:', err);
+            errorMsg = `Failed to save annotations: ${err}`;
+            // Still close the editor even on save failure.
           }
 
-          // Clear cache so the new preview loads.
-          imageStore.clearStepImageCache(step.id);
-
-          await invoke('save_annotations', {
-            stepId: step.id,
-            annotationsJson: hasContent ? json : null,
-            previewPngBase64: previewBase64,
-            extraIndex: extraIndex ?? null,
-          });
-
-          // Increment depth so Review-level undo covers this save.
-          depth += 1;
-          redoDepth = 0;
-          // Notify the Review undo store NOW — before open=false — so it reads
-          // the updated depth (Dialog.Close sets open=false before this runs).
-          onsessionclose?.(depth);
-        } catch (err) {
-          console.error('Failed to save annotations:', err);
-          errorMsg = `Failed to save annotations: ${err}`;
-          // Still close the editor even on save failure.
+          saving = false;
         }
 
-        saving = false;
+        // Always notify even when nothing was saved — this re-pushes the
+        // editorSession entry that popEditorSession removed when the editor opened,
+        // so the Review undo stack is consistent regardless of whether changes were made.
+        onsessionclose?.(depth);
       }
 
       cleanup();
