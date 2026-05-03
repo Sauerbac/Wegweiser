@@ -20,7 +20,10 @@ import {
   type TPointerEvent,
 } from 'fabric';
 import { CUSTOM_PROPS } from './editor/canvas-props.js';
+import { applyCustomControlStyle } from './editor/control-style.js';
 import type { ObfuscationEffect } from './editor/obfuscation.js';
+
+applyCustomControlStyle();
 import {
   createToolRegistry,
   type ArrowHeadType,
