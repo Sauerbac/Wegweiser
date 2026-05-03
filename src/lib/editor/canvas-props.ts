@@ -40,4 +40,5 @@ export const CUSTOM_PROPS: string[] = [
   '_highlightOpacity',
   '_highlightWidth',
   '_highlightPoints',
+  '_intendedStrokeWidth',
 ];
