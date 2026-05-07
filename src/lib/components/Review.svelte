@@ -81,6 +81,7 @@
   const ec = createExportChoice(
     () => selectedStep,
     () => selectedStepId,
+    reviewUndo,
   );
 
   const exportActions = createExportActions();

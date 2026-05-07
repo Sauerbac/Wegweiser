@@ -82,35 +82,29 @@ export function createEditorSession(
 
       // Editor just opened.
       const stepId = getSelectedStepId();
-      // Priority 1: pending state from a Review-level undo/redo (explicit depth override).
       const pending = reviewUndo.consumePendingEditorState(stepId ?? -1);
-      if (pending.depth !== 0 || pending.redoDepth !== 0) {
-        depth = pending.depth;
-        redoDepth = pending.redoDepth;
-        // Clear preserved Fabric.js stacks when Review-level undo/redo changes the
-        // session state — they are no longer valid for the restored backend state.
-        if (stepId !== null) {
-          fabricUndoSnapshots.delete(stepId);
-          fabricRedoSnapshots.delete(stepId);
-        }
+
+      // Each open/close cycle is its own Review-level undo unit — never
+      // collapse with a prior session. depth tracks save count for *this*
+      // session only.
+      depth = 0;
+      redoDepth = 0;
+
+      // After a Review-level undo of an editorSession, the backend has been
+      // rolled back to the pre-session state but the saved Fabric snapshots
+      // end at the post-session state — they no longer match the canvas.
+      // Don't restore them. Keep the snapshots in the map so a subsequent
+      // Review redo (which puts the backend back to post-session state) can
+      // restore them.
+      const isAfterReviewUndo = pending.depth === 0 && pending.redoDepth > 0;
+      if (isAfterReviewUndo || stepId === null) {
         pendingFabricUndo = [];
         pendingFabricRedo = [];
       } else {
-        // Priority 2: collapsed session from a prior close — restore depth so the user
-        // can still undo edits made in the previous open of the same step.
-        const prevDepth = reviewUndo.popEditorSession(stepId ?? -1);
-        depth = prevDepth ?? 0;
-        redoDepth = 0;
-
-        // Restore the per-step Fabric.js snapshot stacks so individual annotation
-        // operations are undoable inside the editor on reopen.
-        if (stepId !== null) {
-          pendingFabricUndo = fabricUndoSnapshots.get(stepId) ?? [];
-          pendingFabricRedo = fabricRedoSnapshots.get(stepId) ?? [];
-        } else {
-          pendingFabricUndo = [];
-          pendingFabricRedo = [];
-        }
+        // Regular open or open after a Review redo — snapshots match the
+        // backend state. Restore them so per-shape undo/redo continues working.
+        pendingFabricUndo = fabricUndoSnapshots.get(stepId) ?? [];
+        pendingFabricRedo = fabricRedoSnapshots.get(stepId) ?? [];
       }
     });
   });

@@ -164,6 +164,13 @@
       // reopened for a step that was previously edited.
       if (initialFabricUndoStack.length > 0) {
         fabricCanvas.restoreUndoRedoStacks(initialFabricUndoStack, initialFabricRedoStack);
+      } else {
+        // Seed the initial baseline: makes canUndo=false and _dirty=false so
+        // closing without real edits does not trigger a spurious save_annotations.
+        // This is the single snapshot for the initial canvas state (empty, with
+        // click indicator, or with restored annotations depending on the branch
+        // taken above). Also cancels any pending debounce snapshot from init.
+        fabricCanvas.initializeSnapshot();
       }
 
       // Tell the parent store that we've consumed the pending snapshot stacks
@@ -222,9 +229,8 @@
           saving = false;
         }
 
-        // Always notify even when nothing was saved — this re-pushes the
-        // editorSession entry that popEditorSession removed when the editor opened,
-        // so the Review undo stack is consistent regardless of whether changes were made.
+        // Notify the parent of the final depth. pushEditorSession early-returns
+        // for depth=0, so this is a no-op when the user closed without saving.
         onsessionclose?.(depth);
       }
 

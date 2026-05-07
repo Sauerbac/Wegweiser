@@ -382,6 +382,8 @@ pub fn new_recording(
         st.recording_state = RecordingState::Idle;
         st.session = None;
         st.rec_window_bounds = None;
+        st.undo_history.clear();
+        st.redo_history.clear();
         (was_recording, st.window_geometry.restore_rect.take(), st.window_geometry.maximized)
     };
 

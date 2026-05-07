@@ -12,6 +12,7 @@ pub fn list_monitors(state: State<'_, AppStateHandle>) -> Vec<crate::model::Moni
 pub fn export_markdown(
     output_path: String,
     state: State<'_, AppStateHandle>,
+    app_handle: AppHandle,
 ) -> Result<String, String> {
     // security-004: reject paths containing null bytes
     if output_path.contains('\0') {
@@ -24,8 +25,8 @@ pub fn export_markdown(
     let path = PathBuf::from(&output_path);
     crate::export::markdown::export(&session, &path).map_err(|e| e.to_string())?;
 
-    // Mark session as exported
-    {
+    // Mark session as exported and notify the frontend.
+    let session_clone = {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut s) = st.session {
             s.exported = true;
@@ -33,6 +34,10 @@ pub fn export_markdown(
                 eprintln!("[save_session] failed: {e}");
             }
         }
+        st.session.clone()
+    };
+    if let Some(s) = session_clone {
+        let _ = app_handle.emit("session-updated", &s);
     }
 
     Ok(normalize_path_for_frontend(&output_path))

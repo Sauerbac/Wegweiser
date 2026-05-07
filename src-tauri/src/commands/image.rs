@@ -43,6 +43,8 @@ pub fn save_annotations(
         let step = session.steps.iter_mut().find(|s| s.id == step_id)
             .ok_or("Step not found")?;
 
+        let new_version = step.image_version + 1;
+
         // Determine which image path to operate on (primary vs extra).
         let base_image_path = match extra_index {
             None => &step.image_path,
@@ -50,29 +52,32 @@ pub fn save_annotations(
                 .ok_or("Extra image index out of range")?,
         };
 
-        // Write or clear the preview PNG.
+        // Write or clear the preview PNG. Filenames are versioned so each save
+        // produces a new file rather than overwriting the previous one — past
+        // undo snapshots in `undo_history` reference the path their save wrote,
+        // so destroying that file would render those undo entries non-restorable.
+        // Old preview files are retained for the lifetime of the session and
+        // reclaimed when the session directory is deleted.
         if let Some(ref b64) = preview_png_base64 {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(b64)
                 .map_err(|e| format!("Invalid base64: {e}"))?;
             let preview_filename = match extra_index {
-                None => format!("step_{:04}_preview.png", step_id),
-                Some(ei) => format!("step_{:04}_extra{}_preview.png", step_id, ei),
+                None => format!("step_{:04}_preview_v{}.png", step_id, new_version),
+                Some(ei) => format!("step_{:04}_extra{}_preview_v{}.png", step_id, ei, new_version),
             };
             let dir = base_image_path.parent().unwrap_or(std::path::Path::new("."));
             let preview_path = dir.join(preview_filename);
             std::fs::write(&preview_path, &bytes).map_err(|e| e.to_string())?;
             step.preview_path = Some(preview_path);
         } else {
-            // Remove existing preview file if annotations are cleared.
-            if let Some(ref old_preview) = step.preview_path {
-                let _ = std::fs::remove_file(old_preview);
-            }
+            // Annotations cleared: drop the reference but do NOT delete the file —
+            // a prior undo snapshot may still reference it.
             step.preview_path = None;
         }
 
         step.annotations_json = annotations_json;
-        step.image_version += 1;
+        step.image_version = new_version;
 
         if let Err(e) = session::save_session(session) {
             eprintln!("[save_annotations] save failed: {e}");

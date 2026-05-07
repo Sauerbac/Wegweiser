@@ -480,8 +480,6 @@ export class FabricCanvasWrapper {
       }
     });
 
-    // Push initial empty state without marking the canvas dirty.
-    this.pushSnapshot(true);
   }
 
   /**
@@ -1036,6 +1034,7 @@ export class FabricCanvasWrapper {
     if (undoStack.length === 0) return;
     this.undoStack = [...undoStack];
     this.redoStack = [...redoStack];
+    this._dirty = false;
     this.updateUndoState();
   }
 
@@ -1167,13 +1166,38 @@ export class FabricCanvasWrapper {
   }
 
   /**
-   * Place the click indicator at the previously set position.
-   * Called once from AnnotationEditor when opening a fresh step (no saved annotations).
+   * Place the click indicator at the previously set position as part of canvas
+   * initialisation. The placement is done with `isRestoring = true` so no
+   * snapshot or `_dirty` side-effects are triggered — the indicator is treated
+   * as part of the baseline state, not a user edit.
    */
   initClickIndicator(x: number, y: number): void {
     const handler = this.registry.get('click-indicator') as ClickIndicatorToolHandler;
     handler.setPosition(x, y);
-    handler.placeIndicator(this.ctx);
+    this.isRestoring = true;
+    try {
+      handler.placeIndicator(this.ctx);
+    } finally {
+      this.isRestoring = false;
+    }
+  }
+
+  /**
+   * Seed the undo stack with the current canvas state as the single baseline
+   * entry. Called by AnnotationEditor after all initial setup (deserialization
+   * or click-indicator placement) so that canUndo starts as false and closing
+   * the editor without real edits does not trigger a spurious save.
+   */
+  initializeSnapshot(): void {
+    // Cancel any pending debounce timer left over from initial setup.
+    if (this._modifiedTimer !== null) {
+      clearTimeout(this._modifiedTimer);
+      this._modifiedTimer = null;
+    }
+    this.undoStack = [this.serialize()];
+    this.redoStack = [];
+    this._dirty = false;
+    this.updateUndoState();
   }
 
   /** Toggle the click indicator on/off. Delegates to ClickIndicatorToolHandler. */

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { imageStore } from '$lib/stores/image-cache.svelte';
+import type { ReviewUndoStore } from '$lib/review/undo.svelte';
 import type { Step } from '$lib/types';
 import { extraTabIndex } from '$lib/utils';
 
@@ -33,6 +34,7 @@ export function expandExportChoice(choice: boolean[], totalCount: number): boole
 export function createExportChoice(
   getSelectedStep: () => Step | null,
   getSelectedStepId: () => number | null,
+  reviewUndo: ReviewUndoStore,
 ) {
   /**
    * Which monitor tab is shown in the detail view.
@@ -94,6 +96,7 @@ export function createExportChoice(
     if (!step) return;
     try {
       await invoke('set_step_export_choice', { stepId: step.id, choice });
+      reviewUndo.pushBackend();
     } catch (err) {
       console.error('Failed to set export choice:', err);
     }

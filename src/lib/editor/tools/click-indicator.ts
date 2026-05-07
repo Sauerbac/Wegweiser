@@ -65,7 +65,6 @@ export class ClickIndicatorToolHandler implements ToolHandler {
 
     ctx.canvas.add(group);
     ctx.canvas.renderAll();
-    ctx.pushSnapshot();
     ctx.updateCounts();
   }
 
@@ -79,7 +78,6 @@ export class ClickIndicatorToolHandler implements ToolHandler {
       ctx.canvas.remove(obj);
     }
     ctx.canvas.renderAll();
-    ctx.pushSnapshot();
     ctx.updateCounts();
   }
 
