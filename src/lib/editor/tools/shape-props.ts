@@ -40,18 +40,35 @@ export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, 
   switch (changedProperty) {
     case 'color':
       if (shared.color === 'transparent') {
-        // Save the visible stroke width before hiding, so it can be restored.
         if (obj.stroke !== 'transparent') {
-          (obj as any)._intendedStrokeWidth = obj.strokeWidth;
+          // In Fabric.js 7, left/top = top-left of bounding box including stroke.
+          // Hiding stroke (sw → 0) shrinks the bbox; shift left/top to keep fill center fixed.
+          const oldSW = obj.strokeWidth ?? 0;
+          (obj as any)._intendedStrokeWidth = oldSW;
+          const delta = oldSW / 2;
+          obj.set({
+            stroke: 'transparent',
+            strokeWidth: 0,
+            strokeUniform: true,
+            left: (obj.left ?? 0) + delta,
+            top: (obj.top ?? 0) + delta,
+          });
+        } else {
+          obj.set({ stroke: 'transparent', strokeWidth: 0, strokeUniform: true });
         }
-        obj.set({ stroke: 'transparent', strokeWidth: 0, strokeUniform: true });
       } else {
-        // Restore the saved width, or fall back to the current shared width.
         const intended = (obj as any)._intendedStrokeWidth;
-        const sw = (typeof intended === 'number' && intended > 0) ? intended : shared.strokeWidth;
-        obj.set({ stroke: shared.color, strokeWidth: sw, strokeUniform: true });
+        const newSW = (typeof intended === 'number' && intended > 0) ? intended : shared.strokeWidth;
+        const oldSW = obj.strokeWidth ?? 0;
+        const delta = (oldSW - newSW) / 2;
+        obj.set({
+          stroke: shared.color,
+          strokeWidth: newSW,
+          strokeUniform: true,
+          left: (obj.left ?? 0) + delta,
+          top: (obj.top ?? 0) + delta,
+        });
       }
-      // Stroke-width change affects bounding box; oCoords must be refreshed.
       obj.setCoords();
       break;
     case 'strokeWidth':
@@ -59,7 +76,16 @@ export function applyShapeProperties(obj: FabricObject, shared: SharedDefaults, 
       // transparent we keep strokeWidth=0 on the object so the selection
       // outline hugs the fill area rather than the invisible stroke area.
       if (obj.stroke !== 'transparent') {
-        obj.set({ strokeWidth: shared.strokeWidth, strokeUniform: true });
+        // Adjust left/top so the visual center stays fixed as the bbox grows/shrinks.
+        const oldSW = obj.strokeWidth ?? 0;
+        const newSW = shared.strokeWidth;
+        const delta = (oldSW - newSW) / 2;
+        obj.set({
+          strokeWidth: newSW,
+          strokeUniform: true,
+          left: (obj.left ?? 0) + delta,
+          top: (obj.top ?? 0) + delta,
+        });
         obj.setCoords();
       }
       break;
