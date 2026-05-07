@@ -12,7 +12,7 @@
  * so the arm tips show a blue border against the white fill.
  */
 
-import { FabricObject, controlsUtils } from 'fabric';
+import { FabricObject, Textbox, controlsUtils } from 'fabric';
 import { PRESET_COLORS } from './constants.js';
 
 const BLUE = PRESET_COLORS[1]; // '#3b82f6'
@@ -167,4 +167,14 @@ export function applyCustomControlStyle(): void {
 
   const customControls = buildCustomControls();
   (FabricObject as any).createControls = () => ({ controls: customControls });
+
+  // Textbox has its own static createControls() that bypasses the FabricObject
+  // patch above, so patch it explicitly. ml/mr must keep changeWidth so that
+  // dragging the side handles changes text wrap width rather than scaling.
+  const textboxCustomControls = buildCustomControls();
+  textboxCustomControls.ml.actionHandler = controlsUtils.changeWidth;
+  textboxCustomControls.ml.actionName = 'resizing';
+  textboxCustomControls.mr.actionHandler = controlsUtils.changeWidth;
+  textboxCustomControls.mr.actionName = 'resizing';
+  (Textbox as any).createControls = () => ({ controls: textboxCustomControls });
 }
