@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Wegweiser",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "identifier": "de.sauerbach.wegweiser",
   "build": {
     "frontendDist": "../build",
@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Wegweiser — Step Recorder",
-        "width": 900,
-        "height": 650,
+        "width": 1536,
+        "height": 864,
         "minWidth": 600,
         "minHeight": 420,
         "resizable": true,
