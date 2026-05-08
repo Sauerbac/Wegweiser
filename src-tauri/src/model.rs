@@ -2,39 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-fn default_export_choice() -> Vec<bool> {
-    vec![true]
-}
-
-fn deserialize_export_choice<'de, D>(d: D) -> Result<Vec<bool>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    let v: serde_json::Value = serde::Deserialize::deserialize(d)?;
-    match v {
-        serde_json::Value::Array(arr) => arr
-            .iter()
-            .map(|x| x.as_bool().ok_or_else(|| D::Error::custom("expected bool")))
-            .collect(),
-        serde_json::Value::Object(map) => {
-            match map.get("type").and_then(|t| t.as_str()) {
-                Some("Primary") => Ok(vec![true]),
-                Some("All") => Ok(vec![]),
-                Some("Skip") => Ok(vec![false]),
-                Some("Extra") => {
-                    let n = map.get("value").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                    let mut sel = vec![false; n + 2];
-                    sel[n + 1] = true;
-                    Ok(sel)
-                }
-                _ => Ok(vec![true]),
-            }
-        }
-        _ => Ok(vec![true]),
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -46,7 +13,6 @@ pub struct Session {
     #[serde(skip)]
     pub session_dir: PathBuf,
     /// Whether this session has been successfully exported at least once.
-    #[serde(default)]
     pub exported: bool,
 }
 
@@ -57,32 +23,42 @@ pub struct Step {
     pub image_path: PathBuf,
     /// Extra screenshots captured when "All monitors" is selected.
     /// Each entry is the path to a plain (unannotated) PNG for a monitor other
-    /// than the one where the click occurred.  The field is absent in older
-    /// session.json files — `#[serde(default)]` handles that transparently.
-    #[serde(default)]
+    /// than the one where the click occurred.
     pub extra_image_paths: Vec<PathBuf>,
     /// Index into the monitor list for the monitor that was clicked (primary image).
-    #[serde(default)]
     pub click_monitor_index: usize,
     /// Monitor indices for each entry in `extra_image_paths` (parallel array).
-    #[serde(default)]
     pub extra_monitor_indices: Vec<usize>,
     pub click: Option<ClickPoint>,
+    /// The click position relative to the top-left corner of the clicked monitor
+    /// (physical pixels). Populated for every new step so the annotation editor
+    /// can place the editable click indicator without needing the live monitor list.
+    pub click_relative: Option<ClickPoint>,
     pub description: String,
     pub timestamp: DateTime<Utc>,
     pub keystrokes: Option<String>,
     /// Which monitor image(s) to include when exporting this step.
     /// Vec<bool> where index 0 = primary, index i+1 = extra_image_paths[i].
-    /// Empty vec = include all (migration sentinel for old `All` records).
-    /// Absent in older session.json files — defaults to `[true]` (primary only).
-    #[serde(default = "default_export_choice", deserialize_with = "deserialize_export_choice")]
     pub export_choice: Vec<bool>,
     /// Visible window bounding boxes captured at screenshot time, in monitor-relative pixels.
-    #[serde(default)]
     pub window_rects: Vec<WindowRect>,
     /// Incremented on each image edit; used by the frontend as a cache-busting key.
-    #[serde(default)]
     pub image_version: u32,
+    /// Serialized Fabric.js canvas JSON for non-destructive overlay annotations.
+    pub annotations_json: Option<String>,
+    /// Path to the flattened preview PNG (base image + annotations baked in).
+    pub preview_path: Option<PathBuf>,
+}
+
+impl Step {
+    /// Returns a full-length boolean slice indicating which monitor images are
+    /// included in the export for this step. Short `export_choice` is padded
+    /// with `false` to `total_count` entries.
+    pub fn effective_export_selection(&self, total_count: usize) -> Vec<bool> {
+        (0..total_count)
+            .map(|i| self.export_choice.get(i).copied().unwrap_or(false))
+            .collect()
+    }
 }
 
 /// Bounding box of a visible top-level window, in monitor-relative physical pixels.
@@ -122,12 +98,7 @@ pub struct MonitorInfo {
     pub width: u32,
     pub height: u32,
     /// DPI scale factor (e.g. 1.0 = 100%, 1.5 = 150%, 2.0 = 200%).
-    #[serde(default = "default_scale_factor")]
     pub scale_factor: f64,
-}
-
-fn default_scale_factor() -> f64 {
-    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

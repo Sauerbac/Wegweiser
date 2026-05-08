@@ -2,12 +2,30 @@ import { invoke } from '@tauri-apps/api/core';
 
 export type ReviewUndoEntry =
   | { type: 'editorSession'; stepId: number; depth: number }
-  | { type: 'backend' };
+  | { type: 'backend'; deletedStepIds?: number[] };
 
 /**
  * Manages the Review-screen undo/redo stack.
  *
- * Two kinds of entries:
+ * ## Dual-stack contract
+ *
+ * The app maintains two independent but coordinated undo stacks:
+ *   1. **Backend** (`AppState.undo_history` / `redo_history`) — full `Session`
+ *      snapshots, capped at `UNDO_HISTORY_CAP` (currently 50, defined in
+ *      `src-tauri/src/commands/mod.rs`).
+ *   2. **Frontend** (`ReviewUndoStore.undoStack` / `redoStack`) — metadata
+ *      entries (`backend` or `editorSession`), driving Ctrl+Z/Y UX.
+ *
+ * **Invariant**: For every `editorSession(depth)` entry on `undoStack`, the
+ * backend undo stack contains exactly `depth` corresponding entries. Any
+ * mutating command that pushes onto the backend stack **must** also call
+ * `pushBackend()` or `pushEditorSession()` on this store; failing to do so
+ * silently desynchronises the stacks and causes incorrect undo behaviour.
+ *
+ * Both caps must remain equal. If `UNDO_HISTORY_CAP` changes in Rust, update
+ * `UNDO_CAP` in `fabric-canvas.svelte.ts` to match.
+ *
+ * ## Entry kinds
  *   - 'backend'       — a single backend-tracked op (delete, rename, reorder).
  *                       Undo/redo calls invoke("undo_session") once.
  *   - 'editorSession' — a collapsed image-editor session. Undo/redo calls
@@ -21,8 +39,9 @@ export type ReviewUndoEntry =
 export class ReviewUndoStore {
   undoStack = $state<ReviewUndoEntry[]>([]);
   redoStack = $state<ReviewUndoEntry[]>([]);
-  /** Step ID to flash briefly after a Review-level undo/redo of an editor session. */
-  highlightedStepId = $state<number | null>(null);
+  /** Step IDs to flash briefly after a Review-level undo/redo. Single-element for editor
+   *  session undos; all restored IDs when undoing a step-delete. */
+  highlightedStepIds = $state(new Set<number>());
   /**
    * When a Review-level undo/redo collapses an editorSession, we record the
    * expected depth state so the editor can restore it on next open.
@@ -41,20 +60,26 @@ export class ReviewUndoStore {
     return this.redoStack.length > 0;
   }
 
-  flashStep(stepId: number) {
+  flashSteps(stepIds: number[]) {
     if (this._flashTimer !== null) clearTimeout(this._flashTimer);
-    this.highlightedStepId = stepId;
-    // Clear after one frame so the browser paints the primary border once,
-    // then the CSS duration-700 transition fades it back immediately.
+    this.highlightedStepIds = new Set(stepIds);
     this._flashTimer = setTimeout(() => {
-      this.highlightedStepId = null;
+      this.highlightedStepIds = new Set();
       this._flashTimer = null;
     }, 500);
   }
 
-  /** Call after any invoke that the backend records on its undo stack (delete, rename, etc.). */
-  pushBackend() {
-    this.undoStack = [...this.undoStack, { type: 'backend' }];
+  flashStep(stepId: number) {
+    this.flashSteps([stepId]);
+  }
+
+  /**
+   * Call after any invoke that the backend records on its undo stack (delete, rename, etc.).
+   * Pass `deletedStepIds` when the operation deleted steps — this enables auto-selecting
+   * the restored step when the operation is undone.
+   */
+  pushBackend(deletedStepIds?: number[]) {
+    this.undoStack = [...this.undoStack, { type: 'backend', deletedStepIds }];
     this.redoStack = [];
   }
 
@@ -84,6 +109,10 @@ export class ReviewUndoStore {
       this.flashStep(entry.stepId);
     } else {
       try { await invoke('undo_session'); } catch { /* nothing to undo */ }
+      // If this was a delete operation, flash all restored steps.
+      if (entry.deletedStepIds && entry.deletedStepIds.length > 0) {
+        this.flashSteps(entry.deletedStepIds);
+      }
     }
   }
 
@@ -120,23 +149,6 @@ export class ReviewUndoStore {
     return { depth: 0, redoDepth: 0 };
   }
 
-  /**
-   * If the top of the undo stack is an editorSession for the given step, removes it and
-   * returns its depth so the editor can resume where it left off on reopen.
-   * Returns null if the top entry does not match.
-   *
-   * Called when the editor opens after a normal close (no Review-level undo/redo in
-   * between). This lets the editor continue the same session rather than starting at 0.
-   */
-  popTopEditorSession(stepId: number): number | null {
-    const top = this.undoStack.at(-1);
-    if (top?.type === 'editorSession' && top.stepId === stepId) {
-      this.undoStack = this.undoStack.slice(0, -1);
-      return top.depth;
-    }
-    return null;
-  }
-
   clear() {
     this.undoStack = [];
     this.redoStack = [];
@@ -145,6 +157,6 @@ export class ReviewUndoStore {
       clearTimeout(this._flashTimer);
       this._flashTimer = null;
     }
-    this.highlightedStepId = null;
+    this.highlightedStepIds = new Set();
   }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getReviewContext } from '$lib/stores/review-context.svelte';
+  import { getReviewContext } from '$lib/review/context.svelte';
 
   interface Props {
     /** Which slot this bar represents (0 = before first card, steps.length = after last). */

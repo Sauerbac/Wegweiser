@@ -4,7 +4,7 @@
   import { MousePointer2 } from '@lucide/svelte';
   import { monitorLabel } from '$lib/utils';
   import type { Step } from '$lib/types';
-  import { getReviewContext } from '$lib/stores/review-context.svelte';
+  import { getReviewContext } from '$lib/review/context.svelte';
 
   interface Props {
     step: Step;

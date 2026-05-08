@@ -31,5 +31,9 @@ src-tauri/target/
 todos.md
 todos/
 
+# Graphify
+graphify-out/
+.graphify_python
+
 .claude/
 .vscode/

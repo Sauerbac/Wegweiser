@@ -2,7 +2,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import type { MonitorInfo, RecordingState, Session, SessionMeta, Step, UndoState } from '$lib/types';
-import { imageStore } from '$lib/stores/image-cache.svelte';
 
 const VALID_STATES: RecordingState[] = ['idle', 'recording', 'paused', 'reviewing'];
 
@@ -69,7 +68,6 @@ export class AppStore {
         const isNewSession = event.payload.id !== this._lastKnownSessionId;
         this._lastKnownSessionId = event.payload.id;
         this.session = event.payload;
-        imageStore.preloadStepImages(event.payload.steps);
         // Only mark dirty for real user mutations in the Review screen.
         // - isNewSession: first delivery of a session (from start/stop/load) → not a mutation.
         // - recordingState !== 'reviewing': session-updated fired during recording

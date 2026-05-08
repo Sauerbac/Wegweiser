@@ -4,13 +4,14 @@
   import { Button } from "$lib/components/ui/button";
   import { store } from "$lib/stores/session.svelte";
   import { imageStore } from "$lib/stores/image-cache.svelte";
-  import { ReviewUndoStore } from "$lib/stores/undo.svelte";
-  import { createSelectableList } from "$lib/stores/selectable.svelte";
-  import { createDragReorder } from "$lib/stores/drag-reorder.svelte";
-  import { createExportChoice } from "$lib/stores/export-choice.svelte";
-  import { createEditorSession } from "$lib/stores/editor-session.svelte";
-  import { createConfirmAction } from "$lib/stores/confirm-action.svelte";
-  import { setReviewContext } from "$lib/stores/review-context.svelte";
+  import { ReviewUndoStore } from "$lib/review/undo.svelte";
+  import { createSelectableList } from "$lib/utils/selectable.svelte";
+  import { createDragReorder } from "$lib/review/drag-reorder.svelte";
+  import { createExportChoice } from "$lib/review/export-choice.svelte";
+  import { createExportActions } from "$lib/review/export-actions.svelte";
+  import { createEditorSession } from "$lib/review/editor-session.svelte";
+  import { createConfirmAction } from "$lib/utils/confirm-action.svelte";
+  import { setReviewContext } from "$lib/review/context.svelte";
   import type { Step } from "$lib/types";
   import {
     Circle,
@@ -19,7 +20,7 @@
   } from "@lucide/svelte";
   import PageLayout from "$lib/components/PageLayout.svelte";
   import SelectableList from "$lib/components/SelectableList.svelte";
-  import ImageEditor from "$lib/components/ImageEditor.svelte";
+  import AnnotationEditor from "$lib/components/AnnotationEditor.svelte";
   import StepCard from "$lib/components/StepCard.svelte";
   import MonitorTabGroup from "$lib/components/MonitorTabGroup.svelte";
   import StepImageViewer from "$lib/components/StepImageViewer.svelte";
@@ -80,7 +81,10 @@
   const ec = createExportChoice(
     () => selectedStep,
     () => selectedStepId,
+    reviewUndo,
   );
+
+  const exportActions = createExportActions();
 
   /** Image editor session — owns open flag, tick counters, depth bindings, and keyboard shortcuts. */
   const editorSession = createEditorSession(reviewUndo, () => selectedStepId, () => isEditing);
@@ -92,6 +96,7 @@
     imageStore,
     drag,
     ec,
+    exportActions,
     reviewUndo,
     editorSession,
     get isBulkSelectActive() { return isBulkSelectActive; },
@@ -169,6 +174,24 @@
 
   // ── Effects ─────────────────────────────────────────────────────────────────
 
+  // Pre-load images whenever the step list changes (new steps, undo/redo, session load).
+  // Owned here rather than in AppStore so that image caching stays decoupled from
+  // session state management.
+  $effect(() => {
+    const steps = store.session?.steps ?? [];
+    if (steps.length > 0) imageStore.preloadStepImages(steps);
+  });
+
+  // Auto-select the first step when steps are restored (e.g. after undoing "delete all steps")
+  // and no step is currently selected. This can happen when all steps were deleted
+  // (setting selectedStepId to null) and then the deletion is undone via Ctrl+Z.
+  $effect(() => {
+    const steps = store.session?.steps ?? [];
+    if (selectedStepId === null && steps.length > 0) {
+      untrack(() => { selectedStepId = steps[0]?.id ?? null; });
+    }
+  });
+
   // Restore description and keystrokes drafts when the selected step changes.
   // NOTE: activeMonitorTab reset is handled by createExportChoice's internal $effect.
   $effect(() => {
@@ -196,6 +219,7 @@
       lastInitializedSessionId = sessionId;
       untrack(() => {
         reviewUndo.clear();
+        editorSession.clearAllFabricSnapshots();
         const steps = store.session?.steps ?? [];
         selectedStepId = steps.length > 0 ? (steps[0]?.id ?? null) : null;
       });
@@ -206,6 +230,7 @@
 
   async function saveDescription() {
     if (!selectedStep) return;
+    if (descriptionDraft === (selectedStep.description ?? '')) return;
     try {
       await invoke("update_step_description", {
         stepId: selectedStep.id,
@@ -222,6 +247,7 @@
     if (!selectedStep) return;
     // Normalise: treat empty/whitespace-only string as null (no keystrokes).
     const value = keystrokesDraft.trim() || null;
+    if (value === (selectedStep.keystrokes ?? null)) return;
     try {
       await invoke("update_step_keystrokes", {
         stepId: selectedStep.id,
@@ -283,7 +309,7 @@
       console.error("Failed to delete step:", err);
       return;
     }
-    reviewUndo.pushBackend();
+    reviewUndo.pushBackend([stepId]);
     adjustSelectionAfterDelete(new Set([stepId]), "adjacent", deletedIdx);
     // Remove from bulk selection if present
     if (sel.selected.has(stepId)) {
@@ -300,7 +326,7 @@
       console.error("Failed to bulk delete steps:", err);
       return;
     }
-    reviewUndo.pushBackend();
+    reviewUndo.pushBackend(ids);
     sel.clear();
     adjustSelectionAfterDelete(new Set(ids), "first");
   }
@@ -340,7 +366,10 @@
           {step}
           {idx}
           isActive={selectedStepId === step.id}
+          isHighlighted={reviewUndo.highlightedStepIds.has(step.id)}
           isChecked={sel.selected.has(step.id)}
+          exportedKeys={ec.getExportedImageKeys(step)}
+          stepsLength={store.session?.steps.length ?? 0}
           onSelect={selectStep}
           onCheck={(id) => sel.toggleOne(id)}
         />
@@ -423,7 +452,7 @@
     <ExportStatusBar
       exportProgress={store.exportProgress}
       exportedPath={store.exportedPath}
-      onOpen={ec.openExported}
+      onOpen={exportActions.openExported}
     />
   {/snippet}
 </PageLayout>
@@ -450,7 +479,7 @@
 />
 
 {#if selectedStep && editorSession.open}
-  <ImageEditor
+  <AnnotationEditor
     step={selectedStep}
     extraIndex={ec.editorExtraIndex}
     bind:open={editorSession.open}
@@ -458,5 +487,12 @@
     bind:redoDepth={editorSession.redoDepth}
     undoTick={editorSession.undoTick}
     redoTick={editorSession.redoTick}
+    initialFabricUndoStack={editorSession.pendingFabricUndo}
+    initialFabricRedoStack={editorSession.pendingFabricRedo}
+    onsaveFabricSnapshots={(u, r) => {
+      if (selectedStep) editorSession.saveFabricSnapshots(selectedStep.id, u, r);
+    }}
+    onclearPendingFabricSnapshots={() => editorSession.clearPendingFabricSnapshots()}
+    onsessionclose={(d) => editorSession.onEditorClosed(d)}
   />
 {/if}

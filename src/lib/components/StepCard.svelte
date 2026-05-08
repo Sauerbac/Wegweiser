@@ -3,14 +3,23 @@
   import { AlignLeft, EyeOff, GripVertical, Keyboard } from '@lucide/svelte';
   import type { Step } from '$lib/types';
   import { countKeystrokes } from '$lib/utils';
-  import { getReviewContext } from '$lib/stores/review-context.svelte';
+  import { getReviewContext } from '$lib/review/context.svelte';
   import DragInsertBar from './DragInsertBar.svelte';
+
+  interface ExportedImageKey {
+    cacheKey: string;
+    isExtra: boolean;
+    extraIdx: number;
+  }
 
   interface Props {
     step: Step;
     idx: number;
     isActive: boolean;
+    isHighlighted: boolean;
     isChecked: boolean;
+    exportedKeys: ExportedImageKey[];
+    stepsLength: number;
     onSelect: (stepId: number) => void;
     onCheck: (stepId: number) => void;
   }
@@ -19,7 +28,10 @@
     step,
     idx,
     isActive,
+    isHighlighted,
     isChecked,
+    exportedKeys,
+    stepsLength,
     onSelect,
     onCheck,
   }: Props = $props();
@@ -28,11 +40,15 @@
   const { drag } = ctx;
 
   const keystrokeCount = $derived(countKeystrokes(step.keystrokes));
-  const exportedKeys = $derived(ctx.ec.getExportedImageKeys(step));
-  const stepsLength = $derived(ctx.store.session?.steps.length ?? 0);
-  const isHighlighted = $derived(ctx.reviewUndo.highlightedStepId === step.id);
 
   let cardEl: HTMLDivElement | undefined = $state();
+
+  // Scroll this card into view when it becomes the highlighted step (undo/redo).
+  $effect(() => {
+    if (isHighlighted && cardEl) {
+      cardEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  });
 </script>
 
 {#snippet thumbImg(src: string | undefined, alt: string, extraClass = '')}
@@ -110,14 +126,14 @@
         {@const imgKey = exportedKeys[0]}
         {@const src = imgKey.isExtra
           ? ctx.imageStore.extraImageCache[imgKey.cacheKey]
-          : ctx.imageStore.imageCache[imgKey.cacheKey]}
+          : ctx.imageStore.stepDisplayUri[step.id]}
         {@render thumbImg(src, `Step ${idx + 1} thumbnail`)}
       {:else if exportedKeys.length > 1}
         <div class="flex items-center">
           {#each exportedKeys as imgKey, cardIdx (imgKey.cacheKey)}
             {@const src = imgKey.isExtra
               ? ctx.imageStore.extraImageCache[imgKey.cacheKey]
-              : ctx.imageStore.imageCache[imgKey.cacheKey]}
+              : ctx.imageStore.stepDisplayUri[step.id]}
             <div
               class="relative overflow-hidden rounded shadow-sm ring-1 ring-border {cardIdx > 0 ? '-ml-4' : ''}"
               style="z-index: {exportedKeys.length - cardIdx};"

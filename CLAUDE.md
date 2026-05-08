@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+<!-- KEEP THIS FILE UP TO DATE:
+     - When making significant architectural changes (new modules, restructured directories,
+       changed communication patterns, new tools/plugins), update this file to reflect them.
+     - When discovering library quirks, workarounds, or undocumented behavior that future
+       work needs to respect, document them here (e.g. under the relevant section or a new one).
+     - When exploring the codebase and finding architectural decisions, conventions, or patterns
+       that are not yet captured here, add them so future sessions start with accurate context. -->
+
 ## What this is
 
 `Wegweiser` is a Windows step recorder (modern replacement for the deprecated `psr.exe`). It captures screenshots on mouse clicks, annotates them with an orange click indicator, and exports annotated tutorials as Markdown or self-contained HTML.
@@ -9,6 +17,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### User-facing description
 
 > **Wegweiser** is a Windows tool for recording step-by-step guides. As you click through a workflow, it automatically captures a screenshot at each step and marks the click location with an orange indicator. When you're done, you export the result as a Markdown file or a self-contained HTML page — ready to share with colleagues as a polished, visual Anleitung. It replaces the long-deprecated Windows Step Recorder (psr.exe) with a modern, lightweight alternative.
+
+## Compatibility
+
+**Backward compatibility is not guaranteed.** This project is in active development and APIs, data formats, and internal structures may change without notice. Do not add compatibility shims or migration code — just make the change.
 
 ## Architecture
 
@@ -28,11 +40,54 @@ src/                              ← SvelteKit frontend (TypeScript)
       Idle.svelte                 ← home screen: monitor picker + session library
       Recording.svelte            ← 380×64 mini-bar shown while recording
       Review.svelte               ← step list, detail view, export panel
+      AnnotationEditor.svelte     ← Fabric.js-based annotation overlay (draw on screenshots)
+      AnnotationToolbar.svelte    ← tool selector bar for the annotation editor
+      AnnotationProperties.svelte ← per-tool property panel
       PageLayout.svelte           ← shared two-column layout shell
       SelectableList.svelte       ← generic list with select-all + bulk-delete header
+      ReviewToolbar.svelte        ← toolbar for review view (export, undo, back)
+      StepCard.svelte             ← single step thumbnail in the list
+      StepImageViewer.svelte      ← full-size step image with monitor tabs
+      StepDescriptionPanel.svelte ← editable title/description/keystrokes per step
+      MonitorTabGroup.svelte      ← per-monitor tab switcher for multi-monitor steps
+      ExportStatusBar.svelte      ← export progress bar
+      BackNavigationDialog.svelte ← confirm-before-navigate dialog
+      DeleteStepsDialog.svelte    ← bulk-delete confirmation dialog
+      DragInsertBar.svelte        ← drag-and-drop reorder indicator
+      ThemeToggleButton.svelte    ← light/dark mode toggle
+      editor/properties/          ← per-tool property panels (arrow, callout, shape, etc.)
       ui/                         ← shadcn-svelte components
+    editor/
+      tools/                      ← annotation tool plugin system
+        tool-handler.ts           ← ToolHandler interface (base class for all tools)
+        registry.ts               ← tool registry, maps tool names to handlers
+        select.ts                 ← selection/move tool
+        rectangle.ts, ellipse.ts  ← shape tools
+        arrow.ts                  ← dual-mode arrow tool (Excalidraw-style)
+        text.ts                   ← IText tool
+        freehand.ts               ← freehand drawing
+        highlight.ts              ← translucent highlight rectangles
+        callout.ts                ← numbered callout circles
+        obfuscation-tool.ts       ← blur/pixelate regions
+        crop.ts                   ← image cropping
+        index.ts                  ← barrel export
+      arrow-polyline.ts           ← arrow geometry helpers
+      canvas-props.ts             ← shared Fabric.js object property defaults
+      keyboard-shortcuts.ts       ← annotation editor keyboard shortcut handler
+      obfuscation.ts              ← blur/pixelate rendering logic
+    fabric-canvas.svelte.ts       ← FabricCanvasWrapper — Fabric.js canvas lifecycle + tool dispatch
+    review/
+      context.svelte.ts           ← ReviewContext: setContext/getContext typed helpers
+      drag-reorder.svelte.ts      ← drag-and-drop step reorder store
+      editor-session.svelte.ts    ← annotation editor session state (open/close, per-step)
+      export-choice.svelte.ts     ← per-step monitor export selection (Vec<bool> model)
+      undo.svelte.ts              ← review-level undo/redo (step delete/reorder)
     stores/
-      session.svelte.ts           ← reactive store: session, monitors, recording state
+      session.svelte.ts           ← AppStore: session, monitors, recording state, export
+      image-cache.svelte.ts       ← ImageCacheStore: blob URL caching for step images
+      confirm-action.svelte.ts    ← createConfirmAction() factory helper
+      selectable.svelte.ts        ← createSelectableList() factory helper
+    resize.svelte.ts              ← reactive element resize observer
     types.ts                      ← TypeScript types mirroring Rust model
     utils.ts                      ← cn() helper
 
@@ -40,24 +95,32 @@ src-tauri/                        ← Rust backend
   src/
     lib.rs                        ← tauri::Builder setup, command registration
     main.rs                       ← entry point (#[cfg_attr] windows_subsystem)
-    commands.rs                   ← all #[tauri::command] handlers
+    commands/
+      mod.rs                      ← shared helpers (mutate_session, push_undo, constants)
+      recording.rs                ← start/stop/pause/resume recording commands
+      session.rs                  ← session CRUD commands (list, load, delete, rename, reorder)
+      export.rs                   ← markdown/HTML export commands
+      image.rs                    ← image read/save commands (annotation persistence)
+      undo.rs                     ← undo/redo commands
+      window.rs                   ← window management (identify monitors, restore geometry)
     state.rs                      ← AppState, RecordingState, shared state behind Mutex
     model.rs                      ← Session, Step, ClickPoint, MonitorInfo (serde types)
     hooks.rs                      ← rdev::listen() hook thread, filters clicks + keystrokes
     capture.rs                    ← xcap monitor listing + per-click capture thread
     annotate.rs                   ← draw_click_indicator() on RgbaImage
     session.rs                    ← save/load/list/delete session.json + SessionMeta
-    platform.rs                   ← Windows-specific: GetWindowPlacement, WDA_EXCLUDEFROMCAPTURE
+    platform/
+      mod.rs                      ← re-exports all platform functions
+      badge.rs                    ← create_monitor_badge_window (Tauri API, no FFI)
+      display_affinity.rs         ← set_window_exclude_from_capture (WDA_EXCLUDEFROMCAPTURE)
+      window_geometry.rs          ← get_window_restore_rect (GetWindowPlacement)
+      window_enumeration.rs       ← enumerate_visible_windows (EnumWindows + DWM occlusion)
     export/
       mod.rs
       markdown.rs
       html.rs
   Cargo.toml
   tauri.conf.json                 ← window config, identifier, frontendDist
-
-egui-reference/                   ← original egui/eframe implementation (read-only reference)
-  src/
-  Cargo.toml
 
 .github/workflows/
   release.yml                     ← builds + publishes Windows installer/exe on v* tags
@@ -90,6 +153,15 @@ Key events emitted by the backend:
 | `export-error` | `string` (message) | HTML export failed |
 | `export-progress` | `number` (0–100) | HTML export progress |
 
+### Annotation editor
+
+The review screen includes a Fabric.js-based annotation editor (`AnnotationEditor.svelte`). It uses a **tool plugin architecture**:
+
+- `ToolHandler` (interface in `tool-handler.ts`) defines lifecycle hooks: `onActivate`, `onDeactivate`, `onMouseDown/Move/Up`, `onKeyDown`, `renderOverlay`, etc.
+- Each tool (rectangle, arrow, text, freehand, highlight, callout, obfuscation, crop) implements `ToolHandler` and is registered in `registry.ts`.
+- `FabricCanvasWrapper` (`fabric-canvas.svelte.ts`) manages the Fabric.js canvas lifecycle, delegates mouse/key events to the active tool handler, and handles serialization (save/load annotations as JSON).
+- Annotations are persisted per-step via backend `save_image` command.
+
 ### xcap 0.8 notes
 
 - `monitor.capture_image()` returns `XCapResult<RgbaImage>` — not `DynamicImage`.
@@ -118,13 +190,13 @@ When recording starts the window shrinks to 380×64, borderless, always-on-top, 
 
 `identify_monitors` command creates small 120×76px transparent windows on each monitor (bottom-left corner) showing a large number badge. Windows start hidden and show once rendered to avoid white flash. Auto-closes after 3 seconds. Triggered via the "Identify" button in the monitor selection panel.
 
-### Multi-monitor capture (`StepExportChoice`)
+### Multi-monitor capture
 
 When "All Monitors" is selected, each click captures:
 1. The monitor where the click occurred → annotated PNG → `step.image_path`
 2. All other monitors → plain PNGs → `step.extra_image_paths`
 
-The review screen shows per-monitor tabs. `StepExportChoice` (`Primary` / `Extra(i)` / `All`) controls which images are written to the export.
+The review screen shows per-monitor tabs. Export choice uses a flat `Vec<bool>` per step (one entry per monitor) to control which images are included in the export.
 
 ## Commands
 
@@ -209,4 +281,13 @@ If a `session-updated` event listener already calls `imageStore.preloadStepImage
 
 - Only commit once the user has confirmed that the changes work as expected.
 - Commit messages should describe what changed and why.
-- The egui reference implementation lives in `egui-reference/` — consult it when porting logic but do not modify it.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

@@ -2,23 +2,16 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
-  import {
-    AlertDialog,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-  } from '$lib/components/ui/alert-dialog';
   import { store } from '$lib/stores/session.svelte';
-  import { createSelectableList } from '$lib/stores/selectable.svelte';
-  import { createConfirmAction } from '$lib/stores/confirm-action.svelte';
-  import { monitorLabel, pluralS } from '$lib/utils';
+  import { createSelectableList } from '$lib/utils/selectable.svelte';
+  import { createConfirmAction } from '$lib/utils/confirm-action.svelte';
+  import { pluralS } from '$lib/utils';
   import { Circle, FolderOpen, Monitor, RefreshCw, Trash2 } from '@lucide/svelte';
   import PageLayout from '$lib/components/PageLayout.svelte';
   import SelectableList from '$lib/components/SelectableList.svelte';
   import ThemeToggleButton from '$lib/components/ThemeToggleButton.svelte';
   import ExportStatusBar from '$lib/components/ExportStatusBar.svelte';
+  import DeleteSessionDialog from '$lib/components/DeleteSessionDialog.svelte';
 
   const deleteSessionAction = $state(createConfirmAction<string>());
   const bulkDeleteAction = $state(createConfirmAction());
@@ -128,7 +121,8 @@
               checked={store.selectedMonitor === idx}
               onchange={() => (store.selectedMonitor = idx)}
             />
-            <span class="text-sm">{monitorLabel(store.monitors, idx)}</span>
+            <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">{idx + 1}</span>
+            <span class="text-sm">{store.monitors[idx]?.name ?? `Monitor ${idx + 1}`}</span>
           </label>
         {/each}
       </div>
@@ -206,37 +200,19 @@
   {/snippet}
 </PageLayout>
 
-<AlertDialog bind:open={deleteSessionAction.open}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Delete recording?</AlertDialogTitle>
-      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <Button variant="outline" onclick={() => { deleteSessionAction.open = false; }}>Cancel</Button>
-      <Button
-        variant="destructive"
-        onclick={() => {
-          if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
-          deleteSessionAction.reset();
-        }}
-      >Delete</Button>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<DeleteSessionDialog
+  count={1}
+  bind:open={deleteSessionAction.open}
+  onconfirm={() => {
+    if (deleteSessionAction.pending !== undefined) confirmDelete(deleteSessionAction.pending);
+    deleteSessionAction.reset();
+  }}
+  oncancel={() => deleteSessionAction.reset()}
+/>
 
-<AlertDialog bind:open={bulkDeleteAction.open}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Delete {sel.selected.size} recording{pluralS(sel.selected.size)}?</AlertDialogTitle>
-      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <Button variant="outline" onclick={() => { bulkDeleteAction.open = false; }}>Cancel</Button>
-      <Button
-        variant="destructive"
-        onclick={() => { bulkDeleteAction.reset(); deleteSelected(); }}
-      >Delete</Button>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+<DeleteSessionDialog
+  count={sel.selected.size}
+  bind:open={bulkDeleteAction.open}
+  onconfirm={() => { bulkDeleteAction.reset(); deleteSelected(); }}
+  oncancel={() => bulkDeleteAction.reset()}
+/>

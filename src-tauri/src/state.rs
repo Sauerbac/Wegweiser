@@ -1,7 +1,12 @@
 use crate::model::{ClickPoint, MonitorInfo, Session};
-use std::sync::{Arc, Mutex};
 
 /// A capture job dispatched from the hook thread to the dedicated capture worker.
+///
+/// `on_complete` is called by the worker once the capture finishes (success or
+/// failure).  The caller builds the closure and captures only the minimal
+/// references it needs — an `Arc<Mutex<AppState>>` slice for the session push
+/// and a `tauri::AppHandle` clone for the single event emit — rather than
+/// granting the worker unrestricted access to the full handle and state.
 pub struct CaptureTask {
     pub monitor_idx: usize,
     pub click: Option<ClickPoint>,
@@ -10,8 +15,7 @@ pub struct CaptureTask {
     pub session_dir: std::path::PathBuf,
     pub keystrokes: Option<String>,
     pub all_monitors: bool,
-    pub app_handle: tauri::AppHandle,
-    pub state: Arc<Mutex<AppState>>,
+    pub on_complete: Box<dyn FnOnce(anyhow::Result<crate::model::Step>) + Send>,
 }
 
 /// Top-level application state machine.

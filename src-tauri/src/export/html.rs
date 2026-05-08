@@ -139,22 +139,15 @@ pub fn export(
         let extra_count = step.extra_image_paths.len();
         let total_count = 1 + extra_count;
 
-        // Derive effective selection from export_choice.
-        // Empty vec = all included (migration sentinel for old `All`).
-        let sel: Vec<bool> = if step.export_choice.is_empty() {
-            vec![true; total_count]
-        } else {
-            (0..total_count)
-                .map(|j| step.export_choice.get(j).copied().unwrap_or(false))
-                .collect()
-        };
+        let sel = step.effective_export_selection(total_count);
 
         // Open the step section.
         write!(w, "  <section class=\"step\">\n    <h2>Step {order}</h2>\n", order = step.order)?;
 
         // Primary image (index 0).
         if sel[0] {
-            let img_bytes = fs::read(&step.image_path)?;
+            let primary_path = step.preview_path.as_ref().unwrap_or(&step.image_path);
+            let img_bytes = fs::read(primary_path)?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&img_bytes);
             write!(
                 w,

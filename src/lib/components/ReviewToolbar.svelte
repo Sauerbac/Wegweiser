@@ -20,8 +20,8 @@
     Undo2,
   } from "@lucide/svelte";
   import ThemeToggleButton from "$lib/components/ThemeToggleButton.svelte";
-  import { getReviewContext } from "$lib/stores/review-context.svelte";
-  import { store } from "$lib/stores/session.svelte";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import { getReviewContext } from "$lib/review/context.svelte";
 
   interface Props {
     onRequestBack: () => void;
@@ -37,7 +37,8 @@
     exportError,
   }: Props = $props();
 
-  const { reviewUndo, ec } = getReviewContext();
+  const ctx = getReviewContext();
+  const { reviewUndo, ec, exportActions } = ctx;
 
   // ── Session name draft ─────────────────────────────────────────────────────
   // Draft value for the session name input. Synced from the store when the
@@ -50,7 +51,7 @@
   // in the input does not re-trigger this effect — only external name changes
   // (which update store.session?.name) cause a reset.
   $effect(() => {
-    const name = store.session?.name ?? "";
+    const name = ctx.store.session?.name ?? "";
     untrack(() => {
       if (name !== sessionNameDraft) sessionNameDraft = name;
     });
@@ -58,7 +59,7 @@
 
   async function saveSessionName() {
     const trimmed = sessionNameDraft.trim();
-    if (!trimmed || trimmed === store.session?.name) return;
+    if (!trimmed || trimmed === ctx.store.session?.name) return;
     try {
       await invoke("rename_session", { name: trimmed });
       reviewUndo.pushBackend();
@@ -94,44 +95,64 @@
 
   <!-- Right: undo/redo + export buttons + theme toggle -->
   <div class="flex items-center justify-end gap-2">
-    <Button
-      variant="outline"
-      size="icon-sm"
-      aria-label="Undo"
-      onclick={() => reviewUndo.undo()}
-      disabled={editorSessionOpen || !reviewUndo.canUndo}><Undo2 /></Button
-    >
-    <Button
-      variant="outline"
-      size="icon-sm"
-      aria-label="Redo"
-      onclick={() => reviewUndo.redo()}
-      disabled={editorSessionOpen || !reviewUndo.canRedo}><Redo2 /></Button
-    >
-    <Button
-      variant="outline"
-      size="icon-sm"
-      aria-label="Save"
-      onclick={() => store.markSaved()}
-      disabled={!isDirty}><Save /></Button
-    >
-    <DropdownMenu bind:open={ec.exportOpen}>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="icon-sm"
+            aria-label="Undo"
+            onclick={() => reviewUndo.undo()}
+            disabled={editorSessionOpen || !reviewUndo.canUndo}
+          ><Undo2 /></Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Undo<span data-slot="kbd">Ctrl+Z</span></Tooltip.Content>
+    </Tooltip.Root>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="icon-sm"
+            aria-label="Redo"
+            onclick={() => reviewUndo.redo()}
+            disabled={editorSessionOpen || !reviewUndo.canRedo}
+          ><Redo2 /></Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Redo<span data-slot="kbd">Ctrl+Y</span></Tooltip.Content>
+    </Tooltip.Root>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="icon-sm"
+            aria-label="Save"
+            onclick={() => ctx.store.markSaved()}
+            disabled={!isDirty}
+          ><Save /></Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Save</Tooltip.Content>
+    </Tooltip.Root>
+    <DropdownMenu>
       <DropdownMenuTrigger>
         {#snippet child({ props })}
           <Button variant="outline" size="sm" {...props}>
-            Export<ChevronDown
-              class="size-4 transition-transform duration-200 {ec.exportOpen
-                ? 'rotate-180'
-                : ''}"
-            />
+            Export<ChevronDown />
           </Button>
         {/snippet}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onclick={ec.exportMarkdown}>
+        <DropdownMenuItem onclick={exportActions.exportMarkdown}>
           <FileDown class="text-foreground" />Markdown (.md)
         </DropdownMenuItem>
-        <DropdownMenuItem onclick={ec.exportHtml}>
+        <DropdownMenuItem onclick={exportActions.exportHtml}>
           <FileCode class="text-foreground" />HTML (.html)
         </DropdownMenuItem>
       </DropdownMenuContent>
