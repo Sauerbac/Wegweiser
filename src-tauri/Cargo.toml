@@ -1,6 +1,6 @@
 [package]
 name = "wegweiser"
-version = "0.3.0"
+version = "0.3.1"
 description = "Windows step recorder"
 authors = []
 license = ""
